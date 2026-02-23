@@ -340,7 +340,7 @@ public class MainHook implements IXposedHookLoadPackage {
         baseInfo.put("type",        2);
         baseInfo.put("title",       info.courseName);
         if (!info.startTime.isEmpty()) baseInfo.put("content",    info.startTime);
-        if (!info.endTime.isEmpty())   baseInfo.put("subContent", "| " + info.endTime);
+        if (!info.endTime.isEmpty())   baseInfo.put("subContent", info.endTime);
         // 计算 startMs（后续 hintInfo/bigIslandArea 共用）
         long startMs = computeClassStartMs(info.startTime);
 
