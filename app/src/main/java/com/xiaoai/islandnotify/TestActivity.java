@@ -180,23 +180,27 @@ public class TestActivity extends Activity {
     private String buildIslandJson(String course, String time, String room)
             throws JSONException {
 
-        // 主要文本（大岛 A 区）
-        JSONObject mainTextInfo = new JSONObject();
-        mainTextInfo.put("title", course);
-
+        // 大岛 A区：imageTextInfoLeft（图文组件1 type=1）
+        // PDF P95: title=课程名(大字), content=时间(后置小字), 无picInfo→兜底App图标
+        JSONObject aTextInfo = new JSONObject();
+        aTextInfo.put("title", course);
+        if (!time.isEmpty()) aTextInfo.put("content", time);
         JSONObject imageTextInfoLeft = new JSONObject();
         imageTextInfoLeft.put("type", 1);
-        imageTextInfoLeft.put("textInfo", mainTextInfo);
+        imageTextInfoLeft.put("textInfo", aTextInfo);
+
+        // 大岛 B区：textInfo（文本组件）
+        // PDF P104: frontTitle=地点标签(前置小字), title=教室名(大字)
+        JSONObject bTextInfo = new JSONObject();
+        bTextInfo.put("frontTitle", "地点");
+        bTextInfo.put("title", room.isEmpty() ? "未知" : room);
 
         JSONObject bigIslandArea = new JSONObject();
-        bigIslandArea.put("imageTextInfoLeft", imageTextInfoLeft);
+        bigIslandArea.put("imageTextInfoLeft", imageTextInfoLeft); // A区（必传）
+        bigIslandArea.put("textInfo",          bTextInfo);         // B区
 
-        // 小岛摘要
-        JSONObject smallTextInfo = new JSONObject();
-        smallTextInfo.put("title", course);
-        if (!time.isEmpty()) smallTextInfo.put("content", time);
+        // 小岛：空对象，系统兜底取 App 图标（PDF P93）
         JSONObject smallIslandArea = new JSONObject();
-        smallIslandArea.put("textInfo", smallTextInfo);
 
         JSONObject paramIsland = new JSONObject();
         paramIsland.put("islandProperty", 1);

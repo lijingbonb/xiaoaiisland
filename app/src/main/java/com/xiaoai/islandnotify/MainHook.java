@@ -242,8 +242,9 @@ public class MainHook implements IXposedHookLoadPackage {
      * <pre>
      * 大岛 / 焦点通知展开态：
      * ┌──────────────────────────────────────┐
-     * │  高等数学                             │ ← imageTextInfoLeft.textInfo.title（主要文本）
-     * │  时间  10:20   教室  教1-201          │ ← hintInfo  content/title/subContent/subTitle
+     * │  教1-201（前置小字 frontTitle）        │
+     * │  高等数学（大字 title）                │
+     * │  10:20  （后置小字 content）           │
      * └──────────────────────────────────────┘
      *
      * 小岛摘要态：
@@ -251,33 +252,47 @@ public class MainHook implements IXposedHookLoadPackage {
      * │  高等数学   10:20      │ ← smallIslandArea.textInfo.title / .content
      * └────────────────────────┘
      *
-     * hintInfo 字段映射（来自 PDF 模板库）：
-     *   content    = 前置文本1  → "时间"
-     *   title      = 主要小文本1 → 实际时间值（如 10:20）
-     *   subContent = 前置文本2  → "教室"
+     * hintInfo 字段映射（来自 PDF 模板库 P55/P57）：
+     *   content    = 前置文本1  → "时间"（标签）
+     *   title      = 主要小文本1 → 实际时间值（如 19:50）
+     *   subContent = 前置文本2  → "地点"（标签）
      *   subTitle   = 主要小文本2 → 实际教室值（如 教1-201）
+     *
+     * bigIslandArea 模板2（PDF P77）：imageTextInfoLeft(A区) + textInfo(B区)
+     *   A区 imageTextInfoLeft.textInfo:
+     *     title   = 课程名（大字）
+     *     content = 开始时间（后置小字）
+     *   B区 textInfo:
+     *     frontTitle = "地点"（前置小字标签）
+     *     title      = 教室名（大字）
+     *
+     * smallIslandArea = 空对象，系统兜底取 App 图标（小爱同学图标）
      * </pre>
      */
     private String buildIslandParams(CourseInfo info) throws JSONException {
-        // ── 大岛 A 区：主要文本 = 课程名 ──────────────────────────
-        JSONObject mainTextInfo = new JSONObject();
-        mainTextInfo.put("title", info.courseName); // 主要文本 → title
+        // ── 大岛 A 区：imageTextInfoLeft（图文组件1, type=1）──────────
+        // PDF P95: title=大字(课程名), content=后置小字(时间), 无 picInfo→兜底 App 图标
+        JSONObject aTextInfo = new JSONObject();
+        aTextInfo.put("title", info.courseName);
+        if (!info.startTime.isEmpty()) aTextInfo.put("content", info.startTime);
 
         JSONObject imageTextInfoLeft = new JSONObject();
         imageTextInfoLeft.put("type", 1);
-        imageTextInfoLeft.put("textInfo", mainTextInfo);
+        imageTextInfoLeft.put("textInfo", aTextInfo);
+
+        // ── 大岛 B 区：textInfo（文本组件）────────────────────────────
+        // PDF P104: frontTitle=前置小字(地点标签), title=大字(教室名)
+        JSONObject bTextInfo = new JSONObject();
+        bTextInfo.put("frontTitle", "地点");
+        bTextInfo.put("title", info.classroom.isEmpty() ? "未知" : info.classroom);
 
         JSONObject bigIslandArea = new JSONObject();
-        bigIslandArea.put("imageTextInfoLeft", imageTextInfoLeft);
+        bigIslandArea.put("imageTextInfoLeft", imageTextInfoLeft); // A区（必传）
+        bigIslandArea.put("textInfo",          bTextInfo);         // B区
 
-        // ── 小岛（摘要态）：课程名 + 时间 ────────────────────────
-        JSONObject smallTextInfo = new JSONObject();
-        smallTextInfo.put("title", info.courseName);
-        if (!info.startTime.isEmpty()) {
-            smallTextInfo.put("content", info.startTime);
-        }
+        // ── 小岛摘要态：空对象，系统自动取 App 图标 ──────────────────
+        // PDF P93: 未上传图标→取大岛A区图标→兜底取应用图标
         JSONObject smallIslandArea = new JSONObject();
-        smallIslandArea.put("textInfo", smallTextInfo);
 
         // ── 岛属性 ────────────────────────────────────────────────
         JSONObject paramIsland = new JSONObject();
@@ -285,19 +300,17 @@ public class MainHook implements IXposedHookLoadPackage {
         paramIsland.put("bigIslandArea",   bigIslandArea);
         paramIsland.put("smallIslandArea", smallIslandArea);
 
-        // ── hintInfo（param_v2 级，同时作用于焦点通知和岛展开态）────
-        // PDF 模板库确认字段：
-        //   content    前置文本1   subContent 前置文本2
-        //   title      主要小文本1  subTitle   主要小文本2
+        // ── hintInfo（焦点通知展开态，两行 label-value 对）─────────────
+        // 第1行：时间标签 + 时间值
+        // 第2行：地点标签 + 教室值
         JSONObject hintInfo = new JSONObject();
         hintInfo.put("type",    1);
         hintInfo.put("content", "时间");
         hintInfo.put("title",   info.startTime.isEmpty() ? "—" : info.startTime);
         if (!info.classroom.isEmpty()) {
-            hintInfo.put("subContent", "教室");
+            hintInfo.put("subContent", "地点");
             hintInfo.put("subTitle",   info.classroom);
         }
-        // 颜色字段（跟随系统深浅模式，不强制自定义则省略）
 
         // ── 焦点通知基础内容 ──────────────────────────────────────
         // content 只放时间+教室，title 放课程名，避免重复且补全教室信息
