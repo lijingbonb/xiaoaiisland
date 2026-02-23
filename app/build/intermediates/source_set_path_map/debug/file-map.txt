@@ -1,0 +1,7 @@
+com.xiaoai.islandnotify.app-pngs-0 D:\mercu\Desktop\xiaoai\app\build\generated\res\pngs\debug
+com.xiaoai.islandnotify.app-resValues-1 D:\mercu\Desktop\xiaoai\app\build\generated\res\resValues\debug
+com.xiaoai.islandnotify.app-packageDebugResources-2 D:\mercu\Desktop\xiaoai\app\build\intermediates\incremental\debug\packageDebugResources\merged.dir
+com.xiaoai.islandnotify.app-packageDebugResources-3 D:\mercu\Desktop\xiaoai\app\build\intermediates\incremental\debug\packageDebugResources\stripped.dir
+com.xiaoai.islandnotify.app-merged_res-4 D:\mercu\Desktop\xiaoai\app\build\intermediates\merged_res\debug
+com.xiaoai.islandnotify.app-debug-5 D:\mercu\Desktop\xiaoai\app\src\debug\res
+com.xiaoai.islandnotify.app-main-6 D:\mercu\Desktop\xiaoai\app\src\main\res

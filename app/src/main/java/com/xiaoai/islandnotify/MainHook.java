@@ -3,7 +3,6 @@ package com.xiaoai.islandnotify;
 import android.app.Notification;
 import android.os.Bundle;
 
-import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -135,23 +134,32 @@ public class MainHook implements IXposedHookLoadPackage {
     }
 
     /**
-     * 根据关键词判断是否为"课程表提醒"通知。
-     * 匹配范围：通知标题、正文、Channel ID。
+     * 判断是否为课程表提醒通知。
+     *
+     * <p>实测 logcat 确认：
+     * <ul>
+     *   <li>channelId = {@code "COURSE_SCHEDULER_REMINDER_sound"}</li>
+     *   <li>msgType   = {@code "COURSE_SCHEDULER_REMINDER"}</li>
+     * </ul>
+     * 优先通过 Channel ID 精确匹配；Channel ID 变更时自动降级为关键词匹配兜底。
      */
     private boolean isScheduleNotification(Notification notification) {
+        // ① 精确匹配 Channel ID（首选，来自实测 logcat）
+        String channelId = safeStr(notification.getChannelId());
+        if (channelId.contains("COURSE_SCHEDULER_REMINDER")) {
+            XposedBridge.log(TAG + ": 命中 channelId=" + channelId);
+            return true;
+        }
+
+        // ② 关键词兜底（防止 channelId 未来变更）
         Bundle extras = notification.extras;
         if (extras == null) return false;
-
-        String title     = extras.getString(Notification.EXTRA_TITLE, "");
-        String text      = extras.getString(Notification.EXTRA_TEXT, "");
-        String channelId = notification.getChannelId();
-        if (channelId == null) channelId = "";
-
-        String combined = (title + " " + text + " " + channelId).toLowerCase();
-
+        String title = safeStr(extras.getString(Notification.EXTRA_TITLE));
+        String text  = safeStr(extras.getString(Notification.EXTRA_TEXT));
+        String combined = (title + " " + text).toLowerCase();
         for (String kw : SCHEDULE_KEYWORDS) {
             if (combined.contains(kw.toLowerCase())) {
-                XposedBridge.log(TAG + ": 命中关键词 [" + kw + "]  title=" + title);
+                XposedBridge.log(TAG + ": 命中关键词 [" + kw + "] title=" + title);
                 return true;
             }
         }
@@ -185,85 +193,40 @@ public class MainHook implements IXposedHookLoadPackage {
     }
 
     /**
-     * 从通知 extras 中提取结构化课程信息。
+     * 从通知 extras 中精确提取课程信息。
      *
-     * <p>通知内容格式（com.miui.voiceassist 课程表提醒）示例：
+     * <p>实测 logcat 确认的固定格式（com.miui.voiceassist 课程表提醒）：
      * <pre>
-     *   title:   "上课提醒"（或直接为课程名）
-     *   text:    "[高等数学]课快到了，提前准备一下吧"
-     *   lines[]: ["10:20", "教1-201"]  或合并在 text / subText 中
+     *   EXTRA_TITLE = "[高等数学]快到了，提前准备一下吧"
+     *   EXTRA_TEXT  = "19:50 | 教1-201"         ← 固定格式：时间 + " | " + 教室
      * </pre>
      */
     private CourseInfo extractCourseInfo(Bundle extras) {
-        // ── 1. 收集所有文本字段 ────────────────────────────────────
-        String title    = safeStr(extras.getString(Notification.EXTRA_TITLE));
-        String text     = safeStr(extras.getString(Notification.EXTRA_TEXT));
-        String bigText  = safeStr(extras.getString(Notification.EXTRA_BIG_TEXT));
-        String subText  = safeStr(extras.getString(Notification.EXTRA_SUB_TEXT));
-        String infoText = safeStr(extras.getString(Notification.EXTRA_INFO_TEXT));
+        String title = safeStr(extras.getString(Notification.EXTRA_TITLE));
+        String body  = safeStr(extras.getString(Notification.EXTRA_TEXT));
 
-        StringBuilder allBuilder = new StringBuilder();
-        allBuilder.append(title).append(" ")
-                  .append(text).append(" ")
-                  .append(bigText).append(" ")
-                  .append(subText).append(" ")
-                  .append(infoText);
-
-        CharSequence[] lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);
-        if (lines != null) {
-            for (CharSequence line : lines) {
-                allBuilder.append(" ").append(line);
-            }
-        }
-        String all = allBuilder.toString();
-
-        // ── 2. 提取课程名 ──────────────────────────────────────────
-        // 优先：[高等数学]课快到了 → 取中括号内容
+        // ── 课程名：提取 "[高等数学]" 中的内容 ───────────────────────
         String courseName = "";
-        Matcher bracketM = Pattern.compile("\\[([^\\]]+)\\]").matcher(all);
-        if (bracketM.find()) {
-            courseName = bracketM.group(1).trim();
+        Matcher m = Pattern.compile("\\[([^\\]]+)\\]").matcher(title);
+        if (m.find()) {
+            courseName = m.group(1).trim();
         }
-        // 次选：高等数学课快到了 → 取"课快到了"前的中文串
+        // 兜底：去掉"快到了"及后续所有文字
         if (courseName.isEmpty()) {
-            Matcher suffixM = Pattern.compile("([\\u4e00-\\u9fa5\\w]+)课快到了").matcher(all);
-            if (suffixM.find()) {
-                courseName = suffixM.group(1).trim();
-            }
-        }
-        // 兜底：title 去掉"提醒/通知/课程表/上课"等后缀
-        if (courseName.isEmpty() && !title.isEmpty()) {
-            courseName = title.replaceAll("(提醒|通知|课程表|上课).*", "").trim();
-            if (courseName.isEmpty()) courseName = title;
+            courseName = title.replaceAll("(快到了|提醒|通知|课程表).*", "").trim();
         }
         if (courseName.isEmpty()) courseName = "课程提醒";
 
-        // ── 3. 提取上课时间（H:MM 或 HH:MM）──────────────────────────
+        // ── 时间 + 教室：body 固定格式 "19:50 | 教1-201" ─────────────
+        // 按 " | " 分割（兼容前后空格数量不一致的情况）
         String startTime = "";
-        Matcher timeM = Pattern.compile("\\b(\\d{1,2}:\\d{2})\\b").matcher(all);
-        if (timeM.find()) {
-            startTime = timeM.group(1);
-        }
-
-        // ── 4. 提取教室 ────────────────────────────────────────────
-        // 覆盖常见格式：教1-201 / 体育馆 / 东A101 / 实验楼302 / 图书馆 等
         String classroom = "";
-        Matcher roomM = Pattern.compile(
-                "(教\\d+[-_]\\d+|[东南西北][A-Za-z]?\\d{2,4}|" +
-                "[\\u4e00-\\u9fa5]{2,5}(?:馆|楼|室|场|厅|中心)\\d*|" +
-                "(?:实验|图书|体育|综合|教学)[\\u4e00-\\u9fa5]*\\d*)"
-        ).matcher(all);
-        while (roomM.find()) {
-            String candidate = roomM.group(1).trim();
-            if (!candidate.equals(courseName)
-                    && !candidate.contains("提醒")
-                    && !candidate.contains("通知")
-                    && candidate.length() >= 2) {
-                classroom = candidate;
-                break;
-            }
-        }
+        String[] parts = body.split("\\s*\\|\\s*", 2);
+        if (parts.length >= 1) startTime = parts[0].trim();
+        if (parts.length >= 2) classroom  = parts[1].trim();
 
+        XposedBridge.log(TAG + ": 解析 title=[" + title + "] body=[" + body + "]"
+                + " → 课程=" + courseName + " 时间=" + startTime + " 教室=" + classroom);
         return new CourseInfo(courseName, startTime, classroom);
     }
 
@@ -274,53 +237,40 @@ public class MainHook implements IXposedHookLoadPackage {
     /**
      * 构建超级岛 JSON 参数（param_v2 格式）。
      *
-     * <p>对应模板：文字信息展示类 — 主要文本1 + 次要文本（前置文本 + 主要小文本）
-     * <pre>
-     * 大岛（展开态）：
-     * ┌─────────────────────────────────┐
-     * │  主要文本1:  高等数学            │  ← imageTextInfoLeft.textInfo.title
-     * │  时间        10:20              │  ← subTextInfoList[0] frontTitle/title
-     * │  教室        教1-201            │  ← subTextInfoList[1] frontTitle/title
-     * └─────────────────────────────────┘
+     * <p>字段来源：小米超级岛模板库 hintInfo 组件（按钮组件 3）
      *
-     * 小岛（摘要态）：
-     * ┌──────────────────────┐
-     * │  高等数学   10:20    │  ← smallIslandArea.textInfo title/content
-     * └──────────────────────┘
+     * <pre>
+     * 大岛 / 焦点通知展开态：
+     * ┌──────────────────────────────────────┐
+     * │  高等数学                             │ ← imageTextInfoLeft.textInfo.title（主要文本）
+     * │  时间  10:20   教室  教1-201          │ ← hintInfo  content/title/subContent/subTitle
+     * └──────────────────────────────────────┘
+     *
+     * 小岛摘要态：
+     * ┌────────────────────────┐
+     * │  高等数学   10:20      │ ← smallIslandArea.textInfo.title / .content
+     * └────────────────────────┘
+     *
+     * hintInfo 字段映射（来自 PDF 模板库）：
+     *   content    = 前置文本1  → "时间"
+     *   title      = 主要小文本1 → 实际时间值（如 10:20）
+     *   subContent = 前置文本2  → "教室"
+     *   subTitle   = 主要小文本2 → 实际教室值（如 教1-201）
      * </pre>
      */
     private String buildIslandParams(CourseInfo info) throws JSONException {
-        // ── 大岛 A 区：主要文本1 = 课程名 ─────────────────────────
+        // ── 大岛 A 区：主要文本 = 课程名 ──────────────────────────
         JSONObject mainTextInfo = new JSONObject();
-        mainTextInfo.put("title", info.courseName);
+        mainTextInfo.put("title", info.courseName); // 主要文本 → title
 
         JSONObject imageTextInfoLeft = new JSONObject();
         imageTextInfoLeft.put("type", 1);
         imageTextInfoLeft.put("textInfo", mainTextInfo);
 
-        // ── 大岛 次要文本行：[前置文本 + 主要小文本] × N ────────────
-        // 每项对应模板中一组"前置文本 + 主要小文本"
-        JSONArray subTextInfoList = new JSONArray();
-        if (!info.startTime.isEmpty()) {
-            JSONObject timeRow = new JSONObject();
-            timeRow.put("frontTitle", "时间");          // 前置文本1
-            timeRow.put("title",      info.startTime);  // 主要小文本1
-            subTextInfoList.put(timeRow);
-        }
-        if (!info.classroom.isEmpty()) {
-            JSONObject roomRow = new JSONObject();
-            roomRow.put("frontTitle", "教室");           // 前置文本2
-            roomRow.put("title",      info.classroom);   // 主要小文本2
-            subTextInfoList.put(roomRow);
-        }
-
         JSONObject bigIslandArea = new JSONObject();
         bigIslandArea.put("imageTextInfoLeft", imageTextInfoLeft);
-        if (subTextInfoList.length() > 0) {
-            bigIslandArea.put("subTextInfoList", subTextInfoList);
-        }
 
-        // ── 小岛：课程名（主要文本）+ 时间（次要文本）────────────────
+        // ── 小岛（摘要态）：课程名 + 时间 ────────────────────────
         JSONObject smallTextInfo = new JSONObject();
         smallTextInfo.put("title", info.courseName);
         if (!info.startTime.isEmpty()) {
@@ -335,46 +285,51 @@ public class MainHook implements IXposedHookLoadPackage {
         paramIsland.put("bigIslandArea",   bigIslandArea);
         paramIsland.put("smallIslandArea", smallIslandArea);
 
-        // ── 焦点通知基础内容（悬浮展示）──────────────────────────────
-        String baseContent = buildBaseContent(info);
+        // ── hintInfo（param_v2 级，同时作用于焦点通知和岛展开态）────
+        // PDF 模板库确认字段：
+        //   content    前置文本1   subContent 前置文本2
+        //   title      主要小文本1  subTitle   主要小文本2
+        JSONObject hintInfo = new JSONObject();
+        hintInfo.put("type",    1);
+        hintInfo.put("content", "时间");
+        hintInfo.put("title",   info.startTime.isEmpty() ? "—" : info.startTime);
+        if (!info.classroom.isEmpty()) {
+            hintInfo.put("subContent", "教室");
+            hintInfo.put("subTitle",   info.classroom);
+        }
+        // 颜色字段（跟随系统深浅模式，不强制自定义则省略）
+
+        // ── 焦点通知基础内容 ──────────────────────────────────────
         JSONObject baseInfo = new JSONObject();
         baseInfo.put("title",   info.courseName);
-        baseInfo.put("content", baseContent);
+        baseInfo.put("content", buildTickerText(info));
         baseInfo.put("type", 1);
 
-        // ── 状态栏 / 息屏文案：课程名 + 时间 ─────────────────────────
-        String tickerText = info.startTime.isEmpty()
-                ? info.courseName
-                : info.courseName + "  " + info.startTime;
+        // ── 状态栏 / 息屏文案 ─────────────────────────────────────
+        String tickerText = buildTickerText(info);
 
         // ── 组合 param_v2 ─────────────────────────────────────────
         JSONObject paramV2 = new JSONObject();
         paramV2.put("protocol",         1);
         paramV2.put("business",         "course_schedule");
-        paramV2.put("islandFirstFloat",  true);  // 首次出现时展开大岛
+        paramV2.put("islandFirstFloat",  true);  // 首次出现展开大岛
         paramV2.put("enableFloat",       false); // 更新时不自动展开
         paramV2.put("updatable",         false);
         paramV2.put("ticker",            tickerText); // OS2 状态栏文案
         paramV2.put("aodTitle",          tickerText); // 息屏文案
         paramV2.put("param_island",      paramIsland);
         paramV2.put("baseInfo",          baseInfo);
+        paramV2.put("hintInfo",          hintInfo);
 
         JSONObject root = new JSONObject();
         root.put("param_v2", paramV2);
         return root.toString();
     }
 
-    /** 拼接焦点通知副文本，格式：时间 10:20  教室 教1-201 */
-    private String buildBaseContent(CourseInfo info) {
-        StringBuilder sb = new StringBuilder();
-        if (!info.startTime.isEmpty()) {
-            sb.append("时间 ").append(info.startTime);
-        }
-        if (!info.classroom.isEmpty()) {
-            if (sb.length() > 0) sb.append("  ");
-            sb.append("教室 ").append(info.classroom);
-        }
-        return sb.toString();
+    /** 拼接状态栏 / 息屏文案，格式：高等数学  10:20 */
+    private String buildTickerText(CourseInfo info) {
+        if (info.startTime.isEmpty()) return info.courseName;
+        return info.courseName + "  " + info.startTime;
     }
 
     // ─────────────────────────────────────────────────────────────

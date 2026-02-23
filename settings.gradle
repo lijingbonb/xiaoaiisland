@@ -16,7 +16,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        jcenter() // Xposed API
+        jcenter() // Xposed API (de.robv.android.xposed:api)
     }
 }
 

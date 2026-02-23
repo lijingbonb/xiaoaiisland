@@ -1,0 +1,26 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.xiaoai.islandnotify.app-merged_res-4:/values_values.arsc.flat",
+            "map": [
+                {
+                    "source": "D:\\mercu\\Desktop\\xiaoai\\app\\src\\main\\res\\values\\strings.xml",
+                    "from": {
+                        "startLines": "2,1",
+                        "startColumns": "4,4",
+                        "startOffsets": "62,17",
+                        "endColumns": "66,43",
+                        "endOffsets": "124,56"
+                    },
+                    "to": {
+                        "startLines": "2,3",
+                        "startColumns": "4,4",
+                        "startOffsets": "55,122",
+                        "endColumns": "66,43",
+                        "endOffsets": "117,161"
+                    }
+                }
+            ]
+        }
+    ]
+}

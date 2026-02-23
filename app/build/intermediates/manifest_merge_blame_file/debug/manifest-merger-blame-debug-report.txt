@@ -1,0 +1,58 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.xiaoai.islandnotify"
+4    android:versionCode="1"
+5    android:versionName="1.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="31"
+9        android:targetSdkVersion="35" />
+10
+11    <application
+11-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:4:5-32:19
+12        android:allowBackup="false"
+12-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:7:9-36
+13        android:debuggable="true"
+14        android:description="@string/app_description"
+14-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:6:9-54
+15        android:extractNativeLibs="false"
+16        android:label="@string/app_name" >
+16-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:5:9-41
+17
+18        <!-- 声明这是一个 Xposed/LSPosed 模块 -->
+19        <meta-data
+19-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:10:9-12:36
+20            android:name="xposedmodule"
+20-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:11:13-40
+21            android:value="true" />
+21-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:12:13-33
+22
+23        <!-- 模块描述 -->
+24        <meta-data
+24-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:15:9-17:53
+25            android:name="xposeddescription"
+25-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:16:13-45
+26            android:value="将小爱同学课程表提醒通知转为小米超级岛通知" />
+26-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:17:13-50
+27
+28        <!-- 最低 Xposed API 版本 -->
+29        <meta-data
+29-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:20:9-22:34
+30            android:name="xposedminversion"
+30-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:21:13-44
+31            android:value="82" />
+31-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:22:13-31
+32
+33        <!--
+34            LSPosed 作用域声明（仅注入目标包名进程）
+35            也可在 LSPosed 管理器中手动勾选作用域
+36        -->
+37        <meta-data
+37-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:28:9-30:52
+38            android:name="xposedscope"
+38-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:29:13-39
+39            android:value="com.miui.voiceassist" />
+39-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:30:13-49
+40    </application>
+41
+42</manifest>
