@@ -46,10 +46,12 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final String ACTION_KEY_MUTE  = "miui.focus.action_mute";
     /** 触发上课静音的广播 Action */
     private static final String MUTE_ACTION      = "com.xiaoai.islandnotify.ACTION_MUTE";
-    /** 上课静音按钮 inline Intent URI（actionIntentType=2，系统直接发广播，无需 PendingIntent Bundle） */
-    private static final String MUTE_ACTION_URI  =
-            "intent:#Intent;action=com.xiaoai.islandnotify.ACTION_MUTE;"
-            + "component=com.xiaoai.islandnotify/.MuteReceiver;end";
+    /**
+     * 上课静音按钮 URI（actionIntentType=1，自定义 scheme）。
+     * Super Island 出于安全会丢弃 component= 参数，改用唯一 URI scheme
+     * 让系统通过 intent-filter 解析路由到 MuteActivity。
+     */
+    private static final String MUTE_ACTION_URI  = "xiaoaimute://mute";
 
     /** 点击课程卡片整体 → 跳转课表页的 Intent URI */
     private static final String COURSE_TABLE_INTENT =
@@ -341,12 +343,12 @@ public class MainHook implements IXposedHookLoadPackage {
         baseInfo.put("type",  2);
         baseInfo.put("title", info.courseName);
         if (!info.startTime.isEmpty()) baseInfo.put("content",    info.startTime);
-        if (!info.endTime.isEmpty())   baseInfo.put("subContent", info.endTime);
+        if (!info.endTime.isEmpty())   baseInfo.put("subContent", "| " + info.endTime);
 
-        // ── 2. 识别图形组件1（picInfo type=2，自定义图标）─────────────
+        // ── 2. 识别图形组件1（picInfo type=1，App图标）─────────────
+        // type=1 = 直接使用应用自身图标，无需自定义 pic
         JSONObject notifPicInfo = new JSONObject();
-        notifPicInfo.put("type", 2);          // 2=middle，支持自定义 pic
-        notifPicInfo.put("pic",  PIC_KEY_COURSE);
+        notifPicInfo.put("type", 1);
 
         // ── 3. 按钮组件2（hintInfo type=2）───────────────────────────
         // 前置文本1="时间"，主要小文本1=倒计时（timerInfo）
@@ -354,20 +356,20 @@ public class MainHook implements IXposedHookLoadPackage {
         // 圆头图文按钮 = 上课静音
         JSONObject actionInfo = new JSONObject();
         actionInfo.put("actionTitle",      "上课静音");
-        actionInfo.put("actionIntentType", 2);  // 2=broadcast
+        actionInfo.put("actionIntentType", 1);  // 1=startActivity（比广播更可靠）
         actionInfo.put("actionIntent",     MUTE_ACTION_URI);
 
         JSONObject hintInfo = new JSONObject();
         hintInfo.put("type",       2);
         hintInfo.put("content",    "时间");    // 前置文本1
         hintInfo.put("subContent", "地点");    // 前置文本2
-        hintInfo.put("subTitle",   info.classroom.isEmpty() ? "—" : info.classroom);
+        hintInfo.put("subTitle",   info.classroom.isEmpty() ? "—" : info.classroom); // 主要小文本2=教室
         hintInfo.put("actionInfo", actionInfo);
-        // 主要小文本1：优先用 timerInfo 倒计时，否则降级为静态文本
+        // 主要小文本1：timerInfo 倒计时（PDF确认仅支持 4 个标准字段，无法拼接前后缀文本）
         long startMs = computeClassStartMs(info.startTime);
         if (startMs > System.currentTimeMillis()) {
             JSONObject timerInfo = new JSONObject();
-            timerInfo.put("timerType",          -1);  // -1=倒计时开始
+            timerInfo.put("timerType",          -1);   // -1=倒计时开始
             timerInfo.put("timerWhen",          startMs);
             timerInfo.put("timerTotal",         0);
             timerInfo.put("timerSystemCurrent", System.currentTimeMillis());
@@ -377,24 +379,35 @@ public class MainHook implements IXposedHookLoadPackage {
         }
 
         // ── 4. 大岛摘要态（param_island）─────────────────────────────
-        // A区：imageTextInfoLeft = 图标 + 课程名 + 距离上课时间
+        // A区：App图标 + 课程名（title）+ 倒计时/已开始（timerInfo）
         JSONObject aPicInfo = new JSONObject();
-        aPicInfo.put("type", 1);
-        aPicInfo.put("pic",  PIC_KEY_COURSE);
+        aPicInfo.put("type", 1);  // type=1：App图标
         JSONObject aTextInfo = new JSONObject();
-        aTextInfo.put("title",   info.courseName);
-        aTextInfo.put("content", computeMinutesUntil(info.startTime));
+        aTextInfo.put("title", info.courseName);
+        if (startMs > System.currentTimeMillis()) {
+            JSONObject aTimerInfo = new JSONObject();
+            aTimerInfo.put("timerType",          -1);
+            aTimerInfo.put("timerWhen",          startMs);
+            aTimerInfo.put("timerTotal",         0);
+            aTimerInfo.put("timerSystemCurrent", System.currentTimeMillis());
+            aTextInfo.put("timerInfo", aTimerInfo);
+        } else {
+            aTextInfo.put("content", computeElapsed(info.startTime));
+        }
         JSONObject imageTextInfoLeft = new JSONObject();
         imageTextInfoLeft.put("type",     1);
         imageTextInfoLeft.put("picInfo",  aPicInfo);
         imageTextInfoLeft.put("textInfo", aTextInfo);
+        // B区：textInfo = 上课地点（教室）
+        JSONObject bTextInfo = new JSONObject();
+        bTextInfo.put("title", info.classroom.isEmpty() ? "—" : info.classroom);
         JSONObject bigIslandArea = new JSONObject();
         bigIslandArea.put("imageTextInfoLeft", imageTextInfoLeft);
+        bigIslandArea.put("textInfo",          bTextInfo);
 
-        // 小岛：显式指定课程图标（防止兜底为 App 图标）
+        // 小岛：type=1 使用 App图标
         JSONObject smallPicInfo = new JSONObject();
         smallPicInfo.put("type", 1);
-        smallPicInfo.put("pic",  PIC_KEY_COURSE);
         JSONObject smallIslandArea = new JSONObject();
         smallIslandArea.put("picInfo", smallPicInfo);
 
@@ -465,6 +478,24 @@ public class MainHook implements IXposedHookLoadPackage {
             return diff + "分钟后";
         } catch (Exception e) {
             return startTime;
+        }
+    }
+
+    /** 计算距上课开始已过多少分钟，格式："5分钟" 或 "0分钟" */
+    private static String computeElapsed(String startTime) {
+        if (startTime == null || startTime.isEmpty()) return "";
+        try {
+            String[] parts = startTime.split(":");
+            int startH = Integer.parseInt(parts[0].trim());
+            int startM = Integer.parseInt(parts[1].trim());
+            java.util.Calendar now = java.util.Calendar.getInstance();
+            int diff = (now.get(java.util.Calendar.HOUR_OF_DAY) * 60
+                    +  now.get(java.util.Calendar.MINUTE))
+                    - (startH * 60 + startM);
+            if (diff < 0) diff = 0;
+            return diff + "分钟";
+        } catch (Exception e) {
+            return "";
         }
     }
 

@@ -9,6 +9,7 @@
     <application
         android:label="@string/app_name"
         android:description="@string/app_description"
+        android:icon="@mipmap/ic_launcher"
         android:allowBackup="false">
 
         <!-- 声明这是一个 Xposed/LSPosed 模块 -->
@@ -53,6 +54,26 @@
                 <action android:name="com.xiaoai.islandnotify.ACTION_MUTE" />
             </intent-filter>
         </receiver>
+
+        <!-- 上课静音无界面 Activity（被 Super Island 按钮 actionIntentType=1 调用） -->
+        <activity
+            android:name=".MuteActivity"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:exported="true">
+            <!--
+                自定义 URI scheme：xiaoaimute://mute
+                Super Island 丢弃 component= 参数（安全限制），改用 URI scheme 路由，
+                系统通过 intent-filter 解析，精准匹配到本 Activity，不会打开主界面。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="xiaoaimute" android:host="mute" />
+            </intent-filter>
+        </activity>
 
     </application>
 

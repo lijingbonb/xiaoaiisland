@@ -279,38 +279,35 @@ public class TestActivity extends Activity {
      */
     private String buildIslandJson(String course, String time, String endTime, String room)
             throws JSONException {
-        final String PIC_KEY = "miui.focus.pic_course";
-        final String MUTE_URI =
-                "intent:#Intent;action=com.xiaoai.islandnotify.ACTION_MUTE;"
-                + "component=com.xiaoai.islandnotify/.MuteReceiver;end";
+        // 自定义 URI scheme，绕过 Super Island 安全限制（会丢弃 component=）
+        final String MUTE_URI = "xiaoaimute://mute";
 
         // ── 1. 文本组件2（baseInfo type=2）──────────────────────────────
         // 主要文本1=课程名，次要文本1=开始时间，次要文本2=结束时间
         JSONObject baseInfo = new JSONObject();
         baseInfo.put("type",  2);
         baseInfo.put("title", course);
-        if (time != null && !time.isEmpty())    baseInfo.put("content",    time);
-        if (endTime != null && !endTime.isEmpty()) baseInfo.put("subContent", endTime);
+        if (time != null && !time.isEmpty())       baseInfo.put("content",    time);
+        if (endTime != null && !endTime.isEmpty())  baseInfo.put("subContent", "| " + endTime);
 
-        // ── 2. 识别图形组件1（picInfo type=2，自定义图标）────────────────
+        // ── 2. 识别图形组件1（picInfo type=1，使用 App 图标）────────────
         JSONObject notifPicInfo = new JSONObject();
-        notifPicInfo.put("type", 2);       // 2=middle，支持自定义 pic
-        notifPicInfo.put("pic",  PIC_KEY);
+        notifPicInfo.put("type", 1);   // type=1：App 图标（已替换为课程图标）
 
         // ── 3. 按钮组件2（hintInfo type=2）──────────────────────────────
         // content=前置文本1，title/timerInfo=主要小文本1，subContent=前置文本2，subTitle=主要小文本2
         JSONObject actionInfo = new JSONObject();
         actionInfo.put("actionTitle",      "上课静音");
-        actionInfo.put("actionIntentType", 2);         // 2=broadcast
+        actionInfo.put("actionIntentType", 1);         // 1=startActivity
         actionInfo.put("actionIntent",     MUTE_URI);
 
         JSONObject hintInfo = new JSONObject();
         hintInfo.put("type",       2);
         hintInfo.put("content",    "时间");      // 前置文本1
         hintInfo.put("subContent", "地点");      // 前置文本2
-        hintInfo.put("subTitle",   (room == null || room.isEmpty()) ? "—" : room);
+        hintInfo.put("subTitle",   (room == null || room.isEmpty()) ? "—" : room); // 主要小文本2=教室
         hintInfo.put("actionInfo", actionInfo);
-        // 主要小文本1：优先 timerInfo 倒计时，否则静态文本
+        // 主要小文本1：timerInfo 倒计时（PDF 确认仅支持 4 个标准字段，无法拼接前后缀）
         long startMs = computeClassStartMs(time);
         if (startMs > System.currentTimeMillis()) {
             JSONObject timerInfo = new JSONObject();
@@ -324,24 +321,35 @@ public class TestActivity extends Activity {
         }
 
         // ── 4. 大岛摘要态（param_island）────────────────────────────────
-        // A区：图标 + 课程名 + 距上课时间
+        // A区：App图标 + 课程名（title）+ 倒计时（timerInfo，内容区）
         JSONObject aPicInfo = new JSONObject();
-        aPicInfo.put("type", 1);
-        aPicInfo.put("pic",  PIC_KEY);
+        aPicInfo.put("type", 1);   // type=1：App图标
         JSONObject aTextInfo = new JSONObject();
-        aTextInfo.put("title",   course);
-        aTextInfo.put("content", computeMinutesUntil(time));
+        aTextInfo.put("title", course);
+        if (startMs > System.currentTimeMillis()) {
+            JSONObject aTimerInfo = new JSONObject();
+            aTimerInfo.put("timerType",          -1);
+            aTimerInfo.put("timerWhen",          startMs);
+            aTimerInfo.put("timerTotal",         0);
+            aTimerInfo.put("timerSystemCurrent", System.currentTimeMillis());
+            aTextInfo.put("timerInfo", aTimerInfo);
+        } else {
+            aTextInfo.put("content", computeElapsed(time));
+        }
         JSONObject imageTextInfoLeft = new JSONObject();
         imageTextInfoLeft.put("type",     1);
         imageTextInfoLeft.put("picInfo",  aPicInfo);
         imageTextInfoLeft.put("textInfo", aTextInfo);
+        // B区：textInfo = 上课地点（教室）
+        JSONObject bTextInfo = new JSONObject();
+        bTextInfo.put("title", (room == null || room.isEmpty()) ? "—" : room);
         JSONObject bigIslandArea = new JSONObject();
         bigIslandArea.put("imageTextInfoLeft", imageTextInfoLeft);
+        bigIslandArea.put("textInfo",          bTextInfo);
 
         // 小岛图标
         JSONObject smallPicInfo = new JSONObject();
-        smallPicInfo.put("type", 1);
-        smallPicInfo.put("pic",  PIC_KEY);
+        smallPicInfo.put("type", 1);  // type=1：App图标
         JSONObject smallIslandArea = new JSONObject();
         smallIslandArea.put("picInfo", smallPicInfo);
 
@@ -403,6 +411,24 @@ public class TestActivity extends Activity {
             return diff + "分钟后";
         } catch (Exception e) {
             return startTime;
+        }
+    }
+
+    /** 返回已过多少分钟，格式："X分钟" */
+    private static String computeElapsed(String startTime) {
+        if (startTime == null || startTime.isEmpty()) return "";
+        try {
+            String[] p = startTime.split(":");
+            int startH = Integer.parseInt(p[0].trim());
+            int startM = Integer.parseInt(p[1].trim());
+            java.util.Calendar now = java.util.Calendar.getInstance();
+            int diff = (now.get(java.util.Calendar.HOUR_OF_DAY) * 60
+                    + now.get(java.util.Calendar.MINUTE))
+                    - (startH * 60 + startM);
+            if (diff < 0) diff = 0;
+            return diff + "分钟";
+        } catch (Exception e) {
+            return "";
         }
     }
 
