@@ -213,11 +213,17 @@ public class TestActivity extends Activity {
             hintInfo.put("subTitle",   room);
         }
 
-        // baseInfo
+        // baseInfo：content 只放时间+教室，避免重复课程名
         String ticker = time.isEmpty() ? course : course + "  " + time;
+        StringBuilder baseContent = new StringBuilder();
+        if (!time.isEmpty()) baseContent.append(time);
+        if (!room.isEmpty()) {
+            if (baseContent.length() > 0) baseContent.append("  ");
+            baseContent.append(room);
+        }
         JSONObject baseInfo = new JSONObject();
         baseInfo.put("title",   course);
-        baseInfo.put("content", ticker);
+        baseInfo.put("content", baseContent.length() > 0 ? baseContent.toString() : course);
         baseInfo.put("type", 1);
 
         // param_v2

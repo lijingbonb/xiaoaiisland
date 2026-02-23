@@ -8,6 +8,9 @@
         android:minSdkVersion="31"
         android:targetSdkVersion="35" />
 
+    <!-- Android 13+ 发送通知需要此权限 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:allowBackup="false"
         android:debuggable="true"
@@ -37,6 +40,18 @@
         <meta-data
             android:name="xposedscope"
             android:value="com.miui.voiceassist" />
+
+        <!-- 测试用 Activity：直接发送超级岛通知，验证 JSON 渲染效果 -->
+        <activity
+            android:name="com.xiaoai.islandnotify.TestActivity"
+            android:exported="true"
+            android:label="超级岛测试" >
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>

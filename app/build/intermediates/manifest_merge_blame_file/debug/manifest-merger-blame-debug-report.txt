@@ -8,51 +8,77 @@
 8        android:minSdkVersion="31"
 9        android:targetSdkVersion="35" />
 10
-11    <application
-11-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:4:5-32:19
-12        android:allowBackup="false"
-12-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:7:9-36
-13        android:debuggable="true"
-14        android:description="@string/app_description"
-14-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:6:9-54
-15        android:extractNativeLibs="false"
-16        android:label="@string/app_name" >
-16-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:5:9-41
-17
-18        <!-- 声明这是一个 Xposed/LSPosed 模块 -->
-19        <meta-data
-19-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:10:9-12:36
-20            android:name="xposedmodule"
-20-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:11:13-40
-21            android:value="true" />
-21-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:12:13-33
-22
-23        <!-- 模块描述 -->
-24        <meta-data
-24-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:15:9-17:53
-25            android:name="xposeddescription"
-25-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:16:13-45
-26            android:value="将小爱同学课程表提醒通知转为小米超级岛通知" />
-26-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:17:13-50
-27
-28        <!-- 最低 Xposed API 版本 -->
-29        <meta-data
-29-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:20:9-22:34
-30            android:name="xposedminversion"
-30-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:21:13-44
-31            android:value="82" />
-31-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:22:13-31
-32
-33        <!--
-34            LSPosed 作用域声明（仅注入目标包名进程）
-35            也可在 LSPosed 管理器中手动勾选作用域
-36        -->
-37        <meta-data
-37-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:28:9-30:52
-38            android:name="xposedscope"
-38-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:29:13-39
-39            android:value="com.miui.voiceassist" />
-39-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:30:13-49
-40    </application>
-41
-42</manifest>
+11    <!-- Android 13+ 发送通知需要此权限 -->
+12    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+12-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:5:5-77
+12-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:5:22-74
+13
+14    <application
+14-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:7:5-46:19
+15        android:allowBackup="false"
+15-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:10:9-36
+16        android:debuggable="true"
+17        android:description="@string/app_description"
+17-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:9:9-54
+18        android:extractNativeLibs="false"
+19        android:label="@string/app_name" >
+19-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:8:9-41
+20
+21        <!-- 声明这是一个 Xposed/LSPosed 模块 -->
+22        <meta-data
+22-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:13:9-15:36
+23            android:name="xposedmodule"
+23-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:14:13-40
+24            android:value="true" />
+24-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:15:13-33
+25
+26        <!-- 模块描述 -->
+27        <meta-data
+27-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:18:9-20:53
+28            android:name="xposeddescription"
+28-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:19:13-45
+29            android:value="将小爱同学课程表提醒通知转为小米超级岛通知" />
+29-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:20:13-50
+30
+31        <!-- 最低 Xposed API 版本 -->
+32        <meta-data
+32-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:23:9-25:34
+33            android:name="xposedminversion"
+33-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:24:13-44
+34            android:value="82" />
+34-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:25:13-31
+35
+36        <!--
+37            LSPosed 作用域声明（仅注入目标包名进程）
+38            也可在 LSPosed 管理器中手动勾选作用域
+39        -->
+40        <meta-data
+40-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:31:9-33:52
+41            android:name="xposedscope"
+41-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:32:13-39
+42            android:value="com.miui.voiceassist" />
+42-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:33:13-49
+43
+44        <!-- 测试用 Activity：直接发送超级岛通知，验证 JSON 渲染效果 -->
+45        <activity
+45-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:36:9-44:20
+46            android:name="com.xiaoai.islandnotify.TestActivity"
+46-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:37:13-41
+47            android:exported="true"
+47-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:39:13-36
+48            android:label="超级岛测试" >
+48-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:38:13-34
+49            <intent-filter>
+49-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:40:13-43:29
+50                <action android:name="android.intent.action.MAIN" />
+50-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:41:17-69
+50-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:41:25-66
+51
+52                <category android:name="android.intent.category.LAUNCHER" />
+52-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:42:17-77
+52-->D:\mercu\Desktop\xiaoai\app\src\main\AndroidManifest.xml:42:27-74
+53            </intent-filter>
+54        </activity>
+55    </application>
+56
+57</manifest>

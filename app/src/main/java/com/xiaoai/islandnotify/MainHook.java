@@ -300,9 +300,16 @@ public class MainHook implements IXposedHookLoadPackage {
         // 颜色字段（跟随系统深浅模式，不强制自定义则省略）
 
         // ── 焦点通知基础内容 ──────────────────────────────────────
+        // content 只放时间+教室，title 放课程名，避免重复且补全教室信息
+        StringBuilder baseContent = new StringBuilder();
+        if (!info.startTime.isEmpty()) baseContent.append(info.startTime);
+        if (!info.classroom.isEmpty()) {
+            if (baseContent.length() > 0) baseContent.append("  ");
+            baseContent.append(info.classroom);
+        }
         JSONObject baseInfo = new JSONObject();
         baseInfo.put("title",   info.courseName);
-        baseInfo.put("content", buildTickerText(info));
+        baseInfo.put("content", baseContent.length() > 0 ? baseContent.toString() : info.courseName);
         baseInfo.put("type", 1);
 
         // ── 状态栏 / 息屏文案 ─────────────────────────────────────
