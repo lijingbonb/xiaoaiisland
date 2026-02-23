@@ -1,0 +1,43 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.xiaoai.islandnotify'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.xiaoai.islandnotify"
+        // 小米超级岛(OS3)最低需要MIUI14+，Android 12+
+        minSdk 31
+        targetSdk 35
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+}
+
+// Xposed API 仓库
+repositories {
+    jcenter()
+}
+
+dependencies {
+    // Xposed API（仅编译时依赖，运行时由 LSPosed 框架提供）
+    compileOnly 'de.robv.android.xposed:api:82'
+    compileOnly 'de.robv.android.xposed:api:82:sources'
+}
