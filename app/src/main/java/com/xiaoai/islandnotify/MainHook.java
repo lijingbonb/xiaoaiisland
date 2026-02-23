@@ -466,25 +466,42 @@ public class MainHook implements IXposedHookLoadPackage {
         JSONObject smallIslandArea = new JSONObject();
         smallIslandArea.put("picInfo", smallPicInfo);
 
+        // shareData: 拖拽分享参数（必须在 param_island 内）
+        JSONObject shareData = new JSONObject();
+        shareData.put("pic",   COURSE_ICON_URL);
+        shareData.put("title", info.courseName);
+        shareData.put("content", info.classroom.isEmpty() ? "" : info.classroom);
+        String shareContent;
+        if (startMs > 0 && startMs > System.currentTimeMillis()) {
+            long shareMins = (startMs - System.currentTimeMillis()) / 60000L;
+            shareContent = info.courseName
+                    + (info.classroom.isEmpty() ? "" : " " + info.classroom)
+                    + " " + Math.max(1, shareMins) + "分钟后开始";
+        } else {
+            shareContent = info.courseName
+                    + (info.classroom.isEmpty() ? "" : " " + info.classroom)
+                    + " 已开始" + computeElapsed(info.startTime);
+        }
+        shareData.put("shareContent", shareContent);
+
         JSONObject paramIsland = new JSONObject();
         paramIsland.put("islandProperty",  1);
         paramIsland.put("bigIslandArea",   bigIslandArea);
         paramIsland.put("smallIslandArea", smallIslandArea);
+        paramIsland.put("shareData",       shareData);
 
-        // ── 5. 组合 param_v2 ─────────────────────────────────────────
         String tickerText = buildTickerText(info);
         JSONObject paramV2 = new JSONObject();
         paramV2.put("protocol",        1);
         paramV2.put("business",        "course_schedule");
-        paramV2.put("islandFirstFloat", true);
-        paramV2.put("enableFloat",      false);
-        paramV2.put("updatable",        true);
-        paramV2.put("ticker",           tickerText);
-        paramV2.put("aodTitle",         tickerText);
-        paramV2.put("baseInfo",         baseInfo);      // 文本组件2
-        paramV2.put("picInfo",          notifPicInfo);  // 识别图形组件1
-        paramV2.put("hintInfo",         hintInfo);      // 按钮组件2
-        paramV2.put("param_island",     paramIsland);
+        paramV2.put("enableFloat",     false);
+        paramV2.put("updatable",       true);
+        paramV2.put("ticker",          tickerText);
+        paramV2.put("aodTitle",        tickerText);
+        paramV2.put("baseInfo",        baseInfo);
+        paramV2.put("picInfo",         notifPicInfo);
+        paramV2.put("hintInfo",        hintInfo);
+        paramV2.put("param_island",    paramIsland);
 
         JSONObject root = new JSONObject();
         root.put("param_v2", paramV2);
@@ -549,10 +566,19 @@ public class MainHook implements IXposedHookLoadPackage {
         JSONObject smallPicInfo = new JSONObject(); smallPicInfo.put("type", 1);
         JSONObject smallIslandArea = new JSONObject(); smallIslandArea.put("picInfo", smallPicInfo);
 
+        JSONObject shareDataE = new JSONObject();
+        shareDataE.put("pic",          COURSE_ICON_URL);
+        shareDataE.put("title",        info.courseName);
+        shareDataE.put("content",      info.classroom.isEmpty() ? "" : info.classroom);
+        shareDataE.put("shareContent", info.courseName
+                + (info.classroom.isEmpty() ? "" : " " + info.classroom)
+                + " 已开始" + computeElapsed(info.startTime));
+
         JSONObject paramIsland = new JSONObject();
         paramIsland.put("islandProperty",  1);
         paramIsland.put("bigIslandArea",   bigIslandArea);
         paramIsland.put("smallIslandArea", smallIslandArea);
+        paramIsland.put("shareData",       shareDataE);
 
         String tickerText = buildTickerText(info);
         JSONObject paramV2 = new JSONObject();
