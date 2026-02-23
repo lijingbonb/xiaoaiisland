@@ -1,0 +1,26 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+local.properties
+
+# 签名密钥（绝对不能提交）
+*.jks
+*.keystore
+
+# 本地 libs jar（体积大，通过文档说明手动放置）
+app/libs/*.jar
+
+# 生成的 APK / AAB
+*.apk
+*.aab
+
+# OS 杂项
+.DS_Store
+Thumbs.db

@@ -32,7 +32,7 @@ android {
 }
 
 dependencies {
-    // Xposed API（仅编译时依赖，运行时由 LSPosed 框架提供）
-    compileOnly 'de.robv.android.xposed:api:82'
-    compileOnly 'de.robv.android.xposed:api:82:sources'
+    // XposedBridge API，仅编译时依赖，运行时由 LSPosed 框架注入
+    // jar 文件放在 app/libs/ 目录下即可自动引入
+    compileOnly fileTree(dir: 'libs', include: ['*.jar'])
 }
