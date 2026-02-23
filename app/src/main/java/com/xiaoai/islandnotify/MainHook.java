@@ -558,7 +558,7 @@ public class MainHook implements IXposedHookLoadPackage {
         JSONObject paramV2 = new JSONObject();
         paramV2.put("protocol",        1);
         paramV2.put("business",        "course_schedule");
-        paramV2.put("islandFirstFloat", false);
+        paramV2.put("islandFirstFloat", true);  // 切换为正计时时自动展开
         paramV2.put("enableFloat",      false);
         paramV2.put("updatable",        true);
         paramV2.put("ticker",           tickerText);
