@@ -202,8 +202,12 @@ public class MainHook implements IXposedHookLoadPackage {
      * </pre>
      */
     private CourseInfo extractCourseInfo(Bundle extras) {
-        String title = safeStr(extras.getString(Notification.EXTRA_TITLE));
-        String body  = safeStr(extras.getString(Notification.EXTRA_TEXT));
+        // 通知 title/text 存的是 CharSequence（Spanned），getString() 对此类型返回 null
+        // 必须用 getCharSequence() 再 toString()
+        CharSequence titleCs = extras.getCharSequence(Notification.EXTRA_TITLE);
+        CharSequence bodyCs  = extras.getCharSequence(Notification.EXTRA_TEXT);
+        String title = titleCs != null ? titleCs.toString() : "";
+        String body  = bodyCs  != null ? bodyCs.toString()  : "";
 
         // ── 课程名：提取 "[高等数学]" 中的内容 ───────────────────────
         String courseName = "";
@@ -259,19 +263,24 @@ public class MainHook implements IXposedHookLoadPackage {
      *   subTitle   = 主要小文本2 → 实际教室值（如 教1-201）
      *
      * bigIslandArea 模板2（PDF P77）：imageTextInfoLeft(A区) + textInfo(B区)
-     *   A区 imageTextInfoLeft.textInfo:
-     *     title   = 课程名（大字）
-     *     content = 开始时间（后置小字）
-     *   B区 textInfo:
-     *     frontTitle = "地点"（前置小字标签）
-     *     title      = 教室名（大字）
+     *   A区 imageTextInfoLeft（PDF P95）：
+     *     无 picInfo → 系统兜底取小爱同学 App 图标
+     *     textInfo.title   = 课程名（大字）
+     *     textInfo.content = 开始时间（后置小字）
+     *   B区 textInfo（PDF P104）：
+     *     title = 教室名（直接显示值，无标签前缀）
      *
-     * smallIslandArea = 空对象，系统兜底取 App 图标（小爱同学图标）
+     * smallIslandArea = 空对象 → 系统取A区图标 → 兜底 App 图标（PDF P93）
+     *
+     * baseInfo（焦点通知内容区）：
+     *   title   = 课程名
+     *   content = "19:50 | 教1-201"（与原始 EXTRA_TEXT 保持一致）
+     *   不用 hintInfo，避免 label-value 对造成"时间"/"地点"标签冗余显示
      * </pre>
      */
     private String buildIslandParams(CourseInfo info) throws JSONException {
         // ── 大岛 A 区：imageTextInfoLeft（图文组件1, type=1）──────────
-        // PDF P95: title=大字(课程名), content=后置小字(时间), 无 picInfo→兜底 App 图标
+        // 无 picInfo → 系统自动兜底小爱同学 App 图标
         JSONObject aTextInfo = new JSONObject();
         aTextInfo.put("title", info.courseName);
         if (!info.startTime.isEmpty()) aTextInfo.put("content", info.startTime);
@@ -280,49 +289,30 @@ public class MainHook implements IXposedHookLoadPackage {
         imageTextInfoLeft.put("type", 1);
         imageTextInfoLeft.put("textInfo", aTextInfo);
 
-        // ── 大岛 B 区：textInfo（文本组件）────────────────────────────
-        // PDF P104: frontTitle=前置小字(地点标签), title=大字(教室名)
+        // ── 大岛 B 区：textInfo（文本组件，只放教室值，不加标签前缀）──
         JSONObject bTextInfo = new JSONObject();
-        bTextInfo.put("frontTitle", "地点");
-        bTextInfo.put("title", info.classroom.isEmpty() ? "未知" : info.classroom);
+        bTextInfo.put("title", info.classroom.isEmpty() ? "—" : info.classroom);
 
         JSONObject bigIslandArea = new JSONObject();
         bigIslandArea.put("imageTextInfoLeft", imageTextInfoLeft); // A区（必传）
         bigIslandArea.put("textInfo",          bTextInfo);         // B区
 
-        // ── 小岛摘要态：空对象，系统自动取 App 图标 ──────────────────
-        // PDF P93: 未上传图标→取大岛A区图标→兜底取应用图标
+        // ── 小岛摘要态：空对象 → 系统兜底 App 图标 ─────────────────
         JSONObject smallIslandArea = new JSONObject();
 
         // ── 岛属性 ────────────────────────────────────────────────
         JSONObject paramIsland = new JSONObject();
-        paramIsland.put("islandProperty", 1); // 1 = 信息展示为主
+        paramIsland.put("islandProperty", 1);
         paramIsland.put("bigIslandArea",   bigIslandArea);
         paramIsland.put("smallIslandArea", smallIslandArea);
 
-        // ── hintInfo（焦点通知展开态，两行 label-value 对）─────────────
-        // 第1行：时间标签 + 时间值
-        // 第2行：地点标签 + 教室值
-        JSONObject hintInfo = new JSONObject();
-        hintInfo.put("type",    1);
-        hintInfo.put("content", "时间");
-        hintInfo.put("title",   info.startTime.isEmpty() ? "—" : info.startTime);
-        if (!info.classroom.isEmpty()) {
-            hintInfo.put("subContent", "地点");
-            hintInfo.put("subTitle",   info.classroom);
-        }
-
-        // ── 焦点通知基础内容 ──────────────────────────────────────
-        // content 只放时间+教室，title 放课程名，避免重复且补全教室信息
-        StringBuilder baseContent = new StringBuilder();
-        if (!info.startTime.isEmpty()) baseContent.append(info.startTime);
-        if (!info.classroom.isEmpty()) {
-            if (baseContent.length() > 0) baseContent.append("  ");
-            baseContent.append(info.classroom);
-        }
+        // ── 焦点通知内容（baseInfo）──────────────────────────────────
+        // 直接映射原始通知：title=课程名, content="时间 | 教室"
+        String bodyContent = info.startTime
+                + (info.classroom.isEmpty() ? "" : " | " + info.classroom);
         JSONObject baseInfo = new JSONObject();
         baseInfo.put("title",   info.courseName);
-        baseInfo.put("content", baseContent.length() > 0 ? baseContent.toString() : info.courseName);
+        baseInfo.put("content", bodyContent.isEmpty() ? info.courseName : bodyContent);
         baseInfo.put("type", 1);
 
         // ── 状态栏 / 息屏文案 ─────────────────────────────────────
@@ -332,14 +322,13 @@ public class MainHook implements IXposedHookLoadPackage {
         JSONObject paramV2 = new JSONObject();
         paramV2.put("protocol",         1);
         paramV2.put("business",         "course_schedule");
-        paramV2.put("islandFirstFloat",  true);  // 首次出现展开大岛
-        paramV2.put("enableFloat",       false); // 更新时不自动展开
+        paramV2.put("islandFirstFloat",  true);
+        paramV2.put("enableFloat",       false);
         paramV2.put("updatable",         false);
-        paramV2.put("ticker",            tickerText); // OS2 状态栏文案
-        paramV2.put("aodTitle",          tickerText); // 息屏文案
+        paramV2.put("ticker",            tickerText);
+        paramV2.put("aodTitle",          tickerText);
         paramV2.put("param_island",      paramIsland);
         paramV2.put("baseInfo",          baseInfo);
-        paramV2.put("hintInfo",          hintInfo);
 
         JSONObject root = new JSONObject();
         root.put("param_v2", paramV2);

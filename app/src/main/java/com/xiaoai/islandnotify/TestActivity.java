@@ -189,17 +189,15 @@ public class TestActivity extends Activity {
         imageTextInfoLeft.put("type", 1);
         imageTextInfoLeft.put("textInfo", aTextInfo);
 
-        // 大岛 B区：textInfo（文本组件）
-        // PDF P104: frontTitle=地点标签(前置小字), title=教室名(大字)
+        // 大岛 B区：textInfo（只放教室值，不加"地点"标签前缀）
         JSONObject bTextInfo = new JSONObject();
-        bTextInfo.put("frontTitle", "地点");
-        bTextInfo.put("title", room.isEmpty() ? "未知" : room);
+        bTextInfo.put("title", room.isEmpty() ? "—" : room);
 
         JSONObject bigIslandArea = new JSONObject();
         bigIslandArea.put("imageTextInfoLeft", imageTextInfoLeft); // A区（必传）
         bigIslandArea.put("textInfo",          bTextInfo);         // B区
 
-        // 小岛：空对象，系统兜底取 App 图标（PDF P93）
+        // 小岛：空对象 → 系统自动兜底 App 图标（PDF P93）
         JSONObject smallIslandArea = new JSONObject();
 
         JSONObject paramIsland = new JSONObject();
@@ -207,27 +205,13 @@ public class TestActivity extends Activity {
         paramIsland.put("bigIslandArea",   bigIslandArea);
         paramIsland.put("smallIslandArea", smallIslandArea);
 
-        // hintInfo：时间 + 教室（PDF 字段：content/title/subContent/subTitle）
-        JSONObject hintInfo = new JSONObject();
-        hintInfo.put("type", 1);
-        hintInfo.put("content", "时间");
-        hintInfo.put("title",   time.isEmpty() ? "—" : time);
-        if (!room.isEmpty()) {
-            hintInfo.put("subContent", "教室");
-            hintInfo.put("subTitle",   room);
-        }
-
-        // baseInfo：content 只放时间+教室，避免重复课程名
+        // baseInfo：直接映射原始通知，title=课程名, content="时间 | 教室"
+        // 不用 hintInfo，避免 label-value 对造成"时间"/"地点"标签文字冗余
+        String bodyContent = time + (room.isEmpty() ? "" : " | " + room);
         String ticker = time.isEmpty() ? course : course + "  " + time;
-        StringBuilder baseContent = new StringBuilder();
-        if (!time.isEmpty()) baseContent.append(time);
-        if (!room.isEmpty()) {
-            if (baseContent.length() > 0) baseContent.append("  ");
-            baseContent.append(room);
-        }
         JSONObject baseInfo = new JSONObject();
         baseInfo.put("title",   course);
-        baseInfo.put("content", baseContent.length() > 0 ? baseContent.toString() : course);
+        baseInfo.put("content", bodyContent.isEmpty() ? course : bodyContent);
         baseInfo.put("type", 1);
 
         // param_v2
@@ -241,7 +225,6 @@ public class TestActivity extends Activity {
         paramV2.put("aodTitle",         ticker);
         paramV2.put("param_island",     paramIsland);
         paramV2.put("baseInfo",         baseInfo);
-        paramV2.put("hintInfo",         hintInfo);
 
         JSONObject root = new JSONObject();
         root.put("param_v2", paramV2);
