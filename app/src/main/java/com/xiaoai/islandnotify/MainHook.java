@@ -4,15 +4,11 @@ import android.app.Notification;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.os.Bundle;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -36,19 +32,11 @@ public class MainHook implements IXposedHookLoadPackage {
 
     /** 目标应用包名（小爱同学） */
     private static final String TARGET_PACKAGE = "com.miui.voiceassist";
-    /** 测试用包名（本模块自身，供 TestActivity sendRawNotification 走完整 Hook 链路） */
-    private static final String TEST_PACKAGE   = "com.xiaoai.islandnotify";
 
-    /** 课程图标 URL（来自原始通知 payload.icon 字段） */
-    private static final String COURSE_ICON_URL =
-            "https://cdn.cnbj1.fds.api.mi-img.com/xiaoailite-ios/XiaoAiSuggestion/MsgSettingIconCourse.png";
-
-    /** 课程图标在 miui.focus.pics Bundle 中的 key */
-    private static final String PIC_KEY_COURSE   = "miui.focus.pic_course";
-    /** 上课静音 Action 在 miui.focus.actions Bundle 中的 key */
-    private static final String ACTION_KEY_MUTE  = "miui.focus.action_mute";
     /** 触发上课静音的广播 Action */
     private static final String MUTE_ACTION      = "com.xiaoai.islandnotify.ACTION_MUTE";
+    /** shareData 拖拽分享图片在 miui.focus.pics Bundle 中的 key */
+    private static final String PIC_KEY_SHARE    = "miui.focus.pic_share";
     /**
      * 上课静音按钮 URI（actionIntentType=1，自定义 scheme）。
      * Super Island 出于安全会丢弃 component= 参数，改用唯一 URI scheme
@@ -70,10 +58,6 @@ public class MainHook implements IXposedHookLoadPackage {
     /** 岛通知主参数 Key */
     private static final String KEY_FOCUS_PARAM = "miui.focus.param";
 
-    /** 课程图标 Bitmap 缓存（后台线程异步下载后填充） */
-    private static volatile Bitmap cachedCourseBitmap = null;
-    private static volatile boolean iconFetchAttempted = false;
-
     /**
      * 从 VA_PushReceiver 原始 JSON 中解析出的结束时间缓存。
      * key = startDateTime（如 "19:50"），value = endDateTime（如 "20:35"）。
@@ -82,17 +66,21 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final ConcurrentHashMap<String, String> endTimeCache =
             new ConcurrentHashMap<>();
 
+    /** 防止同一进程内多个 ClassLoader 重复注册 Hook */
+    private static volatile boolean hooked = false;
+
     // ─────────────────────────────────────────────────────────────
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
-        // 只注入目标进程（或测试进程）
-        if (!TARGET_PACKAGE.equals(lpparam.packageName)
-                && !TEST_PACKAGE.equals(lpparam.packageName)) {
+        // 只注入目标进程
+        if (!TARGET_PACKAGE.equals(lpparam.packageName)) {
             return;
         }
-        XposedBridge.log(TAG + ": 已注入进程 → " + lpparam.packageName);
-        ensureIconDownloaded(); // 提前异步下载图标，避免通知触发时还未准备好
+        // 同一进程可能因多 ClassLoader 被调用多次，只注册一次
+        if (hooked) return;
+        hooked = true;
+        XposedBridge.log(TAG + ": 已注入目标进程 → " + TARGET_PACKAGE);
         hookPushLog(lpparam);   // 拦截原始 push JSON，缓存 endDateTime
         hookNotifyMethods(lpparam);
     }
@@ -310,20 +298,24 @@ public class MainHook implements IXposedHookLoadPackage {
             String islandJson = buildIslandParams(info);
             extras.putString(KEY_FOCUS_PARAM, islandJson);
 
-            // ── 2. 注入课程图标（miui.focus.pics 存 Bitmap Parcelable）────
-            ensureIconDownloaded();
-            if (cachedCourseBitmap != null) {
-                Bundle picsBundle = new Bundle();
-                picsBundle.putParcelable(PIC_KEY_COURSE, cachedCourseBitmap);
-                extras.putBundle("miui.focus.pics", picsBundle);
-            }
-
-            // ── 3. 注入 Action 及点击 Intent ──────────────────────────
+            // ── 2. 注入 Action 及点击 Intent ──────────────────────────
             Context ctx = null;
             try {
                 ctx = (Context) XposedHelpers.getObjectField(nmInstance, "mContext");
             } catch (Throwable ignored) {}
             if (ctx != null) {
+                // 将 voiceassist App 图标当作分享图片注入 miui.focus.pics
+                try {
+                    android.graphics.drawable.Drawable drawable = ctx.getPackageManager()
+                            .getApplicationIcon(TARGET_PACKAGE);
+                    if (drawable instanceof android.graphics.drawable.BitmapDrawable) {
+                        android.graphics.Bitmap bmp =
+                                ((android.graphics.drawable.BitmapDrawable) drawable).getBitmap();
+                        Bundle picsBundle = new Bundle();
+                        picsBundle.putParcelable(PIC_KEY_SHARE, bmp);
+                        extras.putBundle("miui.focus.pics", picsBundle);
+                    }
+                } catch (Exception ignored) {}
                 // 整体点击 → 课表页
                 try {
                     Intent tableIntent = Intent.parseUri(
@@ -342,6 +334,7 @@ public class MainHook implements IXposedHookLoadPackage {
                     final Context finalCtx    = ctx;
                     final CourseInfo savedInfo = info;
                     final String channelId    = safeStr(notification.getChannelId());
+                    final Bundle savedPics    = extras.getBundle("miui.focus.pics");
                     final android.app.NotificationManager nm =
                             finalCtx.getSystemService(android.app.NotificationManager.class);
                     new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
@@ -356,11 +349,10 @@ public class MainHook implements IXposedHookLoadPackage {
                                     .setAutoCancel(true);
                             Notification updated = b.build();
                             updated.extras.putString(KEY_FOCUS_PARAM, elapsedJson);
-                            updated.extras.putBoolean("islandElapsedUpdate", true); // 跳过重复注入检测
-                            if (cachedCourseBitmap != null) {
-                                Bundle pics = new Bundle();
-                                pics.putParcelable(PIC_KEY_COURSE, cachedCourseBitmap);
-                                updated.extras.putBundle("miui.focus.pics", pics);
+                            updated.extras.putBoolean("islandElapsedUpdate", true);
+                            // 同样注入 App 图标供分享
+                            if (savedPics != null) {
+                                updated.extras.putBundle("miui.focus.pics", savedPics);
                             }
                             updated.contentIntent = notification.contentIntent;
                             if (notifTag != null) nm.notify(notifTag, notifId, updated);
@@ -374,7 +366,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 }
             }
 
-            XposedBridge.log(TAG + ": 注入成功 hasPic=" + (cachedCourseBitmap != null));
+            XposedBridge.log(TAG + ": 注入成功");
         } catch (JSONException e) {
             XposedBridge.log(TAG + ": 构建 JSON 失败 → " + e.getMessage());
         }
@@ -545,7 +537,7 @@ public class MainHook implements IXposedHookLoadPackage {
 
         // shareData: 拖拽分享参数（必须在 param_island 内）
         JSONObject shareData = new JSONObject();
-        shareData.put("pic",   COURSE_ICON_URL);
+        shareData.put("pic",   PIC_KEY_SHARE);  // 引用 miui.focus.pics Bundle 中的本地 App 图标
         shareData.put("title", info.courseName);
         shareData.put("content", info.classroom.isEmpty() ? "" : info.classroom);
         String timeRange = info.startTime
@@ -638,7 +630,7 @@ public class MainHook implements IXposedHookLoadPackage {
         JSONObject smallIslandArea = new JSONObject(); smallIslandArea.put("picInfo", smallPicInfo);
 
         JSONObject shareDataE = new JSONObject();
-        shareDataE.put("pic",          COURSE_ICON_URL);
+        shareDataE.put("pic",          PIC_KEY_SHARE);  // 引用 miui.focus.pics Bundle 中的本地 App 图标
         shareDataE.put("title",        info.courseName);
         shareDataE.put("content",      info.classroom.isEmpty() ? "" : info.classroom);
         String timeRangeE = info.startTime
@@ -733,40 +725,6 @@ public class MainHook implements IXposedHookLoadPackage {
         } catch (Exception e) {
             return "";
         }
-    }
-
-    /**
-     * 异步下载课程图标并缓存到 {@link #cachedCourseBitmap}。
-     * 若已尝试过（无论成功与否）则直接返回，避免重复网络请求。
-     * 下载在后台线程进行，不阻塞通知注入。
-     */
-    private static void ensureIconDownloaded() {
-        if (iconFetchAttempted) return;
-        iconFetchAttempted = true;
-
-        new Thread(() -> {
-            HttpURLConnection conn = null;
-            try {
-                conn = (HttpURLConnection) new URL(COURSE_ICON_URL).openConnection();
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(5000);
-                conn.connect();
-                if (conn.getResponseCode() == 200) {
-                    Bitmap bmp = BitmapFactory.decodeStream(conn.getInputStream());
-                    if (bmp != null) {
-                        cachedCourseBitmap = bmp;
-                        XposedBridge.log(TAG + ": 课程图标下载成功 "
-                                + bmp.getWidth() + "x" + bmp.getHeight());
-                    }
-                } else {
-                    XposedBridge.log(TAG + ": 课程图标下载失败 HTTP " + conn.getResponseCode());
-                }
-            } catch (Exception e) {
-                XposedBridge.log(TAG + ": 课程图标下载异常 → " + e.getMessage());
-            } finally {
-                if (conn != null) conn.disconnect();
-            }
-        }, "IslandIconFetch").start();
     }
 
     // ─────────────────────────────────────────────────────────────

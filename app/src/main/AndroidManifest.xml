@@ -37,17 +37,6 @@
             android:name="xposedscope"
             android:value="com.miui.voiceassist" />
 
-        <!-- 测试用 Activity：直接发送超级岛通知，验证 JSON 渲染效果 -->
-        <activity
-            android:name=".TestActivity"
-            android:label="超级岛测试"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
         <!-- 上课静音广播接收器（备用） -->
         <receiver
             android:name=".MuteReceiver"
