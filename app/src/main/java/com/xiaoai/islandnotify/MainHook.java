@@ -13,6 +13,7 @@ import org.json.JSONObject;
 
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -71,6 +72,14 @@ public class MainHook implements IXposedHookLoadPackage {
     private static volatile Bitmap cachedCourseBitmap = null;
     private static volatile boolean iconFetchAttempted = false;
 
+    /**
+     * 从 VA_PushReceiver 原始 JSON 中解析出的结束时间缓存。
+     * key = startDateTime（如 "19:50"），value = endDateTime（如 "20:35"）。
+     * 通知发出前几毫秒已由 Log.d hook 填入，extractCourseInfo 直接查询。
+     */
+    private static final ConcurrentHashMap<String, String> endTimeCache =
+            new ConcurrentHashMap<>();
+
     // ─────────────────────────────────────────────────────────────
 
     @Override
@@ -81,7 +90,64 @@ public class MainHook implements IXposedHookLoadPackage {
         }
         XposedBridge.log(TAG + ": 已注入目标进程 → " + TARGET_PACKAGE);
         ensureIconDownloaded(); // 提前异步下载图标，避免通知触发时还未准备好
+        hookPushLog(lpparam);   // 拦截原始 push JSON，缓存 endDateTime
         hookNotifyMethods(lpparam);
+    }
+
+    /**
+     * Hook android.util.Log.d，拦截 VA_PushReceiver 打印的原始 push JSON，
+     * 从中解析 courses[].endDateTime 并写入 endTimeCache，
+     * 供后续 extractCourseInfo 使用。
+     */
+    private void hookPushLog(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            findAndHookMethod(
+                    "android.util.Log",
+                    lpparam.classLoader,
+                    "d",
+                    String.class,
+                    String.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            String tag = (String) param.args[0];
+                            if (!"VA_PushReceiver".equals(tag)) return;
+                            String msg = (String) param.args[1];
+                            if (msg == null || !msg.contains("COURSE_SCHEDULER_REMINDER")) return;
+                            // 提取 JSON 部分（从第一个 '{' 开始）
+                            int jsonStart = msg.indexOf('{');
+                            if (jsonStart < 0) return;
+                            try {
+                                org.json.JSONObject root = new org.json.JSONObject(msg.substring(jsonStart));
+                                org.json.JSONArray payload = root.optJSONArray("payload");
+                                if (payload == null) return;
+                                for (int i = 0; i < payload.length(); i++) {
+                                    org.json.JSONObject item = payload.optJSONObject(i);
+                                    if (item == null) continue;
+                                    org.json.JSONObject card = item.optJSONObject("courseCard");
+                                    if (card == null) continue;
+                                    org.json.JSONArray courses = card.optJSONArray("courses");
+                                    if (courses == null) continue;
+                                    for (int j = 0; j < courses.length(); j++) {
+                                        org.json.JSONObject course = courses.optJSONObject(j);
+                                        if (course == null) continue;
+                                        String start = course.optString("startDateTime", "");
+                                        String end   = course.optString("endDateTime",   "");
+                                        if (!start.isEmpty() && !end.isEmpty()) {
+                                            endTimeCache.put(start, end);
+                                            XposedBridge.log(TAG + ": 缓存 endTime " + start + " → " + end);
+                                        }
+                                    }
+                                }
+                            } catch (Exception e) {
+                                XposedBridge.log(TAG + ": 解析 push JSON 失败 → " + e.getMessage());
+                            }
+                        }
+                    }
+            );
+        } catch (Throwable e) {
+            XposedBridge.log(TAG + ": Hook Log.d 失败 → " + e.getMessage());
+        }
     }
 
     /**
@@ -341,19 +407,22 @@ public class MainHook implements IXposedHookLoadPackage {
         if (parts.length >= 1) startTime = parts[0].trim();
         if (parts.length >= 2) classroom  = parts[1].trim();
 
-        // ── 结束时间：从 EXTRA_SUB_TEXT 或其他自定义 extra 中尝试读取 ──
-        // endDateTime 字段只存在于原始 payload JSON 中，
-        // 这里扫描所有字符串型 extra，找符合 HH:mm 格式的第二个时间值
-        String endTime = "";
-        for (String key : extras.keySet()) {
-            if (key.equals(Notification.EXTRA_TITLE) || key.equals(Notification.EXTRA_TEXT)) continue;
-            Object val = extras.get(key);
-            if (val instanceof String || val instanceof CharSequence) {
-                String sv = val.toString().trim();
-                if (sv.matches("\\d{1,2}:\\d{2}") && !sv.equals(startTime)) {
-                    endTime = sv;
-                    XposedBridge.log(TAG + ": 从 extra[" + key + "] 找到结束时间=" + endTime);
-                    break;
+        // ── 结束时间：优先查 push JSON 缓存（由 Log.d hook 预填），回退扫描 extras ──
+        String endTime = endTimeCache.getOrDefault(startTime, "");
+        if (!endTime.isEmpty()) {
+            XposedBridge.log(TAG + ": 从缓存取到结束时间 " + startTime + " → " + endTime);
+        } else {
+            // 兜底：扫描所有字符串型 extra，找符合 HH:mm 且不同于 startTime 的值
+            for (String key : extras.keySet()) {
+                if (key.equals(Notification.EXTRA_TITLE) || key.equals(Notification.EXTRA_TEXT)) continue;
+                Object val = extras.get(key);
+                if (val instanceof String || val instanceof CharSequence) {
+                    String sv = val.toString().trim();
+                    if (sv.matches("\\d{1,2}:\\d{2}") && !sv.equals(startTime)) {
+                        endTime = sv;
+                        XposedBridge.log(TAG + ": 从 extra[" + key + "] 找到结束时间=" + endTime);
+                        break;
+                    }
                 }
             }
         }
