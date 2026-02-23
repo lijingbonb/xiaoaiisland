@@ -262,65 +262,96 @@ public class TestActivity extends Activity {
     // 构建超级岛 JSON（与 MainHook.buildIslandParams 保持一致）
     // ─────────────────────────────────────────────────────────────
 
+    /**
+     * 构建超级岛 JSON（模板9：文本组件2 + 识别图形组件1 + 按钮组件2）
+     *
+     * <pre>
+     * 焦点通知展开态：
+     * ┌───────────────────────────────────┬──────────┐
+     * │ 高等数学（主要文本1）              │  [图标]  │
+     * │ 10:20（次要文本1）                │          │
+     * │ 12:05（次要文本2）                │          │
+     * ├───────────────────────────────────┴──────────┤
+     * │ 时间  [5分钟后/倒计时]  地点  [教1-201]      │
+     * │                              [上课静音]       │
+     * └──────────────────────────────────────────────┘
+     * </pre>
+     */
     private String buildIslandJson(String course, String time, String endTime, String room)
             throws JSONException {
+        final String PIC_KEY = "miui.focus.pic_course";
+        final String MUTE_URI =
+                "intent:#Intent;action=com.xiaoai.islandnotify.ACTION_MUTE;"
+                + "component=com.xiaoai.islandnotify/.MuteReceiver;end";
 
-        // 时间显示：有结束时间 → "19:50-20:35"，否则仅 "19:50"
-        String timeDisplay = (endTime != null && !endTime.isEmpty())
-                ? time + "-" + endTime : time;
+        // ── 1. 文本组件2（baseInfo type=2）──────────────────────────────
+        // 主要文本1=课程名，次要文本1=开始时间，次要文本2=结束时间
+        JSONObject baseInfo = new JSONObject();
+        baseInfo.put("type",  2);
+        baseInfo.put("title", course);
+        if (time != null && !time.isEmpty())    baseInfo.put("content",    time);
+        if (endTime != null && !endTime.isEmpty()) baseInfo.put("subContent", endTime);
 
-        // 大岛 A区：imageTextInfoLeft（图文组件1 type=1）+ picInfo（课程图标）
-        JSONObject picInfo = new JSONObject();
-        picInfo.put("type", 1);
-        picInfo.put("pic", "miui.focus.pic_course");
+        // ── 2. 识别图形组件1（picInfo type=2，自定义图标）────────────────
+        JSONObject notifPicInfo = new JSONObject();
+        notifPicInfo.put("type", 2);       // 2=middle，支持自定义 pic
+        notifPicInfo.put("pic",  PIC_KEY);
 
+        // ── 3. 按钮组件2（hintInfo type=2）──────────────────────────────
+        // content=前置文本1，title/timerInfo=主要小文本1，subContent=前置文本2，subTitle=主要小文本2
+        JSONObject actionInfo = new JSONObject();
+        actionInfo.put("actionTitle",      "上课静音");
+        actionInfo.put("actionIntentType", 2);         // 2=broadcast
+        actionInfo.put("actionIntent",     MUTE_URI);
+
+        JSONObject hintInfo = new JSONObject();
+        hintInfo.put("type",       2);
+        hintInfo.put("content",    "时间");      // 前置文本1
+        hintInfo.put("subContent", "地点");      // 前置文本2
+        hintInfo.put("subTitle",   (room == null || room.isEmpty()) ? "—" : room);
+        hintInfo.put("actionInfo", actionInfo);
+        // 主要小文本1：优先 timerInfo 倒计时，否则静态文本
+        long startMs = computeClassStartMs(time);
+        if (startMs > System.currentTimeMillis()) {
+            JSONObject timerInfo = new JSONObject();
+            timerInfo.put("timerType",          -1);   // -1=倒计时开始
+            timerInfo.put("timerWhen",          startMs);
+            timerInfo.put("timerTotal",         0);
+            timerInfo.put("timerSystemCurrent", System.currentTimeMillis());
+            hintInfo.put("timerInfo", timerInfo);
+        } else {
+            hintInfo.put("title", computeMinutesUntil(time));
+        }
+
+        // ── 4. 大岛摘要态（param_island）────────────────────────────────
+        // A区：图标 + 课程名 + 距上课时间
+        JSONObject aPicInfo = new JSONObject();
+        aPicInfo.put("type", 1);
+        aPicInfo.put("pic",  PIC_KEY);
         JSONObject aTextInfo = new JSONObject();
-        aTextInfo.put("title", course);
-        if (!timeDisplay.isEmpty()) aTextInfo.put("content", timeDisplay);
+        aTextInfo.put("title",   course);
+        aTextInfo.put("content", computeMinutesUntil(time));
         JSONObject imageTextInfoLeft = new JSONObject();
-        imageTextInfoLeft.put("type", 1);
-        imageTextInfoLeft.put("picInfo", picInfo);
+        imageTextInfoLeft.put("type",     1);
+        imageTextInfoLeft.put("picInfo",  aPicInfo);
         imageTextInfoLeft.put("textInfo", aTextInfo);
-
-        // 大岛 B区：textInfo（只放教室值，不加"地点"标签前缀）
-        JSONObject bTextInfo = new JSONObject();
-        bTextInfo.put("title", room.isEmpty() ? "—" : room);
-
-        // 上课静音按钮（Method 2 inline，actionIntentType=2 → 广播，无需 Bundle PendingIntent）
-        JSONObject muteBtn = new JSONObject();
-        muteBtn.put("actionTitle",     "上课静音");
-        muteBtn.put("actionIntentType", 2);
-        muteBtn.put("actionIntent",
-                "intent:#Intent;action=com.xiaoai.islandnotify.ACTION_MUTE;package=com.xiaoai.islandnotify;end");
-        org.json.JSONArray textButton = new org.json.JSONArray();
-        textButton.put(muteBtn);
-
         JSONObject bigIslandArea = new JSONObject();
         bigIslandArea.put("imageTextInfoLeft", imageTextInfoLeft);
-        bigIslandArea.put("textInfo",          bTextInfo);
-        bigIslandArea.put("textButton",        textButton);
 
-        // 小岛：显式指定图标（防止兜底 App 图标）
+        // 小岛图标
         JSONObject smallPicInfo = new JSONObject();
         smallPicInfo.put("type", 1);
-        smallPicInfo.put("pic",  "miui.focus.pic_course");
+        smallPicInfo.put("pic",  PIC_KEY);
         JSONObject smallIslandArea = new JSONObject();
         smallIslandArea.put("picInfo", smallPicInfo);
 
         JSONObject paramIsland = new JSONObject();
-        paramIsland.put("islandProperty", 1);
+        paramIsland.put("islandProperty",  1);
         paramIsland.put("bigIslandArea",   bigIslandArea);
         paramIsland.put("smallIslandArea", smallIslandArea);
 
-        // baseInfo
-        String bodyContent = timeDisplay + (room.isEmpty() ? "" : " | " + room);
-        String ticker = timeDisplay.isEmpty() ? course : course + "  " + time;
-        JSONObject baseInfo = new JSONObject();
-        baseInfo.put("title",   course);
-        baseInfo.put("content", bodyContent.isEmpty() ? course : bodyContent);
-        baseInfo.put("type", 1);
-
-        // param_v2
+        // ── 5. 组合 param_v2 ─────────────────────────────────────────────
+        String ticker = (time == null || time.isEmpty()) ? course : course + "  " + time;
         JSONObject paramV2 = new JSONObject();
         paramV2.put("protocol",        1);
         paramV2.put("business",        "course_schedule");
@@ -329,12 +360,50 @@ public class TestActivity extends Activity {
         paramV2.put("updatable",        false);
         paramV2.put("ticker",           ticker);
         paramV2.put("aodTitle",         ticker);
+        paramV2.put("baseInfo",         baseInfo);      // 文本组件2
+        paramV2.put("picInfo",          notifPicInfo);  // 识别图形组件1
+        paramV2.put("hintInfo",         hintInfo);      // 按钮组件2
         paramV2.put("param_island",     paramIsland);
-        paramV2.put("baseInfo",         baseInfo);
 
         JSONObject root = new JSONObject();
         root.put("param_v2", paramV2);
         return root.toString();
+    }
+
+    /** 计算今天上课开始时间的毫秒时间戳，用于 timerInfo */
+    private static long computeClassStartMs(String startTime) {
+        if (startTime == null || startTime.isEmpty()) return -1;
+        try {
+            String[] p = startTime.split(":");
+            int h = Integer.parseInt(p[0].trim());
+            int m = Integer.parseInt(p[1].trim());
+            java.util.Calendar cal = java.util.Calendar.getInstance();
+            cal.set(java.util.Calendar.HOUR_OF_DAY, h);
+            cal.set(java.util.Calendar.MINUTE, m);
+            cal.set(java.util.Calendar.SECOND, 0);
+            cal.set(java.util.Calendar.MILLISECOND, 0);
+            return cal.getTimeInMillis();
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    /** 返回 "X分钟后" 或 "即将上课" 静态文本 */
+    private static String computeMinutesUntil(String startTime) {
+        if (startTime == null || startTime.isEmpty()) return "";
+        try {
+            String[] p = startTime.split(":");
+            int startH = Integer.parseInt(p[0].trim());
+            int startM = Integer.parseInt(p[1].trim());
+            java.util.Calendar now = java.util.Calendar.getInstance();
+            int diff = (startH * 60 + startM)
+                    - (now.get(java.util.Calendar.HOUR_OF_DAY) * 60
+                    + now.get(java.util.Calendar.MINUTE));
+            if (diff <= 0) return "即将上课";
+            return diff + "分钟后";
+        } catch (Exception e) {
+            return startTime;
+        }
     }
 
     // ─────────────────────────────────────────────────────────────
