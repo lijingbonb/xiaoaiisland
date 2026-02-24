@@ -18,9 +18,7 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="课程表超级岛"
-            app:subtitle="LSPosed 模块"
-            app:layout_scrollFlags="scroll|enterAlways|snap" />
+            app:title="课程表超级岛" />
 
     </com.google.android.material.appbar.AppBarLayout>
 
@@ -158,74 +156,16 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:text="教科A-101"
-                            android:imeOptions="actionNext"
+                            android:imeOptions="actionDone"
                             android:singleLine="true" />
                     </com.google.android.material.textfield.TextInputLayout>
 
-                    <!-- 上课时间：开始与结束并排（格式 HH:mm，留空则使用当前时间+偏移） -->
-                    <LinearLayout
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_send_test"
+                        style="@style/Widget.Material3.Button"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:layout_marginBottom="14dp">
-
-                        <com.google.android.material.textfield.TextInputLayout
-                            android:layout_width="0dp"
-                            android:layout_weight="1"
-                            android:layout_height="wrap_content"
-                            android:layout_marginEnd="6dp"
-                            android:hint="开始时间（HH:mm）"
-                            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense">
-                            <com.google.android.material.textfield.TextInputEditText
-                                android:id="@+id/et_start_time"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:inputType="time"
-                                android:imeOptions="actionNext"
-                                android:singleLine="true" />
-                        </com.google.android.material.textfield.TextInputLayout>
-
-                        <com.google.android.material.textfield.TextInputLayout
-                            android:layout_width="0dp"
-                            android:layout_weight="1"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="6dp"
-                            android:hint="结束时间（HH:mm）"
-                            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense">
-                            <com.google.android.material.textfield.TextInputEditText
-                                android:id="@+id/et_end_time"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:inputType="time"
-                                android:imeOptions="actionDone"
-                                android:singleLine="true" />
-                        </com.google.android.material.textfield.TextInputLayout>
-
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btn_send_test"
-                            style="@style/Widget.Material3.Button"
-                            android:layout_width="0dp"
-                            android:layout_weight="1"
-                            android:layout_height="wrap_content"
-                            android:text="发送测试通知" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btn_send_test_now"
-                            style="@style/Widget.Material3.Button.TonalButton"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:text="模拟正计时" />
-
-                    </LinearLayout>
+                        android:text="发送测试通知" />
 
                     <!-- 状态提示文本 -->
                     <TextView

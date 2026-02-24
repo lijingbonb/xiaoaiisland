@@ -63,18 +63,11 @@ public class MainActivity extends AppCompatActivity {
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
-        // 测试通知：3分钟后上课（倒计时）
+        // 测试通知：1分钟后上课（倒计时）
         findViewById(R.id.btn_send_test).setOnClickListener(v ->
                 requireNotifPermAndRun(() -> {
-                    sendTestNotification(3 * 60 * 1000L);
+                    sendTestNotification(60_000L);
                     showTestHint("已发送测试通知（倒计时），请下拉通知栏查看超级岛效果");
-                }));
-
-        // 测试通知：模拟正在上课（正计时，startTime = 5分钟前）
-        findViewById(R.id.btn_send_test_now).setOnClickListener(v ->
-                requireNotifPermAndRun(() -> {
-                    sendTestNotification(-5 * 60 * 1000L);
-                    showTestHint("已发送测试通知（正计时），超级岛应显示已开始");
                 }));
 
         updateModuleStatus();
@@ -182,12 +175,8 @@ public class MainActivity extends AppCompatActivity {
         // 读取输入框内容，为空时使用默认值
         android.widget.EditText etName      = findViewById(R.id.et_course_name);
         android.widget.EditText etClassroom = findViewById(R.id.et_classroom);
-        android.widget.EditText etStartTime = findViewById(R.id.et_start_time);
-        android.widget.EditText etEndTime   = findViewById(R.id.et_end_time);
         String courseName  = etName.getText() != null ? etName.getText().toString().trim() : "";
         String classroom   = etClassroom.getText() != null ? etClassroom.getText().toString().trim() : "";
-        String customStart = etStartTime.getText() != null ? etStartTime.getText().toString().trim() : "";
-        String customEnd   = etEndTime.getText() != null ? etEndTime.getText().toString().trim() : "";
         if (courseName.isEmpty()) courseName = "高等数学";
         if (classroom.isEmpty())  classroom  = "教科A-101";
 
@@ -199,35 +188,17 @@ public class MainActivity extends AppCompatActivity {
             nm.createNotificationChannel(ch);
         }
 
-        // 计算上课/结束时间字符串
-        // 若用户填写了 HH:mm，则以今天该时刻为准；否则用当前时间 + 偏移
-        long startMs;
+        // 开始时间 = 当前时间 + 偏移，结束时间 = 当前时间 + 2 分钟
+        long now = System.currentTimeMillis();
+        long startMs = now + startOffsetMs;
+        long endMs   = now + 2 * 60_000L;
         java.util.Calendar cal = java.util.Calendar.getInstance();
-        if (customStart.matches("\\d{1,2}:\\d{2}")) {
-            String[] parts = customStart.split(":");
-            cal.set(java.util.Calendar.HOUR_OF_DAY, Integer.parseInt(parts[0]));
-            cal.set(java.util.Calendar.MINUTE,      Integer.parseInt(parts[1]));
-            cal.set(java.util.Calendar.SECOND,      0);
-            cal.set(java.util.Calendar.MILLISECOND, 0);
-            startMs = cal.getTimeInMillis();
-        } else {
-            startMs = System.currentTimeMillis() + startOffsetMs;
-            cal.setTimeInMillis(startMs);
-        }
+        cal.setTimeInMillis(startMs);
         String startTime = String.format(java.util.Locale.getDefault(), "%02d:%02d",
                 cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE));
-        String endTime;
-        if (customEnd.matches("\\d{1,2}:\\d{2}")) {
-            // 用户手动填写了结束时间
-            String[] ep = customEnd.split(":");
-            endTime = String.format(java.util.Locale.getDefault(), "%02d:%02d",
-                    Integer.parseInt(ep[0]), Integer.parseInt(ep[1]));
-        } else {
-            // 未填写则默认 +90 分钟
-            cal.setTimeInMillis(startMs + 90 * 60 * 1000L);
-            endTime = String.format(java.util.Locale.getDefault(), "%02d:%02d",
-                    cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE));
-        }
+        cal.setTimeInMillis(endMs);
+        String endTime = String.format(java.util.Locale.getDefault(), "%02d:%02d",
+                cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE));
 
         // 不再打印假 JSON，也不再依赖 lastPushedInfo 跨进程缓存。
         // 测试通知必须走与真实通知完全相同的代码路径：
