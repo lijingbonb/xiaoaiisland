@@ -49,6 +49,11 @@ public class MainHook implements IXposedHookLoadPackage {
     /** 岛通知主参数 Key */
     private static final String KEY_FOCUS_PARAM = "miui.focus.param";
 
+    /** SharedPreferences 名称（与 MainActivity 保持一致） */
+    private static final String PREFS_NAME = "island_custom";
+    /** 模块自身包名，用于跨进程读取 SharedPreferences */
+    private static final String MODULE_PKG  = "com.xiaoai.islandnotify";
+
     /** 防止同一进程内多个 ClassLoader 重复注册 Hook */
     private static volatile boolean hooked = false;
 
@@ -214,12 +219,8 @@ public class MainHook implements IXposedHookLoadPackage {
                     + " 时间=" + info.startTime + " 结束=" + info.endTime
                     + " 教室=" + info.classroom);
 
-            // ── 1. 构建超级岛 JSON ─────────────────────────────────────
+            // ── 1. 计算开始时间戳 ─────────────────────────────────────
             long startMs = computeClassStartMs(info.startTime);
-            String islandJson = buildIslandJson(info, STATE_COUNTDOWN);
-            extras.putString(KEY_FOCUS_PARAM, islandJson);
-            XposedBridge.log(TAG + ": JSON 长度=" + islandJson.length()
-                    + " startMs=" + startMs);
 
             // ── 2. 获取 ctx ──────────────────────────────────────────
             Context ctx = null;
@@ -228,8 +229,18 @@ public class MainHook implements IXposedHookLoadPackage {
             } catch (Throwable ignored) {}
             XposedBridge.log(TAG + ": ctx=" + (ctx != null ? "ok" : "null"));
 
+            // ── 3. 读取用户偏好设置 ───────────────────────────────────
+            final android.content.SharedPreferences prefs =
+                    (ctx != null) ? loadPrefs(ctx) : null;
+
+            // ── 4. 构建超级岛 JSON ────────────────────────────────────
+            String islandJson = buildIslandJson(info, STATE_COUNTDOWN, prefs);
+            extras.putString(KEY_FOCUS_PARAM, islandJson);
+            XposedBridge.log(TAG + ": JSON 长度=" + islandJson.length()
+                    + " startMs=" + startMs);
+
             if (ctx != null) {
-                // ── 3. 注入 miui.focus.pics ──────────────────────────
+                // ── 5. 注入 miui.focus.pics ──────────────────────────
                 try {
                     Drawable drawable = ctx.getPackageManager().getApplicationIcon(TARGET_PACKAGE);
                     if (drawable instanceof BitmapDrawable) {
@@ -251,7 +262,7 @@ public class MainHook implements IXposedHookLoadPackage {
                     XposedBridge.log(TAG + ": 课表 intent 解析失败 → " + e.getMessage());
                 }
 
-                // ── 4. 安排定时更新（独立调度，互不依赖）─────────────────
+                // ── 6. 安排定时更新（独立调度，互不依赖）─────────────────
                 final Context finalCtx    = ctx;
                 final CourseInfo savedInfo = info;
                 final String channelId    = safeStr(notification.getChannelId());
@@ -260,22 +271,22 @@ public class MainHook implements IXposedHookLoadPackage {
                         finalCtx.getSystemService(android.app.NotificationManager.class);
                 final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
 
-                // 4a. 开课时刻 → 正计时（STATE_ELAPSED）
+                // 6a. 开课时刻 → 正计时（STATE_ELAPSED）
                 long delay = startMs - System.currentTimeMillis();
                 if (delay > 0 && delay <= 6 * 3600 * 1000L) {
                     h.postDelayed(() -> sendIslandUpdate(
                             savedInfo, STATE_ELAPSED, finalCtx, channelId,
-                            notification, savedPics, nm, notifTag, notifId), delay);
+                            notification, savedPics, nm, notifTag, notifId, prefs), delay);
                     XposedBridge.log(TAG + ": 已安排正计时更新，延迟 " + (delay / 1000) + "秒");
                 }
 
-                // 4b. 下课时刻 → 下课状态（STATE_FINISHED），独立于 4a 调度
+                // 6b. 下课时刻 → 下课状态（STATE_FINISHED），独立于 6a 调度
                 long endMs2 = computeClassStartMs(savedInfo.endTime);
                 long delayEnd = endMs2 - System.currentTimeMillis();
                 if (!savedInfo.endTime.isEmpty() && endMs2 > 0 && delayEnd > 0 && delayEnd <= 6 * 3600 * 1000L) {
                     h.postDelayed(() -> sendIslandUpdate(
                             savedInfo, STATE_FINISHED, finalCtx, channelId,
-                            notification, savedPics, nm, notifTag, notifId), delayEnd);
+                            notification, savedPics, nm, notifTag, notifId, prefs), delayEnd);
                     XposedBridge.log(TAG + ": 已安排下课更新，延迟 " + (delayEnd / 1000) + "秒");
                 }
             }
@@ -409,9 +420,10 @@ public class MainHook implements IXposedHookLoadPackage {
      */
     private void sendIslandUpdate(CourseInfo info, int state,
             Context ctx, String channelId, Notification src, Bundle pics,
-            android.app.NotificationManager nm, String tag, int id) {
+            android.app.NotificationManager nm, String tag, int id,
+            android.content.SharedPreferences prefs) {
         try {
-            String json = buildIslandJson(info, state);
+            String json = buildIslandJson(info, state, prefs);
             Notification n = new Notification.Builder(ctx, channelId)
                     .setSmallIcon(src.getSmallIcon())
                     .setContentTitle(info.courseName)
@@ -437,7 +449,8 @@ public class MainHook implements IXposedHookLoadPackage {
      *   STATE_ELAPSED  ：上课中正计时，上课静音按钮
      *   STATE_FINISHED ：下课后正计时，解除静音按钮
      */
-    private String buildIslandJson(CourseInfo info, int state) throws JSONException {
+    private String buildIslandJson(CourseInfo info, int state,
+            android.content.SharedPreferences prefs) throws JSONException {
         long startMs = computeClassStartMs(info.startTime);
         long endMs   = computeClassStartMs(info.endTime);
         long now     = System.currentTimeMillis();
@@ -452,9 +465,9 @@ public class MainHook implements IXposedHookLoadPackage {
         if (!info.startTime.isEmpty()) baseInfo.put("content",    info.startTime);
         if (!info.endTime.isEmpty())   baseInfo.put("subContent", "| " + info.endTime);
 
-        // ── picInfo ───────────────────────────────────────────────
+        // ── picInfo（展开态识别图形组件，始终存在）────────────────────────
         JSONObject notifPicInfo = new JSONObject();
-        notifPicInfo.put("type", 1);
+        notifPicInfo.put("type", 1); // 1 = appIcon
 
         // ── actionInfo ────────────────────────────────────────────
         String actionAction = isFinished ? UNMUTE_ACTION : MUTE_ACTION;
@@ -502,22 +515,35 @@ public class MainHook implements IXposedHookLoadPackage {
         }
 
         // ── bigIslandArea ─────────────────────────────────────────
-        JSONObject aPicInfo  = new JSONObject(); aPicInfo.put("type", 1);
+        final boolean showIconA = (prefs == null || prefs.getBoolean("icon_a", true));
         JSONObject aTextInfo = new JSONObject();
-        aTextInfo.put("title", info.startTime.isEmpty() ? info.courseName : info.startTime);
+        String aFallback = info.startTime.isEmpty() ? info.courseName : info.startTime + "上课";
+        aTextInfo.put("title", resolveTemplate(
+                prefs != null ? prefs.getString("tpl_a", "") : "", info, aFallback));
         JSONObject imageTextInfoLeft = new JSONObject();
-        imageTextInfoLeft.put("type",     1);
-        imageTextInfoLeft.put("picInfo",  aPicInfo);
+        imageTextInfoLeft.put("type", 1);
+        if (showIconA) {
+            // 显示图标：picInfo.type=1 = appIcon（取应用桌面图标）
+            JSONObject aPicInfo = new JSONObject();
+            aPicInfo.put("type", 1);
+            imageTextInfoLeft.put("picInfo", aPicInfo);
+        }
+        // 隐藏图标时不传 picInfo，文档："图标或正文大字二选一"，有 textInfo.title 即合规
         imageTextInfoLeft.put("textInfo", aTextInfo);
         JSONObject bTextInfo = new JSONObject();
-        bTextInfo.put("title", info.classroom.isEmpty() ? "—" : info.classroom);
+        String bFallback = info.classroom.isEmpty() ? "—" : info.classroom;
+        bTextInfo.put("title", resolveTemplate(
+                prefs != null ? prefs.getString("tpl_b", "") : "", info, bFallback));
         JSONObject bigIslandArea = new JSONObject();
         bigIslandArea.put("imageTextInfoLeft", imageTextInfoLeft);
         bigIslandArea.put("textInfo",          bTextInfo);
 
-        // ── smallIslandArea ───────────────────────────────────────
-        JSONObject smallPicInfo = new JSONObject(); smallPicInfo.put("type", 1);
-        JSONObject smallIslandArea = new JSONObject(); smallIslandArea.put("picInfo", smallPicInfo);
+        // ── smallIslandArea（小岛/息屏图标）────────────────────────────────────────
+        // 文档说明：小岛图标有三级 fallback（开发者上传 → A区左侧图标 → 应用图标），
+        // 系统始终显示图标，无法通过不传字段来隐藏。
+        // 因此不传 smallIslandArea.picInfo，让系统自动 fallback 到 A区图标或应用图标。
+        // icon_a 关闭时 A区无 picInfo，小岛最终 fallback 到应用图标（始终有图标）。
+        JSONObject smallIslandArea = new JSONObject();
 
         // ── shareData ─────────────────────────────────────────────
         String timeRange = info.startTime + (info.endTime.isEmpty() ? "" : "-" + info.endTime);
@@ -536,13 +562,16 @@ public class MainHook implements IXposedHookLoadPackage {
         paramIsland.put("shareData",       shareData);
 
         // ── paramV2 ───────────────────────────────────────────────
-        String tickerText = buildTickerText(info);
+        String tickerText = resolveTemplate(
+                prefs != null ? prefs.getString("tpl_ticker", "") : "",
+                info, buildTickerText(info));
         JSONObject paramV2 = new JSONObject();
-        paramV2.put("protocol",  1);
-        paramV2.put("business",  "course_schedule");
-        paramV2.put("updatable", true);
-        paramV2.put("ticker",    tickerText);
-        paramV2.put("aodTitle",  tickerText);
+        paramV2.put("protocol",    1);
+        paramV2.put("business",    "course_schedule");
+        paramV2.put("updatable",   true);
+        paramV2.put("colorScheme", 0); // 0 = 自动适配，状态栏自动反色
+        paramV2.put("ticker",      tickerText);
+        paramV2.put("aodTitle",    tickerText);
         if (isActive) {
             paramV2.put("islandFirstFloat", true);
             paramV2.put("enableFloat",      true);
@@ -559,11 +588,43 @@ public class MainHook implements IXposedHookLoadPackage {
         return root.toString();
     }
 
-    /** 状态栏 / 息屏文案：格式 "19:50 教1-201" */
+    /** 状态栏 / 息屏文案：格式 "19:50上课 教1-201" */
     private String buildTickerText(CourseInfo info) {
-        String text = info.startTime;
+        String text = info.startTime.isEmpty() ? info.courseName : info.startTime + "上课";
         if (!info.classroom.isEmpty()) text += " " + info.classroom;
-        return text.isEmpty() ? info.courseName : text;
+        return text;
+    }
+
+    /**
+     * 将模板字符串中的变量替换为实际课程信息。
+     * 支持：{课名} {开始} {结束} {教室}
+     * 若模板为空则返回 fallback。
+     */
+    private static String resolveTemplate(String tpl, CourseInfo info, String fallback) {
+        if (tpl == null || tpl.isEmpty()) return fallback;
+        return tpl
+                .replace("{课名}", info.courseName)
+                .replace("{开始}", info.startTime)
+                .replace("{结束}", info.endTime)
+                .replace("{教室}", info.classroom);
+    }
+
+    /**
+     * 跨进程读取模块自身的 SharedPreferences。
+     * 使用 XSharedPreferences 绕过 Android 9+ 的沙箱文件权限限制。
+     * createPackageContext+MODE_PRIVATE 在 Android 9+ 会被 SELinux 拦截，无法使用。
+     */
+    private android.content.SharedPreferences loadPrefs(Context ctx) {
+        try {
+            de.robv.android.xposed.XSharedPreferences prefs =
+                    new de.robv.android.xposed.XSharedPreferences(MODULE_PKG, PREFS_NAME);
+            prefs.reload();
+            XposedBridge.log(TAG + ": XSharedPreferences 加载成功，条目数=" + prefs.getAll().size());
+            return prefs;
+        } catch (Exception e) {
+            XposedBridge.log(TAG + ": loadPrefs 失败 → " + e.getMessage());
+            return null;
+        }
     }
 
     /**

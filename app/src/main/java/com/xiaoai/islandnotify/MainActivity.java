@@ -2,16 +2,17 @@ package com.xiaoai.islandnotify;
 
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.content.res.ColorStateList;
 import android.content.Context;
+import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
 
@@ -25,6 +26,7 @@ import androidx.core.widget.ImageViewCompat;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.color.DynamicColors;
 import com.google.android.material.color.MaterialColors;
+import com.google.android.material.switchmaterial.SwitchMaterial;
 
 /**
  * 模块主界面
@@ -61,10 +63,6 @@ public class MainActivity extends AppCompatActivity {
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
-        // 前往通知策略设置（DnD 授权）
-        findViewById(R.id.btn_dnd_settings).setOnClickListener(v ->
-                startActivity(new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)));
-
         // 测试通知：3分钟后上课（倒计时）
         findViewById(R.id.btn_send_test).setOnClickListener(v ->
                 requireNotifPermAndRun(() -> {
@@ -80,13 +78,12 @@ public class MainActivity extends AppCompatActivity {
                 }));
 
         updateModuleStatus();
+        initCustomCard();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // 每次回到前台时刷新权限状态（用户可能刚从设置页返回）
-        updatePermissionStatus();
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -125,33 +122,34 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * 检查并更新权限状态图标。
-     */
-    private void updatePermissionStatus() {
-        // MODIFY_AUDIO_SETTINGS 是普通权限，安装时自动授予
-        boolean audioGranted = checkSelfPermission(android.Manifest.permission.MODIFY_AUDIO_SETTINGS)
-                == PackageManager.PERMISSION_GRANTED;
+    /** SharedPreferences 名称（与 MainHook 保持一致） */
+    static final String PREFS_NAME = "island_custom";
 
-        // 通知访问（勿扰控制）需要用户手动授权
-        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        boolean dndGranted = nm != null && nm.isNotificationPolicyAccessGranted();
+    private void initCustomCard() {
+        SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
 
-        setPermIcon(R.id.iv_perm_audio, audioGranted);
-        setPermIcon(R.id.iv_perm_dnd, dndGranted);
-    }
+        EditText etA      = findViewById(R.id.et_tpl_a);
+        EditText etB      = findViewById(R.id.et_tpl_b);
+        EditText etTicker = findViewById(R.id.et_tpl_ticker);
+        SwitchMaterial swIconA   = findViewById(R.id.sw_icon_a);
+        TextView tvHint   = findViewById(R.id.tv_save_hint);
 
-    private void setPermIcon(int viewId, boolean granted) {
-        ImageView iv = findViewById(viewId);
-        if (granted) {
-            iv.setImageResource(R.drawable.ic_perm_ok);
-            int color = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, Color.GREEN);
-            ImageViewCompat.setImageTintList(iv, ColorStateList.valueOf(color));
-        } else {
-            iv.setImageResource(R.drawable.ic_perm_warn);
-            int color = MaterialColors.getColor(this, com.google.android.material.R.attr.colorError, Color.RED);
-            ImageViewCompat.setImageTintList(iv, ColorStateList.valueOf(color));
-        }
+        // 读取已保存配置，无则用默认值
+        etA.setText(sp.getString("tpl_a",      "{开始}上课"));
+        etB.setText(sp.getString("tpl_b",      "{教室}"));
+        etTicker.setText(sp.getString("tpl_ticker", "{开始}上课 {教室}"));
+        swIconA.setChecked(sp.getBoolean("icon_a",   true));
+
+        findViewById(R.id.btn_save_custom).setOnClickListener(v -> {
+            sp.edit()
+                .putString("tpl_a",      etA.getText().toString().trim())
+                .putString("tpl_b",      etB.getText().toString().trim())
+                .putString("tpl_ticker", etTicker.getText().toString().trim())
+                .putBoolean("icon_a",    swIconA.isChecked())
+                .apply();
+            tvHint.setText("已保存，下次通知生效");
+            tvHint.setVisibility(View.VISIBLE);
+        });
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -191,7 +189,7 @@ public class MainActivity extends AppCompatActivity {
         String customStart = etStartTime.getText() != null ? etStartTime.getText().toString().trim() : "";
         String customEnd   = etEndTime.getText() != null ? etEndTime.getText().toString().trim() : "";
         if (courseName.isEmpty()) courseName = "高等数学";
-        if (classroom.isEmpty())  classroom  = "教学楼A301";
+        if (classroom.isEmpty())  classroom  = "教科A-101";
 
         // 确保通知频道存在（channelId 必须包含 COURSE_SCHEDULER_REMINDER）
         final String CHANNEL_ID = "COURSE_SCHEDULER_REMINDER_sound";
