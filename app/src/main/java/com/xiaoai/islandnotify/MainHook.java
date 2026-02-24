@@ -240,17 +240,6 @@ public class MainHook implements IXposedHookLoadPackage {
                     + " startMs=" + startMs);
 
             if (ctx != null) {
-                // ── 5. 注入 miui.focus.pics ──────────────────────────
-                try {
-                    Drawable drawable = ctx.getPackageManager().getApplicationIcon(TARGET_PACKAGE);
-                    if (drawable instanceof BitmapDrawable) {
-                        Bitmap bmp = ((BitmapDrawable) drawable).getBitmap();
-                        Bundle picsBundle = new Bundle();
-                        picsBundle.putParcelable(PIC_KEY_SHARE, bmp);
-                        extras.putBundle("miui.focus.pics", picsBundle);
-                        XposedBridge.log(TAG + ": miui.focus.pics 注入成功 " + bmp.getWidth() + "x" + bmp.getHeight());
-                    }
-                } catch (Exception ignored) {}
                 try {
                     Intent tableIntent = Intent.parseUri(
                             COURSE_TABLE_INTENT, Intent.URI_INTENT_SCHEME);
@@ -266,7 +255,6 @@ public class MainHook implements IXposedHookLoadPackage {
                 final Context finalCtx    = ctx;
                 final CourseInfo savedInfo = info;
                 final String channelId    = safeStr(notification.getChannelId());
-                final Bundle savedPics    = extras.getBundle("miui.focus.pics");
                 final android.app.NotificationManager nm =
                         finalCtx.getSystemService(android.app.NotificationManager.class);
                 final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -276,7 +264,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 if (delay > 0 && delay <= 6 * 3600 * 1000L) {
                     h.postDelayed(() -> sendIslandUpdate(
                             savedInfo, STATE_ELAPSED, finalCtx, channelId,
-                            notification, savedPics, nm, notifTag, notifId, prefs), delay);
+                            notification, nm, notifTag, notifId, prefs), delay);
                     XposedBridge.log(TAG + ": 已安排正计时更新，延迟 " + (delay / 1000) + "秒");
                 }
 
@@ -286,7 +274,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 if (!savedInfo.endTime.isEmpty() && endMs2 > 0 && delayEnd > 0 && delayEnd <= 6 * 3600 * 1000L) {
                     h.postDelayed(() -> sendIslandUpdate(
                             savedInfo, STATE_FINISHED, finalCtx, channelId,
-                            notification, savedPics, nm, notifTag, notifId, prefs), delayEnd);
+                            notification, nm, notifTag, notifId, prefs), delayEnd);
                     XposedBridge.log(TAG + ": 已安排下课更新，延迟 " + (delayEnd / 1000) + "秒");
                 }
             }
@@ -419,7 +407,7 @@ public class MainHook implements IXposedHookLoadPackage {
      * 构建并发送更新后的岛通知，供 Handler 延迟回调使用。
      */
     private void sendIslandUpdate(CourseInfo info, int state,
-            Context ctx, String channelId, Notification src, Bundle pics,
+            Context ctx, String channelId, Notification src,
             android.app.NotificationManager nm, String tag, int id,
             android.content.SharedPreferences prefs) {
         try {
@@ -433,7 +421,6 @@ public class MainHook implements IXposedHookLoadPackage {
                     .setAutoCancel(true)
                     .build();
             n.extras.putString(KEY_FOCUS_PARAM, json);
-            if (pics != null) n.extras.putBundle("miui.focus.pics", pics);
             n.contentIntent = src.contentIntent;
             if (tag != null) nm.notify(tag, id, n);
             else             nm.notify(id, n);
