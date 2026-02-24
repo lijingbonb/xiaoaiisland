@@ -125,7 +125,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
                         android:layout_marginBottom="14dp"
-                        android:text="发送一条模拟课程提醒，验证超级岛效果是否正常。需要模块已激活且勾选了本应用作用域。"
+                        android:text="发送一条模拟课程提醒，验证超级岛效果是否正常。需要移除超级岛白名单。"
                         android:textAppearance="?attr/textAppearanceBodySmall"
                         android:textColor="?attr/colorOnSecondaryContainer"
                         android:alpha="0.85" />
