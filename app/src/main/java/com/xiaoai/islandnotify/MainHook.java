@@ -261,18 +261,24 @@ public class MainHook implements IXposedHookLoadPackage {
                     XposedBridge.log(TAG + ": 课表 intent 解析失败 → " + e.getMessage());
                 }
 
-                // ── 4. 延迟到开课时刻更新为正计时 ─────────────────────────
+                // ── 4. 安排定时更新（独立调度，互不依赖）─────────────────
+                final Context finalCtx    = ctx;
+                final CourseInfo savedInfo = info;
+                final String channelId    = safeStr(notification.getChannelId());
+                final Bundle savedPics    = extras.getBundle("miui.focus.pics");
+                final android.app.NotificationManager nm =
+                        finalCtx.getSystemService(android.app.NotificationManager.class);
+                final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+
+                // Helper：构建并发送更新通知
+                // （用局部方法替代重复的 Builder 样板）
+
+                // 4a. 开课时刻 → 正计时（STATE_ELAPSED）
                 long delay = startMs - System.currentTimeMillis();
                 if (delay > 0 && delay <= 6 * 3600 * 1000L) {
-                    final Context finalCtx    = ctx;
-                    final CourseInfo savedInfo = info;
-                    final String channelId    = safeStr(notification.getChannelId());
-                    final Bundle savedPics    = extras.getBundle("miui.focus.pics");
-                    final android.app.NotificationManager nm =
-                            finalCtx.getSystemService(android.app.NotificationManager.class);
-                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    h.postDelayed(() -> {
                         try {
-                            String elapsedJson = buildIslandParamsElapsed(savedInfo);
+                            String json = buildIslandParamsElapsed(savedInfo);
                             Notification.Builder b = new Notification.Builder(finalCtx, channelId)
                                     .setSmallIcon(notification.getSmallIcon())
                                     .setContentTitle(savedInfo.courseName)
@@ -280,51 +286,46 @@ public class MainHook implements IXposedHookLoadPackage {
                                             + (savedInfo.endTime.isEmpty() ? "" : " | " + savedInfo.endTime)
                                             + (savedInfo.classroom.isEmpty() ? "" : " " + savedInfo.classroom))
                                     .setAutoCancel(true);
-                            Notification updated = b.build();
-                            updated.extras.putString(KEY_FOCUS_PARAM, elapsedJson);
-                            updated.extras.putBoolean("islandElapsedUpdate", true);
-                            // 同样注入 App 图标供分享
-                            if (savedPics != null) {
-                                updated.extras.putBundle("miui.focus.pics", savedPics);
-                            }
-                            updated.contentIntent = notification.contentIntent;
-                            if (notifTag != null) nm.notify(notifTag, notifId, updated);
-                            else                  nm.notify(notifId, updated);
+                            Notification n = b.build();
+                            n.extras.putString(KEY_FOCUS_PARAM, json);
+                            if (savedPics != null) n.extras.putBundle("miui.focus.pics", savedPics);
+                            n.contentIntent = notification.contentIntent;
+                            if (notifTag != null) nm.notify(notifTag, notifId, n);
+                            else                  nm.notify(notifId, n);
                             XposedBridge.log(TAG + ": 正计时更新通知已重发 id=" + notifId);
-
-                            // 安排下课状态更新
-                            long endMs = computeClassStartMs(savedInfo.endTime);
-                            long delayEnd = endMs - System.currentTimeMillis();
-                            if (!savedInfo.endTime.isEmpty() && endMs > 0 && delayEnd > 0 && delayEnd <= 6 * 3600 * 1000L) {
-                                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                                    try {
-                                        String finishedJson = buildIslandParamsFinished(savedInfo);
-                                        Notification.Builder bf = new Notification.Builder(finalCtx, channelId)
-                                                .setSmallIcon(notification.getSmallIcon())
-                                                .setContentTitle(savedInfo.courseName)
-                                                .setContentText(savedInfo.startTime
-                                                        + (savedInfo.endTime.isEmpty() ? "" : " | " + savedInfo.endTime)
-                                                        + (savedInfo.classroom.isEmpty() ? "" : " " + savedInfo.classroom))
-                                                .setAutoCancel(true);
-                                        Notification fin = bf.build();
-                                        fin.extras.putString(KEY_FOCUS_PARAM, finishedJson);
-                                        fin.extras.putBoolean("islandElapsedUpdate", true);
-                                        if (savedPics != null) fin.extras.putBundle("miui.focus.pics", savedPics);
-                                        fin.contentIntent = notification.contentIntent;
-                                        if (notifTag != null) nm.notify(notifTag, notifId, fin);
-                                        else                  nm.notify(notifId, fin);
-                                        XposedBridge.log(TAG + ": 下课更新通知已重发 id=" + notifId);
-                                    } catch (Exception e) {
-                                        XposedBridge.log(TAG + ": 下课更新失败 → " + e.getMessage());
-                                    }
-                                }, delayEnd);
-                                XposedBridge.log(TAG + ": 已安排下课更新，延迟 " + (delayEnd / 1000) + "秒");
-                            }
                         } catch (Exception e) {
-                            XposedBridge.log(TAG + ": 延迟更新失败 → " + e.getMessage());
+                            XposedBridge.log(TAG + ": 正计时更新失败 → " + e.getMessage());
                         }
                     }, delay);
                     XposedBridge.log(TAG + ": 已安排正计时更新，延迟 " + (delay / 1000) + "秒");
+                }
+
+                // 4b. 下课时刻 → 下课状态（STATE_FINISHED），独立于 4a 调度
+                long endMs2 = computeClassStartMs(savedInfo.endTime);
+                long delayEnd = endMs2 - System.currentTimeMillis();
+                if (!savedInfo.endTime.isEmpty() && endMs2 > 0 && delayEnd > 0 && delayEnd <= 6 * 3600 * 1000L) {
+                    h.postDelayed(() -> {
+                        try {
+                            String json = buildIslandParamsFinished(savedInfo);
+                            Notification.Builder bf = new Notification.Builder(finalCtx, channelId)
+                                    .setSmallIcon(notification.getSmallIcon())
+                                    .setContentTitle(savedInfo.courseName)
+                                    .setContentText(savedInfo.startTime
+                                            + (savedInfo.endTime.isEmpty() ? "" : " | " + savedInfo.endTime)
+                                            + (savedInfo.classroom.isEmpty() ? "" : " " + savedInfo.classroom))
+                                    .setAutoCancel(true);
+                            Notification fin = bf.build();
+                            fin.extras.putString(KEY_FOCUS_PARAM, json);
+                            if (savedPics != null) fin.extras.putBundle("miui.focus.pics", savedPics);
+                            fin.contentIntent = notification.contentIntent;
+                            if (notifTag != null) nm.notify(notifTag, notifId, fin);
+                            else                  nm.notify(notifId, fin);
+                            XposedBridge.log(TAG + ": 下课更新通知已重发 id=" + notifId);
+                        } catch (Exception e) {
+                            XposedBridge.log(TAG + ": 下课更新失败 → " + e.getMessage());
+                        }
+                    }, delayEnd);
+                    XposedBridge.log(TAG + ": 已安排下课更新，延迟 " + (delayEnd / 1000) + "秒");
                 }
             }
 
