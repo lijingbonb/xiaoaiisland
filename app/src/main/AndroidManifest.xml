@@ -38,7 +38,7 @@
             android:name="xposedscope"
             android:value="com.miui.voiceassist" />
 
-        <!-- 上课静音广播接收器（备用） -->
+        <!-- 上课静音广播接收器 -->
         <receiver
             android:name=".MuteReceiver"
             android:exported="true">
@@ -46,35 +46,6 @@
                 <action android:name="com.xiaoai.islandnotify.ACTION_MUTE" />
             </intent-filter>
         </receiver>
-
-        <!-- 上课静音 Service（Super Island actionIntentType=3 调用，比广播更可靠） -->
-        <service
-            android:name=".MuteService"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.xiaoai.islandnotify.ACTION_MUTE" />
-            </intent-filter>
-        </service>
-
-        <!-- 上课静音无界面 Activity（被 Super Island 按钮 actionIntentType=1 调用） -->
-        <activity
-            android:name=".MuteActivity"
-            android:theme="@android:style/Theme.NoDisplay"
-            android:noHistory="true"
-            android:excludeFromRecents="true"
-            android:exported="true">
-            <!--
-                自定义 URI scheme：xiaoaimute://mute
-                Super Island 丢弃 component= 参数（安全限制），改用 URI scheme 路由，
-                系统通过 intent-filter 解析，精准匹配到本 Activity，不会打开主界面。
-            -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="xiaoaimute" android:host="mute" />
-            </intent-filter>
-        </activity>
 
         <!-- 模块主界面（桌面入口） -->
         <activity
