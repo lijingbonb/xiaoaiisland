@@ -35,6 +35,8 @@ public class MainHook implements IXposedHookLoadPackage {
 
     /** 触发上课静音的广播 Action */
     private static final String MUTE_ACTION   = "com.xiaoai.islandnotify.ACTION_MUTE";
+    /** 触发解除静音的广播 Action */
+    private static final String UNMUTE_ACTION = "com.xiaoai.islandnotify.ACTION_UNMUTE";
     /** shareData 拖拽分享图片在 miui.focus.pics Bundle 中的 key */
     private static final String PIC_KEY_SHARE = "miui.focus.pic_share";
 
@@ -289,6 +291,35 @@ public class MainHook implements IXposedHookLoadPackage {
                             if (notifTag != null) nm.notify(notifTag, notifId, updated);
                             else                  nm.notify(notifId, updated);
                             XposedBridge.log(TAG + ": 正计时更新通知已重发 id=" + notifId);
+
+                            // 安排下课状态更新
+                            long endMs = computeClassStartMs(savedInfo.endTime);
+                            long delayEnd = endMs - System.currentTimeMillis();
+                            if (!savedInfo.endTime.isEmpty() && endMs > 0 && delayEnd > 0 && delayEnd <= 6 * 3600 * 1000L) {
+                                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                                    try {
+                                        String finishedJson = buildIslandParamsFinished(savedInfo);
+                                        Notification.Builder bf = new Notification.Builder(finalCtx, channelId)
+                                                .setSmallIcon(notification.getSmallIcon())
+                                                .setContentTitle(savedInfo.courseName)
+                                                .setContentText(savedInfo.startTime
+                                                        + (savedInfo.endTime.isEmpty() ? "" : " | " + savedInfo.endTime)
+                                                        + (savedInfo.classroom.isEmpty() ? "" : " " + savedInfo.classroom))
+                                                .setAutoCancel(true);
+                                        Notification fin = bf.build();
+                                        fin.extras.putString(KEY_FOCUS_PARAM, finishedJson);
+                                        fin.extras.putBoolean("islandElapsedUpdate", true);
+                                        if (savedPics != null) fin.extras.putBundle("miui.focus.pics", savedPics);
+                                        fin.contentIntent = notification.contentIntent;
+                                        if (notifTag != null) nm.notify(notifTag, notifId, fin);
+                                        else                  nm.notify(notifId, fin);
+                                        XposedBridge.log(TAG + ": 下课更新通知已重发 id=" + notifId);
+                                    } catch (Exception e) {
+                                        XposedBridge.log(TAG + ": 下课更新失败 → " + e.getMessage());
+                                    }
+                                }, delayEnd);
+                                XposedBridge.log(TAG + ": 已安排下课更新，延迟 " + (delayEnd / 1000) + "秒");
+                            }
                         } catch (Exception e) {
                             XposedBridge.log(TAG + ": 延迟更新失败 → " + e.getMessage());
                         }
@@ -642,6 +673,97 @@ public class MainHook implements IXposedHookLoadPackage {
         JSONObject root = new JSONObject();
         root.put("param_v2", paramV2);
         return root.toString();
+    }
+
+    /**
+     * 构建下课状态的岛 JSON：已经下课 + 正计时（从下课时刻起）+ 解除静音按鈕。
+     */
+    private String buildIslandParamsFinished(CourseInfo info) throws JSONException {
+        long endMs = computeClassStartMs(info.endTime);
+
+        JSONObject baseInfo = new JSONObject();
+        baseInfo.put("type",        2);
+        baseInfo.put("title",       info.courseName);
+        baseInfo.put("showDivider", true);
+        if (!info.startTime.isEmpty()) baseInfo.put("content",    info.startTime);
+        if (!info.endTime.isEmpty())   baseInfo.put("subContent", "| " + info.endTime);
+
+        JSONObject notifPicInfo = new JSONObject();
+        notifPicInfo.put("type", 1);
+
+        JSONObject actionInfo = new JSONObject();
+        actionInfo.put("actionIntentType", 2);
+        actionInfo.put("actionIntent",
+                "intent:#Intent;action=" + UNMUTE_ACTION
+                + ";component=com.xiaoai.islandnotify/.MuteReceiver"
+                + ";launchFlags=0x10000000;end");
+        actionInfo.put("actionTitle", "解除静音");
+
+        JSONObject hintInfo = new JSONObject();
+        hintInfo.put("type",       2);
+        hintInfo.put("content",    "已经下课");
+        hintInfo.put("subContent", "地点");
+        hintInfo.put("subTitle",   info.classroom.isEmpty() ? "—" : info.classroom);
+        hintInfo.put("actionInfo", actionInfo);
+        if (endMs > 0) {
+            JSONObject timerInfo = new JSONObject();
+            timerInfo.put("timerType",          1);
+            timerInfo.put("timerWhen",          endMs);
+            timerInfo.put("timerSystemCurrent", System.currentTimeMillis());
+            hintInfo.put("timerInfo", timerInfo);
+        } else {
+            hintInfo.put("title", "已经下课");
+        }
+
+        JSONObject aPicInfo  = new JSONObject(); aPicInfo.put("type", 1);
+        JSONObject aTextInfo = new JSONObject();
+        aTextInfo.put("title",   info.courseName);
+        aTextInfo.put("content", "已下课");
+        JSONObject imageTextInfoLeft = new JSONObject();
+        imageTextInfoLeft.put("type",     1);
+        imageTextInfoLeft.put("picInfo",  aPicInfo);
+        imageTextInfoLeft.put("textInfo", aTextInfo);
+        JSONObject bTextInfo = new JSONObject();
+        bTextInfo.put("title", info.classroom.isEmpty() ? "—" : info.classroom);
+        JSONObject bigIslandArea = new JSONObject();
+        bigIslandArea.put("imageTextInfoLeft", imageTextInfoLeft);
+        bigIslandArea.put("textInfo",          bTextInfo);
+
+        JSONObject smallPicInfo = new JSONObject(); smallPicInfo.put("type", 1);
+        JSONObject smallIslandArea = new JSONObject(); smallIslandArea.put("picInfo", smallPicInfo);
+
+        JSONObject shareDataF = new JSONObject();
+        shareDataF.put("pic",          PIC_KEY_SHARE);
+        shareDataF.put("title",        info.courseName);
+        shareDataF.put("content",      info.classroom.isEmpty() ? "" : info.classroom);
+        String timeRangeF = info.startTime + (info.endTime.isEmpty() ? "" : "-" + info.endTime);
+        shareDataF.put("shareContent", info.courseName
+                + (info.classroom.isEmpty() ? "" : " " + info.classroom)
+                + (timeRangeF.isEmpty() ? "" : " " + timeRangeF));
+
+        JSONObject paramIsland = new JSONObject();
+        paramIsland.put("islandProperty",  1);
+        paramIsland.put("bigIslandArea",   bigIslandArea);
+        paramIsland.put("smallIslandArea", smallIslandArea);
+        paramIsland.put("shareData",       shareDataF);
+
+        String tickerText = buildTickerText(info);
+        JSONObject paramV2 = new JSONObject();
+        paramV2.put("protocol",        1);
+        paramV2.put("business",        "course_schedule");
+        paramV2.put("islandFirstFloat", true);
+        paramV2.put("enableFloat",      true);
+        paramV2.put("updatable",        true);
+        paramV2.put("ticker",           tickerText);
+        paramV2.put("aodTitle",         tickerText);
+        paramV2.put("baseInfo",         baseInfo);
+        paramV2.put("picInfo",          notifPicInfo);
+        paramV2.put("hintInfo",         hintInfo);
+        paramV2.put("param_island",     paramIsland);
+
+        JSONObject rootF = new JSONObject();
+        rootF.put("param_v2", paramV2);
+        return rootF.toString();
     }
 
     /** 状态栏 / 息屏文案：格式 "高等数学  19:50" */

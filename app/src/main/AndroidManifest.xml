@@ -44,6 +44,7 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="com.xiaoai.islandnotify.ACTION_MUTE" />
+                <action android:name="com.xiaoai.islandnotify.ACTION_UNMUTE" />
             </intent-filter>
         </receiver>
 

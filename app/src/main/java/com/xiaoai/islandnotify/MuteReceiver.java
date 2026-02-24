@@ -14,10 +14,18 @@ public class MuteReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         if (am == null) return;
-        try {
-            am.setRingerMode(AudioManager.RINGER_MODE_SILENT);
-        } catch (SecurityException e) {
-            try { am.setRingerMode(AudioManager.RINGER_MODE_VIBRATE); } catch (Exception ignored) {}
+        String action = intent.getAction();
+        if ("com.xiaoai.islandnotify.ACTION_UNMUTE".equals(action)) {
+            try {
+                am.setRingerMode(AudioManager.RINGER_MODE_NORMAL);
+            } catch (Exception ignored) {}
+        } else {
+            // ACTION_MUTE 或其他：静音
+            try {
+                am.setRingerMode(AudioManager.RINGER_MODE_SILENT);
+            } catch (SecurityException e) {
+                try { am.setRingerMode(AudioManager.RINGER_MODE_VIBRATE); } catch (Exception ignored) {}
+            }
         }
     }
 }
