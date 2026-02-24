@@ -4,14 +4,14 @@ import android.app.Notification;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.widget.RemoteViews;
 
 import org.json.JSONException;
 import org.json.JSONObject;
-
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
@@ -34,15 +34,9 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final String TARGET_PACKAGE = "com.miui.voiceassist";
 
     /** 触发上课静音的广播 Action */
-    private static final String MUTE_ACTION      = "com.xiaoai.islandnotify.ACTION_MUTE";
+    private static final String MUTE_ACTION   = "com.xiaoai.islandnotify.ACTION_MUTE";
     /** shareData 拖拽分享图片在 miui.focus.pics Bundle 中的 key */
-    private static final String PIC_KEY_SHARE    = "miui.focus.pic_share";
-    /**
-     * 上课静音按钮 URI（actionIntentType=1，自定义 scheme）。
-     * Super Island 出于安全会丢弃 component= 参数，改用唯一 URI scheme
-     * 让系统通过 intent-filter 解析路由到 MuteActivity。
-     */
-    private static final String MUTE_ACTION_URI  = "xiaoaimute://mute";
+    private static final String PIC_KEY_SHARE = "miui.focus.pic_share";
 
     /** 点击课程卡片整体 → 跳转课表页的 Intent URI */
     private static final String COURSE_TABLE_INTENT =
@@ -50,39 +44,22 @@ public class MainHook implements IXposedHookLoadPackage {
             "&flag=805339136&noBack=false&statusBarColor=FFFFFF&statusBarTextBlack=true" +
             "&navigationBarColor=FFFFFF#Intent;scheme=voiceassist;package=com.miui.voiceassist;end";
 
-    /** 关键词兜底识别列表 */
-    private static final String[] SCHEDULE_KEYWORDS = {
-            "课程", "课表", "上课", "选课", "schedule", "class reminder"
-    };
-
     /** 岛通知主参数 Key */
     private static final String KEY_FOCUS_PARAM = "miui.focus.param";
 
-    /**
-     * 从 VA_PushReceiver 原始 JSON 中解析出的结束时间缓存。
-     * key = startDateTime（如 "19:50"），value = endDateTime（如 "20:35"）。
-     * 通知发出前几毫秒已由 Log.d hook 填入，extractCourseInfo 直接查询。
-     */
-    private static final ConcurrentHashMap<String, String> endTimeCache =
-            new ConcurrentHashMap<>();
-
-    /**
-     * 从 VA_PushReceiver 原始 JSON 中解析到的最近一条课程信息。
-     * hookPushLog 写入，extractCourseInfo 读取并清空。
-     */
-    private static volatile CourseInfo lastPushedInfo = null;
-
     /** 防止同一进程内多个 ClassLoader 重复注册 Hook */
     private static volatile boolean hooked = false;
+
+    /** 最近一次通知对象，供 extractFromRemoteViews 读取 bigContentView */
+    private Notification lastNotificationRef = null;
 
     // ─────────────────────────────────────────────────────────────
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
-        // 注入自身进程 → hook isModuleActive()；同时 hook notify/Log.d，支持测试通知
+        // 注入自身进程 → hook isModuleActive()；同时 hook notify，支持测试通知
         if ("com.xiaoai.islandnotify".equals(lpparam.packageName)) {
             hookSelfStatus(lpparam);
-            hookPushLog(lpparam);
             hookNotifyMethods(lpparam);
             return;
         }
@@ -94,7 +71,6 @@ public class MainHook implements IXposedHookLoadPackage {
         if (hooked) return;
         hooked = true;
         XposedBridge.log(TAG + ": 已注入目标进程 → " + TARGET_PACKAGE);
-        hookPushLog(lpparam);   // 拦截原始 push JSON，缓存 endDateTime
         hookNotifyMethods(lpparam);
     }
 
@@ -117,74 +93,6 @@ public class MainHook implements IXposedHookLoadPackage {
             );
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": hookSelfStatus 失败: " + t.getMessage());
-        }
-    }
-
-    /**
-     * Hook android.util.Log.d，拦截 VA_PushReceiver 打印的原始 push JSON，
-     * 从中解析 courses[].endDateTime 并写入 endTimeCache，
-     * 供后续 extractCourseInfo 使用。
-     */
-    private void hookPushLog(XC_LoadPackage.LoadPackageParam lpparam) {
-        try {
-            findAndHookMethod(
-                    "android.util.Log",
-                    lpparam.classLoader,
-                    "d",
-                    String.class,
-                    String.class,
-                    new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
-                            String tag = (String) param.args[0];
-                            if (!"VA_PushReceiver".equals(tag)) return;
-                            String msg = (String) param.args[1];
-                            if (msg == null || !msg.contains("COURSE_SCHEDULER_REMINDER")) return;
-                            // 提取 JSON 部分（从第一个 '{' 开始）
-                            int jsonStart = msg.indexOf('{');
-                            if (jsonStart < 0) return;
-                            try {
-                                // 用 JSONTokener 只读第一个完整 JSON 对象，
-                                // 忽略真实日志末尾的 " isPassThrough: true isClicked: false"
-                                Object token = new org.json.JSONTokener(
-                                        msg.substring(jsonStart)).nextValue();
-                                if (!(token instanceof org.json.JSONObject)) return;
-                                org.json.JSONObject root = (org.json.JSONObject) token;
-                                org.json.JSONArray payload = root.optJSONArray("payload");
-                                if (payload == null) return;
-                                for (int i = 0; i < payload.length(); i++) {
-                                    org.json.JSONObject item = payload.optJSONObject(i);
-                                    if (item == null) continue;
-                                    org.json.JSONObject card = item.optJSONObject("courseCard");
-                                    if (card == null) continue;
-                                    org.json.JSONArray courses = card.optJSONArray("courses");
-                                    if (courses == null) continue;
-                                    for (int j = 0; j < courses.length(); j++) {
-                                        org.json.JSONObject course = courses.optJSONObject(j);
-                                        if (course == null) continue;
-                                        String start     = course.optString("startDateTime", "");
-                                        String end       = course.optString("endDateTime",   "");
-                                        String name      = course.optString("name",          "");
-                                        // JSON 字段名为 "location"，不是 "classroom"
-                                        String classroom = course.optString("location",      "");
-                                        if (!start.isEmpty()) {
-                                            if (!end.isEmpty()) endTimeCache.put(start, end);
-                                            lastPushedInfo = new CourseInfo(
-                                                    name.isEmpty() ? "课程提醒" : name,
-                                                    start, end, classroom);
-                                            XposedBridge.log(TAG + ": 缓存 push 课程 课程=" + name
-                                                    + " 开始=" + start + " 结束=" + end + " 教室=" + classroom);
-                                        }
-                                    }
-                                }
-                            } catch (Exception e) {
-                                XposedBridge.log(TAG + ": 解析 push JSON 失败 → " + e.getMessage());
-                            }
-                        }
-                    }
-            );
-        } catch (Throwable e) {
-            XposedBridge.log(TAG + ": Hook Log.d 失败 → " + e.getMessage());
         }
     }
 
@@ -280,35 +188,13 @@ public class MainHook implements IXposedHookLoadPackage {
 
     /**
      * 判断是否为课程表提醒通知。
-     *
-     * <p>实测 logcat 确认：
-     * <ul>
-     *   <li>channelId = {@code "COURSE_SCHEDULER_REMINDER_sound"}</li>
-     *   <li>msgType   = {@code "COURSE_SCHEDULER_REMINDER"}</li>
-     * </ul>
-     * 优先通过 Channel ID 精确匹配；Channel ID 变更时自动降级为关键词匹配兜底。
+     * 实测 logcat 确认 channelId = {@code "COURSE_SCHEDULER_REMINDER_sound"}。
      */
     private boolean isScheduleNotification(Notification notification) {
-        // ① 精确匹配 Channel ID（首选，来自实测 logcat）
         String channelId = safeStr(notification.getChannelId());
         if (channelId.contains("COURSE_SCHEDULER_REMINDER")) {
             XposedBridge.log(TAG + ": 命中 channelId=" + channelId);
             return true;
-        }
-
-        // ② 关键词兜底（防止 channelId 未来变更）
-        Bundle extras = notification.extras;
-        if (extras == null) return false;
-        CharSequence titleCs2 = extras.getCharSequence(Notification.EXTRA_TITLE);
-        CharSequence textCs2  = extras.getCharSequence(Notification.EXTRA_TEXT);
-        String title = titleCs2 != null ? titleCs2.toString() : "";
-        String text  = textCs2  != null ? textCs2.toString()  : "";
-        String combined = (title + " " + text).toLowerCase();
-        for (String kw : SCHEDULE_KEYWORDS) {
-            if (combined.contains(kw.toLowerCase())) {
-                XposedBridge.log(TAG + ": 命中关键词 [" + kw + "] title=" + title);
-                return true;
-            }
         }
         return false;
     }
@@ -330,6 +216,7 @@ public class MainHook implements IXposedHookLoadPackage {
         }
 
         try {
+            this.lastNotificationRef = notification;
             CourseInfo info = extractCourseInfo(extras);
             XposedBridge.log(TAG + ": 解析结果 → 课程=" + info.courseName
                     + " 时间=" + info.startTime + " 结束=" + info.endTime
@@ -339,26 +226,28 @@ public class MainHook implements IXposedHookLoadPackage {
             long startMs = computeClassStartMs(info.startTime);
             String islandJson = buildIslandParams(info);
             extras.putString(KEY_FOCUS_PARAM, islandJson);
+            XposedBridge.log(TAG + ": JSON 长度=" + islandJson.length()
+                    + " startMs=" + startMs);
 
-            // ── 2. 注入 Action 及点击 Intent ──────────────────────────
+            // ── 2. 获取 ctx ──────────────────────────────────────────
             Context ctx = null;
             try {
                 ctx = (Context) XposedHelpers.getObjectField(nmInstance, "mContext");
             } catch (Throwable ignored) {}
+            XposedBridge.log(TAG + ": ctx=" + (ctx != null ? "ok" : "null"));
+
             if (ctx != null) {
-                // 将 voiceassist App 图标当作分享图片注入 miui.focus.pics
+                // ── 3. 注入 miui.focus.pics ──────────────────────────
                 try {
-                    android.graphics.drawable.Drawable drawable = ctx.getPackageManager()
-                            .getApplicationIcon(TARGET_PACKAGE);
-                    if (drawable instanceof android.graphics.drawable.BitmapDrawable) {
-                        android.graphics.Bitmap bmp =
-                                ((android.graphics.drawable.BitmapDrawable) drawable).getBitmap();
+                    Drawable drawable = ctx.getPackageManager().getApplicationIcon(TARGET_PACKAGE);
+                    if (drawable instanceof BitmapDrawable) {
+                        Bitmap bmp = ((BitmapDrawable) drawable).getBitmap();
                         Bundle picsBundle = new Bundle();
                         picsBundle.putParcelable(PIC_KEY_SHARE, bmp);
                         extras.putBundle("miui.focus.pics", picsBundle);
+                        XposedBridge.log(TAG + ": miui.focus.pics 注入成功 " + bmp.getWidth() + "x" + bmp.getHeight());
                     }
                 } catch (Exception ignored) {}
-                // 整体点击 → 课表页
                 try {
                     Intent tableIntent = Intent.parseUri(
                             COURSE_TABLE_INTENT, Intent.URI_INTENT_SCHEME);
@@ -415,54 +304,146 @@ public class MainHook implements IXposedHookLoadPackage {
     }
 
     /**
-     * 从通知 extras 中精确提取课程信息。
+     * 从 Notification 的 RemoteViews 中直接提取课程信息。
      *
-     * <p>实测 logcat 确认的固定格式（com.miui.voiceassist 课程表提醒）：
-     * <pre>
-     *   EXTRA_TITLE = "[高等数学]快到了，提前准备一下吧"
-     *   EXTRA_TEXT  = "19:50 | 教1-201"   ← 固定格式：startTime + " | " + 教室
-     *   EXTRA_SUB_TEXT / 自定义字段 可能含 endTime（如 "20:35"）
-     * </pre>
+     * 实测（02-24 11:30 logcat）：voiceassist 使用完全自定义 View，
+     * extras 中 android.title / android.text 均为 null。
+     * 数据存在 bigContentView 的 ReflectionAction.mValue 字段序列中：
+     *   [0] "[课程]快到了，提前准备一下吧"  ← 课程名在 [] 内
+     *   [1] "11:45"                         ← 开始时间（HH:mm）
+     *   [2] "12:30"                         ← 结束时间（HH:mm）
+     *   [3] "课程"                           ← 课程名（纯文字，无括号）
+     *   [4] "教室"                           ← 教室
+     * contentView 中有 "11:45 | 教室" 格式，可作补充来源。
      */
     private CourseInfo extractCourseInfo(Bundle extras) {
-        // ① 优先使用 hookPushLog 从原始 push JSON 精确解析的课程信息
-        //    VA_PushReceiver 打印 Log.d 在发出通知之前，此时数据已就绪
-        CourseInfo cached = lastPushedInfo;
-        if (cached != null) {
-            lastPushedInfo = null;
-            XposedBridge.log(TAG + ": 从 push JSON 精确提取 → 课程=" + cached.courseName
-                    + " 开始=" + cached.startTime + " 结束=" + cached.endTime
-                    + " 教室=" + cached.classroom);
-            return cached;
+        CourseInfo fromView = extractFromRemoteViews(extras);
+        if (fromView != null) {
+            XposedBridge.log(TAG + ": [RemoteViews] 精确提取 → 课程=" + fromView.courseName
+                    + " 开始=" + fromView.startTime + " 结束=" + fromView.endTime
+                    + " 教室=" + fromView.classroom);
+            return fromView;
         }
 
-        // ② 兜底：尝试从通知 extras 解析（兼容其他来源/未来格式）
-        CharSequence titleCs = extras.getCharSequence(Notification.EXTRA_TITLE);
-        CharSequence bodyCs  = extras.getCharSequence(Notification.EXTRA_TEXT);
-        String title = titleCs != null ? titleCs.toString() : "";
-        String body  = bodyCs  != null ? bodyCs.toString()  : "";
+        XposedBridge.log(TAG + ": [兜底] RemoteViews 解析失败，返回空课程信息");
+        return new CourseInfo("课程提醒", "", "", "");
+    }
 
-        // 课程名：提取 "[高等数学]" 中的内容
-        String courseName = "";
-        Matcher m = Pattern.compile("\\[([^\\]]+)\\]").matcher(title);
-        if (m.find()) courseName = m.group(1).trim();
-        if (courseName.isEmpty()) courseName = title.replaceAll("(快到了|提醒|通知|课程表).*", "").trim();
+    /**
+     * 用反射从 RemoteViews.mActions 中收集所有 CharSequence 值，
+     * 然后按规则匹配课程名、开始/结束时间、教室。
+     *
+     * 匹配规则（基于实测 bigContentView 顺序）：
+     *   - 含 "[...]" 的字符串 → 提取括号内作课程名
+     *   - 纯 "HH:mm" 格式 → 按出现顺序：第1个=开始时间，第2个=结束时间
+     *   - "HH:mm | 教室" 格式 → 拆分开始时间和教室
+     *   - 2~20字且非时间非按钮文字 → 优先作教室，其次作课程名
+     */
+    private CourseInfo extractFromRemoteViews(Bundle extras) {
+        Notification notif = this.lastNotificationRef;
+        if (notif == null) return null;
+        RemoteViews big     = notif.bigContentView;
+        RemoteViews content = notif.contentView;
+        XposedBridge.log(TAG + ": [RV] big=" + (big != null ? "yes" : "null")
+                + " content=" + (content != null ? "yes" : "null"));
+        if (big == null && content == null) return null;
+
+        java.util.List<String> texts = new java.util.ArrayList<>();
+        for (RemoteViews rv : new RemoteViews[]{big, content}) {
+            if (rv == null) continue;
+            try {
+                java.lang.reflect.Field fActions = RemoteViews.class.getDeclaredField("mActions");
+                fActions.setAccessible(true);
+                java.util.ArrayList<?> actions = (java.util.ArrayList<?>) fActions.get(rv);
+                if (actions == null) { XposedBridge.log(TAG + ": [RV] actions=null"); continue; }
+                XposedBridge.log(TAG + ": [RV] actions.size=" + actions.size());
+                for (Object act : actions) {
+                    String simpleName = act.getClass().getSimpleName();
+                    // 兼容混淆名：只要类名包含 "Reflection" 即处理
+                    if (!simpleName.contains("Reflection")) {
+                        XposedBridge.log(TAG + ": [RV] skip " + simpleName);
+                        continue;
+                    }
+                    try {
+                        java.lang.reflect.Field fValue = act.getClass().getDeclaredField("mValue");
+                        fValue.setAccessible(true);
+                        Object val = fValue.get(act);
+                        if (!(val instanceof CharSequence)) continue;
+                        String sv = val.toString().trim();
+                        if (!sv.isEmpty()) { texts.add(sv); XposedBridge.log(TAG + ": [RV] text=" + sv); }
+                    } catch (Throwable e) {
+                        XposedBridge.log(TAG + ": [RV] mValue失败 " + act.getClass().getName() + ": " + e.getMessage());
+                    }
+                }
+            } catch (Throwable e) {
+                XposedBridge.log(TAG + ": [RV] mActions失败: " + e.getMessage());
+            }
+            if (!texts.isEmpty()) break;
+        }
+        if (texts.isEmpty()) { XposedBridge.log(TAG + ": [RV] texts为空，返回 null"); return null; }
+
+        String courseName = "", startTime = "", endTime = "", classroom = "";
+        java.util.regex.Pattern timePattern = java.util.regex.Pattern.compile("^\\d{1,2}:\\d{2}$");
+        java.util.regex.Pattern subPattern  = java.util.regex.Pattern.compile("(\\d{1,2}:\\d{2})\\s*[|｜]\\s*(.+)");
+        // 跳过按钮文字
+        java.util.Set<String> buttonTexts = new java.util.HashSet<>(
+                java.util.Arrays.asList("上课静音", "完整课表", "静音", "课表"));
+
+        for (String t : texts) {
+            if (buttonTexts.contains(t)) continue;
+
+            // "[课程]快到了..." → 课程名
+            java.util.regex.Matcher mb = java.util.regex.Pattern.compile("\\[([^\\]]+)\\]").matcher(t);
+            if (mb.find() && courseName.isEmpty()) {
+                courseName = mb.group(1).trim();
+                continue;
+            }
+            // "11:45 | 教室" → 开始时间 + 教室
+            java.util.regex.Matcher ms = subPattern.matcher(t);
+            if (ms.find()) {
+                if (startTime.isEmpty()) startTime = ms.group(1).trim();
+                if (classroom.isEmpty())  classroom  = ms.group(2).trim();
+                continue;
+            }
+            // 纯时间 "HH:mm"
+            if (timePattern.matcher(t).matches()) {
+                if (startTime.isEmpty())     startTime = t;
+                else if (endTime.isEmpty())  endTime   = t;
+                continue;
+            }
+            // 短文本（2-20字）
+            if (t.length() >= 2 && t.length() <= 20) {
+                if (t.equals(courseName)) continue;           // 课程名重复出现，跳过
+                if (classroom.isEmpty())  classroom  = t;    // 第一个未知短文本就是教室
+                else if (courseName.isEmpty()) courseName = t;
+            }
+        }
+
         if (courseName.isEmpty()) courseName = "课程提醒";
 
-        // 时间 + 教室：body 固定格式 "19:50 | 教1-201"
-        String startTime = "";
-        String classroom = "";
-        String[] parts = body.split("\\s*\\|\\s*", 2);
-        if (parts.length >= 1) startTime = parts[0].trim();
-        if (parts.length >= 2) classroom  = parts[1].trim();
-
-        // 结束时间：查 endTimeCache
-        String endTime = endTimeCache.getOrDefault(startTime, "");
-
-        XposedBridge.log(TAG + ": 兜底解析 title=[" + title + "] body=[" + body + "]"
-                + " → 课程=" + courseName + " 开始=" + startTime
-                + " 结束=" + endTime + " 教室=" + classroom);
+        if (startTime.isEmpty()) return null; // 连时间都没有，本方法无效
         return new CourseInfo(courseName, startTime, endTime, classroom);
+    }
+
+    /**
+     * 将任意 Drawable（包括 AdaptiveIconDrawable）转换为 Bitmap。
+     * API 26+ 的 getApplicationIcon() 返回 AdaptiveIconDrawable，直接 instanceof BitmapDrawable 为 false。
+     */
+    private static android.graphics.Bitmap drawableToBitmap(android.graphics.drawable.Drawable drawable) {
+        if (drawable instanceof android.graphics.drawable.BitmapDrawable) {
+            android.graphics.Bitmap bmp = ((android.graphics.drawable.BitmapDrawable) drawable).getBitmap();
+            if (bmp != null) return bmp;
+        }
+        int w = drawable.getIntrinsicWidth();
+        int h = drawable.getIntrinsicHeight();
+        if (w <= 0) w = 96;
+        if (h <= 0) h = 96;
+        android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(
+                w, h, android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas = new android.graphics.Canvas(bmp);
+        drawable.setBounds(0, 0, w, h);
+        drawable.draw(canvas);
+        return bmp;
     }
 
     private static String safeStr(String s) {
@@ -569,7 +550,7 @@ public class MainHook implements IXposedHookLoadPackage {
 
         // shareData: 拖拽分享参数（必须在 param_island 内）
         JSONObject shareData = new JSONObject();
-        shareData.put("pic",   PIC_KEY_SHARE);  // 引用 miui.focus.pics Bundle 中的本地 App 图标
+        shareData.put("pic",   PIC_KEY_SHARE);  // key → miui.focus.pics Bundle 中对应的 Bitmap
         shareData.put("title", info.courseName);
         shareData.put("content", info.classroom.isEmpty() ? "" : info.classroom);
         String timeRange = info.startTime
@@ -662,7 +643,7 @@ public class MainHook implements IXposedHookLoadPackage {
         JSONObject smallIslandArea = new JSONObject(); smallIslandArea.put("picInfo", smallPicInfo);
 
         JSONObject shareDataE = new JSONObject();
-        shareDataE.put("pic",          PIC_KEY_SHARE);  // 引用 miui.focus.pics Bundle 中的本地 App 图标
+        shareDataE.put("pic",          PIC_KEY_SHARE);  // key → miui.focus.pics Bundle 中对应的 Bitmap
         shareDataE.put("title",        info.courseName);
         shareDataE.put("content",      info.classroom.isEmpty() ? "" : info.classroom);
         String timeRangeE = info.startTime
@@ -720,24 +701,6 @@ public class MainHook implements IXposedHookLoadPackage {
             return cal.getTimeInMillis();
         } catch (Exception e) {
             return -1;
-        }
-    }
-
-    /** 计算距上课还有多少分钟，格式："5分钟后" 或 "即将上课" */
-    private static String computeMinutesUntil(String startTime) {
-        if (startTime == null || startTime.isEmpty()) return "";
-        try {
-            String[] parts = startTime.split(":");
-            int startH = Integer.parseInt(parts[0].trim());
-            int startM = Integer.parseInt(parts[1].trim());
-            java.util.Calendar now = java.util.Calendar.getInstance();
-            int diff = (startH * 60 + startM)
-                    - (now.get(java.util.Calendar.HOUR_OF_DAY) * 60
-                    +  now.get(java.util.Calendar.MINUTE));
-            if (diff <= 0) return "即将上课";
-            return diff + "分钟后";
-        } catch (Exception e) {
-            return startTime;
         }
     }
 

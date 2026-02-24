@@ -231,28 +231,36 @@ public class MainActivity extends AppCompatActivity {
                     cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE));
         }
 
-        // 先打印假的 VA_PushReceiver Log.d，供 hookPushLog 缓存 endDateTime
-        // 格式与真实推送 JSON 一致：payload → courseCard → courses
-        String fakeJson = "{\"channelId\":\"" + CHANNEL_ID + "\","
-                + "\"payload\":[{\"courseCard\":{\"courses\":["
-                + "{\"startDateTime\":\"" + startTime + "\","
-                + "\"endDateTime\":\"" + endTime + "\","
-                + "\"name\":\"" + courseName + "\","
-                + "\"classroom\":\"" + classroom + "\"}"
-                + "]}}]}";
-        Log.d("VA_PushReceiver", fakeJson);
+        // 不再打印假 JSON，也不再依赖 lastPushedInfo 跨进程缓存。
+        // 测试通知必须走与真实通知完全相同的代码路径：
+        //   extractFromRemoteViews → 反射 bigContentView.mActions → 读 CharSequence 值
+        //
+        // 真实 voiceassist bigContentView mActions 文本顺序（实测）：
+        //   [0] "[课程名]快到了，提前准备一下吧"
+        //   [1] 开始时间 "HH:mm"
+        //   [2] 结束时间 "HH:mm"
+        //   [3] 课程名（纯文字）
+        //   [4] 教室
+        //   [5] "上课静音"（按钮，会被过滤）
+        //   [6] "完整课表"（按钮，会被过滤）
+        android.widget.RemoteViews bigView = new android.widget.RemoteViews(
+                getPackageName(), R.layout.notification_test_big);
+        bigView.setTextViewText(R.id.tv_notif_title, "[" + courseName + "]快到了，提前准备一下吧");
+        bigView.setTextViewText(R.id.tv_notif_start, startTime);
+        bigView.setTextViewText(R.id.tv_notif_end,   endTime);
+        bigView.setTextViewText(R.id.tv_notif_name,  courseName);
+        bigView.setTextViewText(R.id.tv_notif_room,  classroom);
 
-        // 构造与小爱同学真实通知格式一致的通知
-        // Title: [课程名]  Body: HH:mm | 教室
-        String title = "[" + courseName + "]";
-        String body  = startTime + " | " + classroom;
         android.app.Notification notif = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle(title)
-                .setContentText(body)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .build();
+        // 真实通知 EXTRA_TITLE / EXTRA_TEXT 均为 null，测试保持一致
+        notif.extras.remove("android.title");
+        notif.extras.remove("android.text");
+        notif.extras.putBoolean("android.contains.customView", true);
+        notif.bigContentView = bigView;
 
         nm.notify(1001, notif);
     }

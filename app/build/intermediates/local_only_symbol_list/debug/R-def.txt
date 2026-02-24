@@ -29,10 +29,16 @@ id iv_perm_dnd
 id iv_status
 id scroll_view
 id toolbar
+id tv_notif_end
+id tv_notif_name
+id tv_notif_room
+id tv_notif_start
+id tv_notif_title
 id tv_status_desc
 id tv_status_title
 id tv_test_hint
 layout activity_main
+layout notification_test_big
 mipmap ic_launcher
 string app_description
 string app_name
