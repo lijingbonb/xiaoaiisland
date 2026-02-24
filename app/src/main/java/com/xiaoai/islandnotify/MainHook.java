@@ -474,20 +474,9 @@ public class MainHook implements IXposedHookLoadPackage {
         }
 
         // ── bigIslandArea ─────────────────────────────────────────
-        String aContent;
-        if (isFinished) {
-            aContent = "已下课";
-        } else if (isActive) {
-            aContent = "已开始" + computeElapsed(info.startTime);
-        } else if (startMs > 0 && startMs > now) {
-            aContent = Math.max(1L, (startMs - now) / 60000L) + "分钟后开始";
-        } else {
-            aContent = "已开始" + computeElapsed(info.startTime);
-        }
         JSONObject aPicInfo  = new JSONObject(); aPicInfo.put("type", 1);
         JSONObject aTextInfo = new JSONObject();
-        aTextInfo.put("title",   info.courseName);
-        aTextInfo.put("content", aContent);
+        aTextInfo.put("title", info.startTime.isEmpty() ? info.courseName : info.startTime);
         JSONObject imageTextInfoLeft = new JSONObject();
         imageTextInfoLeft.put("type",     1);
         imageTextInfoLeft.put("picInfo",  aPicInfo);
@@ -542,10 +531,11 @@ public class MainHook implements IXposedHookLoadPackage {
         return root.toString();
     }
 
-    /** 状态栏 / 息屏文案：格式 "高等数学  19:50" */
+    /** 状态栏 / 息屏文案：格式 "19:50 教1-201" */
     private String buildTickerText(CourseInfo info) {
-        if (info.startTime.isEmpty()) return info.courseName;
-        return info.courseName + "  " + info.startTime;
+        String text = info.startTime;
+        if (!info.classroom.isEmpty()) text += " " + info.classroom;
+        return text.isEmpty() ? info.courseName : text;
     }
 
     /**
@@ -566,24 +556,6 @@ public class MainHook implements IXposedHookLoadPackage {
             return cal.getTimeInMillis();
         } catch (Exception e) {
             return -1;
-        }
-    }
-
-    /** 计算距上课开始已过多少分钟，格式："5分钟" 或 "0分钟" */
-    private static String computeElapsed(String startTime) {
-        if (startTime == null || startTime.isEmpty()) return "";
-        try {
-            String[] parts = startTime.split(":");
-            int startH = Integer.parseInt(parts[0].trim());
-            int startM = Integer.parseInt(parts[1].trim());
-            java.util.Calendar now = java.util.Calendar.getInstance();
-            int diff = (now.get(java.util.Calendar.HOUR_OF_DAY) * 60
-                    +  now.get(java.util.Calendar.MINUTE))
-                    - (startH * 60 + startM);
-            if (diff < 0) diff = 0;
-            return diff + "分钟";
-        } catch (Exception e) {
-            return "";
         }
     }
 
