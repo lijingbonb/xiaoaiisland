@@ -4,9 +4,6 @@ import android.app.Notification;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Bitmap;
-import android.graphics.drawable.BitmapDrawable;
-import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.widget.RemoteViews;
 
@@ -37,8 +34,9 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final String MUTE_ACTION   = "com.xiaoai.islandnotify.ACTION_MUTE";
     /** 触发解除静音的广播 Action */
     private static final String UNMUTE_ACTION = "com.xiaoai.islandnotify.ACTION_UNMUTE";
-    /** shareData 拖拽分享图片在 miui.focus.pics Bundle 中的 key */
-    private static final String PIC_KEY_SHARE = "miui.focus.pic_share";
+    /** 岛通知图标 URL（课程图标） */
+    private static final String ICON_URL =
+            "https://cdn.cnbj1.fds.api.mi-img.com/xiaoailite-ios/XiaoAiSuggestion/MsgSettingIconCourse.png";
 
     /** 点击课程卡片整体 → 跳转课表页的 Intent URI */
     private static final String COURSE_TABLE_INTENT =
@@ -202,16 +200,7 @@ public class MainHook implements IXposedHookLoadPackage {
 
             if (ctx != null) {
                 // ── 3. 注入 miui.focus.pics ──────────────────────────
-                try {
-                    Drawable drawable = ctx.getPackageManager().getApplicationIcon(TARGET_PACKAGE);
-                    if (drawable instanceof BitmapDrawable) {
-                        Bitmap bmp = ((BitmapDrawable) drawable).getBitmap();
-                        Bundle picsBundle = new Bundle();
-                        picsBundle.putParcelable(PIC_KEY_SHARE, bmp);
-                        extras.putBundle("miui.focus.pics", picsBundle);
-                        XposedBridge.log(TAG + ": miui.focus.pics 注入成功 " + bmp.getWidth() + "x" + bmp.getHeight());
-                    }
-                } catch (Exception ignored) {}
+                // 图标使用 URL 方式（picInfo type=3），无需注入 Bitmap
                 try {
                     Intent tableIntent = Intent.parseUri(
                             COURSE_TABLE_INTENT, Intent.URI_INTENT_SCHEME);
@@ -227,7 +216,6 @@ public class MainHook implements IXposedHookLoadPackage {
                 final Context finalCtx    = ctx;
                 final CourseInfo savedInfo = info;
                 final String channelId    = safeStr(notification.getChannelId());
-                final Bundle savedPics    = extras.getBundle("miui.focus.pics");
                 final android.app.NotificationManager nm =
                         finalCtx.getSystemService(android.app.NotificationManager.class);
                 final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -237,7 +225,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 if (delay > 0 && delay <= 6 * 3600 * 1000L) {
                     h.postDelayed(() -> sendIslandUpdate(
                             savedInfo, STATE_ELAPSED, finalCtx, channelId,
-                            notification, savedPics, nm, notifTag, notifId), delay);
+                            notification, nm, notifTag, notifId), delay);
                     XposedBridge.log(TAG + ": 已安排正计时更新，延迟 " + (delay / 1000) + "秒");
                 }
 
@@ -247,7 +235,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 if (!savedInfo.endTime.isEmpty() && endMs2 > 0 && delayEnd > 0 && delayEnd <= 6 * 3600 * 1000L) {
                     h.postDelayed(() -> sendIslandUpdate(
                             savedInfo, STATE_FINISHED, finalCtx, channelId,
-                            notification, savedPics, nm, notifTag, notifId), delayEnd);
+                            notification, nm, notifTag, notifId), delayEnd);
                     XposedBridge.log(TAG + ": 已安排下课更新，延迟 " + (delayEnd / 1000) + "秒");
                 }
             }
@@ -380,7 +368,7 @@ public class MainHook implements IXposedHookLoadPackage {
      * 构建并发送更新后的岛通知，供 Handler 延迟回调使用。
      */
     private void sendIslandUpdate(CourseInfo info, int state,
-            Context ctx, String channelId, Notification src, Bundle pics,
+            Context ctx, String channelId, Notification src,
             android.app.NotificationManager nm, String tag, int id) {
         try {
             String json = buildIslandJson(info, state);
@@ -393,7 +381,6 @@ public class MainHook implements IXposedHookLoadPackage {
                     .setAutoCancel(true)
                     .build();
             n.extras.putString(KEY_FOCUS_PARAM, json);
-            if (pics != null) n.extras.putBundle("miui.focus.pics", pics);
             n.contentIntent = src.contentIntent;
             if (tag != null) nm.notify(tag, id, n);
             else             nm.notify(id, n);
@@ -426,7 +413,8 @@ public class MainHook implements IXposedHookLoadPackage {
 
         // ── picInfo ───────────────────────────────────────────────
         JSONObject notifPicInfo = new JSONObject();
-        notifPicInfo.put("type", 1);
+        notifPicInfo.put("type", 3);
+        notifPicInfo.put("url",  ICON_URL);
 
         // ── actionInfo ────────────────────────────────────────────
         String actionAction = isFinished ? UNMUTE_ACTION : MUTE_ACTION;
@@ -484,7 +472,7 @@ public class MainHook implements IXposedHookLoadPackage {
         } else {
             aContent = "已开始" + computeElapsed(info.startTime);
         }
-        JSONObject aPicInfo  = new JSONObject(); aPicInfo.put("type", 1);
+        JSONObject aPicInfo  = new JSONObject(); aPicInfo.put("type", 3); aPicInfo.put("url", ICON_URL);
         JSONObject aTextInfo = new JSONObject();
         aTextInfo.put("title",   info.courseName);
         aTextInfo.put("content", aContent);
@@ -499,13 +487,13 @@ public class MainHook implements IXposedHookLoadPackage {
         bigIslandArea.put("textInfo",          bTextInfo);
 
         // ── smallIslandArea ───────────────────────────────────────
-        JSONObject smallPicInfo = new JSONObject(); smallPicInfo.put("type", 1);
+        JSONObject smallPicInfo = new JSONObject(); smallPicInfo.put("type", 3); smallPicInfo.put("url", ICON_URL);
         JSONObject smallIslandArea = new JSONObject(); smallIslandArea.put("picInfo", smallPicInfo);
 
         // ── shareData ─────────────────────────────────────────────
         String timeRange = info.startTime + (info.endTime.isEmpty() ? "" : "-" + info.endTime);
         JSONObject shareData = new JSONObject();
-        shareData.put("pic",          PIC_KEY_SHARE);
+        shareData.put("pic",          ICON_URL);
         shareData.put("title",        info.courseName);
         shareData.put("content",      info.classroom.isEmpty() ? "" : info.classroom);
         shareData.put("shareContent", info.courseName
