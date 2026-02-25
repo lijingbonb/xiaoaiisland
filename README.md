@@ -75,19 +75,16 @@
 ./gradlew assembleRelease
 ```
 
-输出 APK：`app/release/app-release.apk`
+输出 APK：`app/build/outputs/apk/release/课程表超级岛_{version}.apk`
 
 ### 版本管理
 
-版本号存储于根目录 `version.properties`：
+版本号由 `app/build.gradle` 自动生成，格式为 `yyyymmddxx`（年月日+当日构建序号）：
 
-```properties
-VERSION_CODE=7
-VERSION_NAME=1.0.6
-```
+- **VERSION_CODE**：自动生成，例如 `2026022501`
+- **VERSION_NAME**：自动生成，例如 `2026022501_debug` 或 `2026022501_release`
 
-- 每次执行 `assembleRelease` 时 `VERSION_CODE` 自动 +1
-- `VERSION_NAME` 需手动修改（语义版本由开发者决定）
+每次执行 `assembleRelease` 或 `assembleDebug` 时，版本号会自动递增。
 
 ---
 
@@ -97,13 +94,15 @@ VERSION_NAME=1.0.6
 app/src/main/
 ├── java/com/xiaoai/islandnotify/
 │   ├── MainHook.java        # LSPosed Hook 核心：拦截通知、构建岛 JSON、调度状态切换
-│   ├── MainActivity.java    # 模块主界面：激活状态、自定义模板、隐藏图标
+│   ├── MainActivity.java    # 模块主界面：激活状态、自定义模板、隐藏图标、测试通知
 │   └── MuteReceiver.java    # 上课静音 / 解除静音广播接收器
 ├── res/
 │   ├── layout/
-│   │   ├── activity_main.xml          # 主界面布局
-│   │   └── notification_test_big.xml  # 测试通知的 bigContentView 布局
-│   └── ...
+│   │   └── activity_main.xml          # 主界面布局
+│   ├── values/
+│   │   └── strings.xml                # 字符串资源
+│   └── xml/
+│       └── file_paths.xml             # FileProvider 配置
 └── AndroidManifest.xml
 ```
 
@@ -123,8 +122,12 @@ app/src/main/
 **Q：状态切换不准时？**
 - 超级岛的状态通过 `AlarmManager` 精确调度。如果关闭了"允许精确闹钟"权限，可能有几分钟延迟
 
+**Q：如何隐藏桌面图标？**
+- 在模块主界面点击"隐藏桌面图标"按钮即可
+- 隐藏后仍可通过 LSPosed 管理器或系统设置的应用管理访问模块
+
 ---
 
 ## License
 
-MIT License. © Mercury
+MIT License.
