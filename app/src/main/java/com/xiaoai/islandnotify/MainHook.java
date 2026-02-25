@@ -1,5 +1,6 @@
 package com.xiaoai.islandnotify;
 
+import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
@@ -12,6 +13,7 @@ import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.service.notification.StatusBarNotification;
 import android.widget.RemoteViews;
 
 import org.json.JSONException;
@@ -59,8 +61,8 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final String MODULE_PKG  = "com.xiaoai.islandnotify";
 
     /** 同步偶好设置到目标进程的广播 Action */
-    private static final String ACTION_SYNC_PREFS = "com.xiaoai.islandnotify.ACTION_SYNC_PREFS";
-
+    private static final String ACTION_SYNC_PREFS = "com.xiaoai.islandnotify.ACTION_SYNC_PREFS";    /** AlarmManager 闹钟触发岛状态更新的广播 Action */
+    private static final String ACTION_ISLAND_UPDATE = "com.xiaoai.islandnotify.ACTION_ISLAND_UPDATE";
     /** 防止同一进程内多个 ClassLoader 重复注册 Hook */
     private static volatile boolean hooked = false;
 
@@ -97,17 +99,47 @@ public class MainHook implements IXposedHookLoadPackage {
             protected void afterHookedMethod(MethodHookParam param) {
                 Context appCtx = (Context) param.thisObject;
                 IntentFilter filter = new IntentFilter(ACTION_SYNC_PREFS);
+                filter.addAction(ACTION_ISLAND_UPDATE);
                 BroadcastReceiver receiver = new BroadcastReceiver() {
                     @Override
                     public void onReceive(Context context, Intent intent) {
-                        SharedPreferences.Editor ed = context
-                                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit();
-                        ed.putString("tpl_a",      intent.getStringExtra("tpl_a"));
-                        ed.putString("tpl_b",      intent.getStringExtra("tpl_b"));
-                        ed.putString("tpl_ticker", intent.getStringExtra("tpl_ticker"));
-                        ed.putBoolean("icon_a",    intent.getBooleanExtra("icon_a", true));
-                        ed.apply();
-                        XposedBridge.log(TAG + ": 偷好设置已同步到目标进程");
+                        if (ACTION_SYNC_PREFS.equals(intent.getAction())) {
+                            SharedPreferences.Editor ed = context
+                                    .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit();
+                            ed.putString("tpl_a",      intent.getStringExtra("tpl_a"));
+                            ed.putString("tpl_b",      intent.getStringExtra("tpl_b"));
+                            ed.putString("tpl_ticker", intent.getStringExtra("tpl_ticker"));
+                            ed.putBoolean("icon_a",    intent.getBooleanExtra("icon_a", true));
+                            ed.apply();
+                            XposedBridge.log(TAG + ": 偷好设置已同步到目标进程");
+                        } else if (ACTION_ISLAND_UPDATE.equals(intent.getAction())) {
+                            String courseName = safeStr(intent.getStringExtra("course_name"));
+                            String startTime  = safeStr(intent.getStringExtra("start_time"));
+                            String endTime    = safeStr(intent.getStringExtra("end_time"));
+                            String classroom  = safeStr(intent.getStringExtra("classroom"));
+                            CourseInfo info   = new CourseInfo(courseName, startTime, endTime, classroom);
+                            int state         = intent.getIntExtra("state", STATE_ELAPSED);
+                            String channelId  = safeStr(intent.getStringExtra("channel_id"));
+                            String tag        = intent.getStringExtra("notif_tag");
+                            int id            = intent.getIntExtra("notif_id", 0);
+                            android.app.NotificationManager nm =
+                                    context.getSystemService(android.app.NotificationManager.class);
+                            // 找到当前活跃通知以复用其图标和 intent
+                            Notification src = null;
+                            for (StatusBarNotification sbn : nm.getActiveNotifications()) {
+                                if (sbn.getId() == id) {
+                                    src = sbn.getNotification();
+                                    break;
+                                }
+                            }
+                            if (src == null) {
+                                XposedBridge.log(TAG + ": 闹钟回调时通知已消失，跳过 state=" + state);
+                                return;
+                            }
+                            SharedPreferences prefs = context
+                                    .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                            sendIslandUpdate(info, state, context, channelId, src, nm, tag, id, prefs);
+                        }
                     }
                 };
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -292,31 +324,23 @@ public class MainHook implements IXposedHookLoadPackage {
                     XposedBridge.log(TAG + ": 课表 intent 解析失败 → " + e.getMessage());
                 }
 
-                // ── 6. 安排定时更新（独立调度，互不依赖）─────────────────
-                final Context finalCtx    = ctx;
-                final CourseInfo savedInfo = info;
-                final String channelId    = safeStr(notification.getChannelId());
-                final android.app.NotificationManager nm =
-                        finalCtx.getSystemService(android.app.NotificationManager.class);
-                final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+                // ── 6. 用 AlarmManager 闹钟调度岛状态更新（可唤醒 Doze）────────
+                // 替换原 Handler.postDelayed，避免进程被杀后延迟/丢失
+                final String channelId = safeStr(notification.getChannelId());
 
                 // 6a. 开课时刻 → 正计时（STATE_ELAPSED）
                 long delay = startMs - System.currentTimeMillis();
                 if (delay > 0 && delay <= 6 * 3600 * 1000L) {
-                    h.postDelayed(() -> sendIslandUpdate(
-                            savedInfo, STATE_ELAPSED, finalCtx, channelId,
-                            notification, nm, notifTag, notifId, prefs), delay);
-                    XposedBridge.log(TAG + ": 已安排正计时更新，延迟 " + (delay / 1000) + "秒");
+                    scheduleIslandAlarm(ctx, info, STATE_ELAPSED, channelId,
+                            notifTag, notifId, startMs);
                 }
 
-                // 6b. 下课时刻 → 下课状态（STATE_FINISHED），独立于 6a 调度
-                long endMs2 = computeClassStartMs(savedInfo.endTime);
+                // 6b. 下课时刻 → 下课状态（STATE_FINISHED）独立调度
+                long endMs2 = computeClassStartMs(info.endTime);
                 long delayEnd = endMs2 - System.currentTimeMillis();
-                if (!savedInfo.endTime.isEmpty() && endMs2 > 0 && delayEnd > 0 && delayEnd <= 6 * 3600 * 1000L) {
-                    h.postDelayed(() -> sendIslandUpdate(
-                            savedInfo, STATE_FINISHED, finalCtx, channelId,
-                            notification, nm, notifTag, notifId, prefs), delayEnd);
-                    XposedBridge.log(TAG + ": 已安排下课更新，延迟 " + (delayEnd / 1000) + "秒");
+                if (!info.endTime.isEmpty() && endMs2 > 0 && delayEnd > 0 && delayEnd <= 6 * 3600 * 1000L) {
+                    scheduleIslandAlarm(ctx, info, STATE_FINISHED, channelId,
+                            notifTag, notifId, endMs2);
                 }
             }
 
@@ -445,7 +469,38 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final int STATE_FINISHED  = 2; // 正计时（已下课）
 
     /**
-     * 构建并发送更新后的岛通知，供 Handler 延迟回调使用。
+     * 利用 AlarmManager.setExactAndAllowWhileIdle 在指定时刻发送岛状态更新广播。
+     * 运行在 voiceassist 进程内，借用其 SCHEDULE_EXACT_ALARM 权限，精确唤醒 Doze。
+     */
+    private void scheduleIslandAlarm(Context ctx, CourseInfo info, int state,
+            String channelId, String tag, int id, long triggerMs) {
+        // 仅在 voiceassist 进程内调度，模块自身进程（测试通知）无需计时切换
+        if (!TARGET_PACKAGE.equals(ctx.getPackageName())) return;
+        try {
+            Intent intent = new Intent(ACTION_ISLAND_UPDATE);
+            intent.setPackage(TARGET_PACKAGE);
+            intent.putExtra("course_name", info.courseName);
+            intent.putExtra("start_time",  info.startTime);
+            intent.putExtra("end_time",    info.endTime);
+            intent.putExtra("classroom",   info.classroom);
+            intent.putExtra("state",       state);
+            intent.putExtra("channel_id",  channelId);
+            intent.putExtra("notif_tag",   tag);
+            intent.putExtra("notif_id",    id);
+            int reqCode = id * 10 + state;
+            PendingIntent pi = PendingIntent.getBroadcast(ctx, reqCode, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            AlarmManager am = ctx.getSystemService(AlarmManager.class);
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMs, pi);
+            XposedBridge.log(TAG + ": AlarmManager 已设定 state=" + state
+                    + " in " + ((triggerMs - System.currentTimeMillis()) / 1000) + "s");
+        } catch (Exception e) {
+            XposedBridge.log(TAG + ": scheduleIslandAlarm 失败 → " + e.getMessage());
+        }
+    }
+
+    /**
+     * 构建并发送更新后的岛通知。
      */
     private void sendIslandUpdate(CourseInfo info, int state,
             Context ctx, String channelId, Notification src,
