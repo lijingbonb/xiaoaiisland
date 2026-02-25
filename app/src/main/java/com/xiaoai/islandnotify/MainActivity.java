@@ -126,9 +126,9 @@ public class MainActivity extends AppCompatActivity {
         // 三个阶段 SP 后缀：_pre=上课前  _active=上课中  _post=下课后
         final String[] SUFFIXES = {"_pre", "_active", "_post"};
         // 各阶段 A/B/ticker 的默认值
-        final String[] DEFAULT_A      = {"{开始}上课", "{课名}", "{结束}下课"};
-        final String[] DEFAULT_B      = {"{教室}",     "{教室}", "{教室}"};
-        final String[] DEFAULT_TICKER = {"{开始}上课 {教室}", "上课中 {教室}", "下课了 {教室}"};
+        final String[] DEFAULT_A      = {"{教室}",             "{课名}",         "{课名}"};
+        final String[] DEFAULT_B      = {"{开始}上课",         "{结束}下课",     "已经下课"};
+        final String[] DEFAULT_TICKER = {"{教室}｜{开始}上课", "{课名}｜{结束}下课", "{课名}｜已经下课"};
         // 各阶段输入框 View ID
         final int[] IDS_A      = {R.id.et_tpl_a_pre,      R.id.et_tpl_a_active,      R.id.et_tpl_a_post};
         final int[] IDS_B      = {R.id.et_tpl_b_pre,      R.id.et_tpl_b_active,      R.id.et_tpl_b_post};
