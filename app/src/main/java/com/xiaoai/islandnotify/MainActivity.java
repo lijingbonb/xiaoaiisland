@@ -27,7 +27,9 @@ import androidx.core.widget.ImageViewCompat;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.color.DynamicColors;
 import com.google.android.material.color.MaterialColors;
+import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.switchmaterial.SwitchMaterial;
+import com.google.android.material.textfield.TextInputLayout;
 
 /**
  * 模块主界面
@@ -73,6 +75,7 @@ public class MainActivity extends AppCompatActivity {
 
         updateModuleStatus();
         initCustomCard();
+        initTimeoutCard();
         initHideIconSwitch();
         initAboutSection(); // 初始化关于页面的版本信息
     }
@@ -175,6 +178,181 @@ public class MainActivity extends AppCompatActivity {
             tvHint.setText("已保存，下次通知生效");
             tvHint.setVisibility(View.VISIBLE);
         });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 超时设置卡片
+    // ─────────────────────────────────────────────────────────────
+
+    /** 三阶段 key 后缀（与 MainHook/SP 保持一致） */
+    private static final String[] TO_PHASES = {"pre", "active", "post"};
+
+    /**
+     * 初始化「消失时间」卡片。
+     * 岛消失：全局单一值（每次 notify 都会重置，分阶段无意义）。
+     * 通知消失：三阶段独立（实现为 AlarmManager + nm.cancel()）。
+     * val == -1 表示系统默认；val > 0 表示自定义。
+     */
+    private void initTimeoutCard() {
+        SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+
+        // ── 岛：全局单一值 ────────────────────────────────────────────
+        final int[]    islandVal  = {sp.getInt("to_island_val",  -1)};
+        final String[] islandUnit = {sp.getString("to_island_unit", "m")};
+
+        // ── 通知：三阶段独立 ───────────────────────────────────────────
+        final int[]    notifVals  = new int[3];
+        final String[] notifUnits = new String[3];
+        for (int i = 0; i < 3; i++) {
+            notifVals[i]  = sp.getInt   ("to_notif_val_"  + TO_PHASES[i], -1);
+            notifUnits[i] = sp.getString("to_notif_unit_" + TO_PHASES[i], "m");
+        }
+        final int[] curNotifPhase = {0};
+        // 全局默认标志：所有阶段均为 -1 时为默认（不取消通知）
+        boolean allDefault = true;
+        for (int i = 0; i < 3; i++) if (notifVals[i] >= 0) { allDefault = false; break; }
+        final boolean[] notifDefault = {allDefault};
+
+        // ── View 引用 ──────────────────────────────────────────────────
+        TextInputLayout  tilIsland       = findViewById(R.id.til_island_to);
+        EditText         etIsland        = findViewById(R.id.et_island_to);
+        MaterialButtonToggleGroup toggleIslandUnit = findViewById(R.id.toggle_island_unit);
+        SwitchMaterial   swIslandDefault = findViewById(R.id.sw_island_to_default);
+
+        MaterialButtonToggleGroup toggleNotifPhase = findViewById(R.id.toggle_notif_phase);
+        TextInputLayout  tilNotif        = findViewById(R.id.til_notif_to);
+        EditText         etNotif         = findViewById(R.id.et_notif_to);
+        MaterialButtonToggleGroup toggleNotifUnit = findViewById(R.id.toggle_notif_unit);
+        SwitchMaterial   swNotifDefault  = findViewById(R.id.sw_notif_to_default);
+
+        TextView tvHint = findViewById(R.id.tv_timeout_hint);
+
+        final boolean[] updatingIsland = {false};
+        final boolean[] updatingNotif  = {false};
+
+        // ── 岛默认开关 listener ────────────────────────────────────────
+        swIslandDefault.setOnCheckedChangeListener((btn, checked) -> {
+            if (updatingIsland[0]) return;
+            setTimeoutRowEnabled(tilIsland, toggleIslandUnit, !checked);
+            if (checked) { etIsland.setText(""); islandVal[0] = -1; }
+        });
+
+        // ── 通知默认开关 listener（全局：控制所有阶段） ──────────────────
+        swNotifDefault.setOnCheckedChangeListener((btn, checked) -> {
+            if (updatingNotif[0]) return;
+            notifDefault[0] = checked;
+            if (checked) {
+                // 全局默认：三阶段全部置 -1
+                for (int j = 0; j < 3; j++) notifVals[j] = -1;
+                etNotif.setText("");
+            }
+            boolean en = !checked;
+            setTimeoutRowEnabled(tilNotif, toggleNotifUnit, en);
+            toggleNotifPhase.setEnabled(en);
+            toggleNotifPhase.setAlpha(en ? 1f : 0.4f);
+        });
+
+        // ── 初始化岛 UI（全局单一值，不涉及阶段） ─────────────────────
+        {
+            boolean def = (islandVal[0] < 0);
+            updatingIsland[0] = true;
+            swIslandDefault.setChecked(def);
+            updatingIsland[0] = false;
+            etIsland.setText(def ? "" : String.valueOf(islandVal[0]));
+            toggleIslandUnit.check("s".equals(islandUnit[0])
+                    ? R.id.btn_island_s : R.id.btn_island_m);
+            setTimeoutRowEnabled(tilIsland, toggleIslandUnit, !def);
+        }
+
+        // ── 通知 UI 刷新（只加载当前阶段值；默认开关由 notifDefault[] 全局控制） ──
+        final Runnable loadNotifUI = () -> {
+            int idx = curNotifPhase[0];
+            etNotif.setText((notifVals[idx] > 0) ? String.valueOf(notifVals[idx]) : "");
+            toggleNotifUnit.check("s".equals(notifUnits[idx])
+                    ? R.id.btn_notif_s : R.id.btn_notif_m);
+        };
+
+        // ── 通知 UI 写回内存 ─────────────────────────────────────────
+        final Runnable saveNotifUI = () -> {
+            int idx = curNotifPhase[0];
+            if (notifDefault[0]) {
+                notifVals[idx] = -1;
+            } else {
+                String s = etNotif.getText() != null ? etNotif.getText().toString().trim() : "";
+                try { notifVals[idx] = s.isEmpty() ? -1 : Integer.parseInt(s); }
+                catch (NumberFormatException e) { notifVals[idx] = -1; }
+            }
+            notifUnits[idx] = (toggleNotifUnit.getCheckedButtonId() == R.id.btn_notif_s) ? "s" : "m";
+        };
+
+        // ── 初始化通知 UI ─────────────────────────────────────────────
+        {
+            boolean def = notifDefault[0];
+            updatingNotif[0] = true;
+            swNotifDefault.setChecked(def);
+            updatingNotif[0] = false;
+            boolean en = !def;
+            setTimeoutRowEnabled(tilNotif, toggleNotifUnit, en);
+            toggleNotifPhase.setEnabled(en);
+            toggleNotifPhase.setAlpha(en ? 1f : 0.4f);
+            toggleNotifPhase.check(R.id.btn_notif_phase_pre);
+            loadNotifUI.run();
+        }
+
+        // ── 通知阶段切换 ──────────────────────────────────────────────
+        toggleNotifPhase.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
+            if (!isChecked) return;
+            saveNotifUI.run();
+            if      (checkedId == R.id.btn_notif_phase_pre)    curNotifPhase[0] = 0;
+            else if (checkedId == R.id.btn_notif_phase_active) curNotifPhase[0] = 1;
+            else                                                curNotifPhase[0] = 2;
+            loadNotifUI.run();
+        });
+
+        // ── 保存按钮 ──────────────────────────────────────────────────
+        findViewById(R.id.btn_save_timeout).setOnClickListener(v -> {
+            saveNotifUI.run();
+
+            // 读取岛当前 UI 值
+            if (!swIslandDefault.isChecked()) {
+                String s = etIsland.getText() != null ? etIsland.getText().toString().trim() : "";
+                try { islandVal[0] = s.isEmpty() ? -1 : Integer.parseInt(s); }
+                catch (NumberFormatException e) { islandVal[0] = -1; }
+            }
+            islandUnit[0] = (toggleIslandUnit.getCheckedButtonId() == R.id.btn_island_s) ? "s" : "m";
+
+            SharedPreferences.Editor ed = sp.edit();
+            Intent sync = new Intent("com.xiaoai.islandnotify.ACTION_SYNC_PREFS");
+            sync.setPackage("com.miui.voiceassist");
+
+            // 岛：单一全局键
+            ed.putInt   ("to_island_val",  islandVal[0]);
+            ed.putString("to_island_unit", islandUnit[0]);
+            sync.putExtra("to_island_val",  islandVal[0]);
+            sync.putExtra("to_island_unit", islandUnit[0]);
+
+            // 通知：三阶段
+            for (int i = 0; i < 3; i++) {
+                ed.putInt   ("to_notif_val_"  + TO_PHASES[i], notifVals[i]);
+                ed.putString("to_notif_unit_" + TO_PHASES[i], notifUnits[i]);
+                sync.putExtra("to_notif_val_"  + TO_PHASES[i], notifVals[i]);
+                sync.putExtra("to_notif_unit_" + TO_PHASES[i], notifUnits[i]);
+            }
+            ed.apply();
+            sendBroadcast(sync);
+
+            tvHint.setText("已保存，下次通知生效");
+            tvHint.setVisibility(View.VISIBLE);
+        });
+    }
+
+    /** 设置超时行（TextInputLayout + 单位切换按钮）的启用/禁用状态。 */
+    private void setTimeoutRowEnabled(TextInputLayout til,
+            MaterialButtonToggleGroup unitToggle, boolean enabled) {
+        til.setEnabled(enabled);
+        til.setAlpha(enabled ? 1f : 0.4f);
+        unitToggle.setEnabled(enabled);
+        unitToggle.setAlpha(enabled ? 1f : 0.4f);
     }
 
     private static final String ALIAS = "com.xiaoai.islandnotify.MainActivityAlias";

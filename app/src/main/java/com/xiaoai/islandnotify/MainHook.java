@@ -60,8 +60,9 @@ public class MainHook implements IXposedHookLoadPackage {
     /** 模块自身包名，用于跨进程读取 SharedPreferences */
     private static final String MODULE_PKG  = "com.xiaoai.islandnotify";
 
-    /** 同步偶好设置到目标进程的广播 Action */
-    private static final String ACTION_SYNC_PREFS = "com.xiaoai.islandnotify.ACTION_SYNC_PREFS";    /** AlarmManager 闹钟触发岛状态更新的广播 Action */
+    /** 同步偏好设置到目标进程的广播 Action */
+    private static final String ACTION_SYNC_PREFS = "com.xiaoai.islandnotify.ACTION_SYNC_PREFS";
+    /** AlarmManager 闹钟触发岛状态更新的广播 Action */
     private static final String ACTION_ISLAND_UPDATE = "com.xiaoai.islandnotify.ACTION_ISLAND_UPDATE";
     /** 跨 ClassLoader 的防重复注入标记 key（存于 boot classloader 的 System.properties） */
     private static final String HOOKED_KEY = "xiaoai.island.hooked";
@@ -113,8 +114,15 @@ public class MainHook implements IXposedHookLoadPackage {
                                 ed.putString("tpl_ticker" + sfx, intent.getStringExtra("tpl_ticker" + sfx));
                             }
                             ed.putBoolean("icon_a", intent.getBooleanExtra("icon_a", true));
+                            // 同步超时设置：岛消失为全局单值；通知消失仍按阶段
+                            ed.putInt   ("to_island_val",  intent.getIntExtra   ("to_island_val",  -1));
+                            ed.putString("to_island_unit", safeStr(intent.getStringExtra("to_island_unit")));
+                            for (String phase : new String[]{"pre", "active", "post"}) {
+                                ed.putInt   ("to_notif_val_"  + phase, intent.getIntExtra   ("to_notif_val_"  + phase, -1));
+                                ed.putString("to_notif_unit_" + phase, safeStr(intent.getStringExtra("to_notif_unit_" + phase)));
+                            }
                             ed.apply();
-                            XposedBridge.log(TAG + ": 偷好设置已同步到目标进程");
+                            XposedBridge.log(TAG + ": 偏好设置已同步到目标进程");
                         } else if (ACTION_ISLAND_UPDATE.equals(intent.getAction())) {
                             String courseName = safeStr(intent.getStringExtra("course_name"));
                             String startTime  = safeStr(intent.getStringExtra("start_time"));
@@ -345,6 +353,11 @@ public class MainHook implements IXposedHookLoadPackage {
                     scheduleIslandAlarm(ctx, info, STATE_FINISHED, channelId,
                             notifTag, notifId, endMs2);
                 }
+
+                // 6c. 通知取消闹钟（三个阶段各自独立调度，先触发者生效）
+                // 使用 Android 原生 nm.cancel，不依赖 JSON timeout 字段
+                scheduleNotifCancelAlarms(ctx, prefs, notifTag, notifId,
+                        System.currentTimeMillis(), startMs, endMs2);
             }
 
             XposedBridge.log(TAG + ": 注入成功");
@@ -525,6 +538,51 @@ public class MainHook implements IXposedHookLoadPackage {
     }
 
     /**
+     * 在三个时间点各调度一个 ACTION_NOTIF_CANCEL 闹钟，先触发者取消通知并自动使其余成为 no-op。
+     *
+     * 时间点：
+     *   pre    → notifPostedMs + delay_pre
+     *   active → startMs       + delay_active
+     *   post   → endMs         + delay_post
+     *
+     * 任何阶段若 val=-1（默认）则跳过调度。
+     */
+    /**
+     * 在 voiceassist 主线程通过 Handler.postDelayed 延迟取消通知。
+     * 比 AlarmManager+Broadcast 更简单可靠：voiceassist 是常驻进程，
+     * 且若被杀通知也会自动消失，无需持久化 alarm。
+     */
+    private void scheduleNotifCancelAlarms(Context ctx,
+            android.content.SharedPreferences prefs,
+            String tag, int id,
+            long notifPostedMs, long startMs, long endMs) {
+        if (ctx == null) return;
+        // 不限制进程：模块进程测试通知 / voiceassist 真实通知均适用
+        final String[] phases = {"pre", "active", "post"};
+        final long[]   baseMs = {notifPostedMs, startMs, endMs};
+        android.app.NotificationManager nm =
+                ctx.getSystemService(android.app.NotificationManager.class);
+        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        for (int i = 0; i < 3; i++) {
+            int    val  = (prefs != null) ? prefs.getInt   ("to_notif_val_"  + phases[i], -1) : -1;
+            String unit = (prefs != null) ? safeStr(prefs.getString("to_notif_unit_" + phases[i], "m")) : "m";
+            if (val <= 0 || baseMs[i] <= 0) continue;
+            long delayMs  = "s".equals(unit) ? (long) val * 1000 : (long) val * 60 * 1000;
+            long remainMs = baseMs[i] + delayMs - System.currentTimeMillis();
+            if (remainMs <= 0) continue;
+            final String finalTag   = tag;
+            final int    finalId    = id;
+            final String phaseName  = phases[i];
+            handler.postDelayed(() -> {
+                if (finalTag != null) nm.cancel(finalTag, finalId);
+                else                 nm.cancel(finalId);
+                XposedBridge.log(TAG + ": 通知已取消 [" + phaseName + "] id=" + finalId);
+            }, remainMs);
+            XposedBridge.log(TAG + ": 通知取消 Handler [" + phases[i] + "] in " + remainMs / 1000 + "s");
+        }
+    }
+
+    /**
      * 构建并发送更新后的岛通知。
      */
     private void sendIslandUpdate(CourseInfo info, int state,
@@ -668,11 +726,22 @@ public class MainHook implements IXposedHookLoadPackage {
                 + (info.classroom.isEmpty() ? "" : " " + info.classroom)
                 + (timeRange.isEmpty() ? "" : " " + timeRange));
 
+        // ── 岛消失超时（全局单值，写入每次状态更新的 JSON）──────────
+        // 岛每次 sendIslandUpdate 都重新 notify，islandTimeout 随之重置，
+        // 因此不按阶段区分，统一使用同一个值。
+        int islandToVal  = (prefs != null) ? prefs.getInt   ("to_island_val",  -1) : -1;
+        String islandToUnit = (prefs != null) ? safeStr(prefs.getString("to_island_unit", "m")) : "m";
+
         JSONObject paramIsland = new JSONObject();
         paramIsland.put("islandProperty",  1);
         paramIsland.put("bigIslandArea",   bigIslandArea);
         paramIsland.put("smallIslandArea", smallIslandArea);
         paramIsland.put("shareData",       shareData);
+        if (islandToVal > 0) {
+            long islandToSecs = "m".equals(islandToUnit) ? (long) islandToVal * 60 : islandToVal;
+            paramIsland.put("islandTimeout", islandToSecs);
+            XposedBridge.log(TAG + ": islandTimeout=" + islandToSecs + "s");
+        }
 
         // ── paramV2 ───────────────────────────────────────────────
         String tickerText = resolveTemplate(
@@ -695,6 +764,8 @@ public class MainHook implements IXposedHookLoadPackage {
         paramV2.put("picInfo",      notifPicInfo);
         paramV2.put("hintInfo",     hintInfo);
         paramV2.put("param_island", paramIsland);
+        // 注意：param_v2.timeout 字段在实测中无效，通知消失改由 scheduleNotifCancelAlarms
+        // 在 injectIslandParams 时通过 AlarmManager + nm.cancel() 实现。
 
         JSONObject root = new JSONObject();
         root.put("param_v2", paramV2);
