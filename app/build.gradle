@@ -2,6 +2,27 @@ plugins {
     id 'com.android.application'
 }
 
+// ── 自动迭代版本号 ───────────────────────────────────────────────
+// 版本信息存储在项目根目录 version.properties，构建 release 时自动 +1
+def versionPropsFile = rootProject.file('version.properties')
+def versionProps = new Properties()
+if (versionPropsFile.exists()) {
+    versionPropsFile.withInputStream { versionProps.load(it) }
+}
+def vCode = (versionProps['VERSION_CODE'] ?: '1').toInteger()
+def vName = (versionProps['VERSION_NAME'] ?: '1.0.0')
+
+// 仅在明确构建 release 变体时才自增（debug 构建不影响计数）
+def isReleaseBuild = gradle.startParameter.taskNames.any {
+    it.toLowerCase().contains('release')
+}
+if (isReleaseBuild) {
+    vCode++
+    versionProps['VERSION_CODE'] = vCode.toString()
+    versionPropsFile.withWriter { versionProps.store(it, null) }
+    logger.lifecycle(">>> Release 构建：versionCode 已自增至 $vCode")
+}
+
 android {
     namespace 'com.xiaoai.islandnotify'
     compileSdk 35
@@ -11,8 +32,8 @@ android {
         // 小米超级岛(OS3)最低需要MIUI14+，Android 12+
         minSdk 31
         targetSdk 35
-        versionCode 4
-        versionName "1.0.3"
+        versionCode vCode
+        versionName vName
     }
 
     buildTypes {

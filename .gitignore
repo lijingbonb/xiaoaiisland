@@ -1,26 +1,40 @@
-# Gradle
+# ── Gradle ────────────────────────────────────────────────────
 .gradle/
 build/
 **/build/
+/app/release/output-metadata.json
 
-# Android Studio / IntelliJ IDEA
+# ── Android Studio / IntelliJ IDEA ───────────────────────────
 .idea/
 *.iml
 *.iws
 *.ipr
 local.properties
+captures/
 
-# 签名密钥（绝对不能提交）
+# ── 签名密钥（绝对不能提交） ─────────────────────────────────
 *.jks
 *.keystore
+keystore.properties
 
-# 本地 libs jar（体积大，通过文档说明手动放置）
+# ── 本地 libs jar（体积大，通过文档说明手动放置） ────────────
 app/libs/*.jar
 
-# 生成的 APK / AAB
+# ── 生成的 APK / AAB ─────────────────────────────────────────
 *.apk
 *.aab
 
-# OS 杂项
+# ── Python 虚拟环境 ───────────────────────────────────────────
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# ── 本地临时文件 ──────────────────────────────────────────────
+pdf_text.txt
+*.pdf
+
+# ── OS 杂项 ──────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+desktop.ini
