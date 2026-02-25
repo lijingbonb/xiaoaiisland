@@ -136,12 +136,27 @@ public class MainActivity extends AppCompatActivity {
         swIconA.setChecked(sp.getBoolean("icon_a",   true));
 
         findViewById(R.id.btn_save_custom).setOnClickListener(v -> {
+            String tplA      = etA.getText().toString().trim();
+            String tplB      = etB.getText().toString().trim();
+            String tplTicker = etTicker.getText().toString().trim();
+            boolean iconA    = swIconA.isChecked();
+
             sp.edit()
-                .putString("tpl_a",      etA.getText().toString().trim())
-                .putString("tpl_b",      etB.getText().toString().trim())
-                .putString("tpl_ticker", etTicker.getText().toString().trim())
-                .putBoolean("icon_a",    swIconA.isChecked())
+                .putString("tpl_a",      tplA)
+                .putString("tpl_b",      tplB)
+                .putString("tpl_ticker", tplTicker)
+                .putBoolean("icon_a",    iconA)
                 .apply();
+
+            // 通知 voiceassist 进程同步最新配置（绕过 SELinux 跨 UID 文件读取限制）
+            Intent sync = new Intent("com.xiaoai.islandnotify.ACTION_SYNC_PREFS");
+            sync.setPackage("com.miui.voiceassist");
+            sync.putExtra("tpl_a",      tplA);
+            sync.putExtra("tpl_b",      tplB);
+            sync.putExtra("tpl_ticker", tplTicker);
+            sync.putExtra("icon_a",     iconA);
+            sendBroadcast(sync);
+
             tvHint.setText("已保存，下次通知生效");
             tvHint.setVisibility(View.VISIBLE);
         });

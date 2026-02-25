@@ -2,11 +2,15 @@ package com.xiaoai.islandnotify;
 
 import android.app.Notification;
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.widget.RemoteViews;
 
@@ -54,6 +58,9 @@ public class MainHook implements IXposedHookLoadPackage {
     /** 模块自身包名，用于跨进程读取 SharedPreferences */
     private static final String MODULE_PKG  = "com.xiaoai.islandnotify";
 
+    /** 同步偶好设置到目标进程的广播 Action */
+    private static final String ACTION_SYNC_PREFS = "com.xiaoai.islandnotify.ACTION_SYNC_PREFS";
+
     /** 防止同一进程内多个 ClassLoader 重复注册 Hook */
     private static volatile boolean hooked = false;
 
@@ -75,11 +82,45 @@ public class MainHook implements IXposedHookLoadPackage {
         if (hooked) return;
         hooked = true;
         XposedBridge.log(TAG + ": 已注入目标进程 → " + TARGET_PACKAGE);
+        hookApplicationOnCreate(lpparam);
         hookNotifyMethods(lpparam);
     }
 
-    /**
-     * Hook 自身进程的 MainActivity.isModuleActive()，将返回值替换为 true，
+    /**     * Hook 目标 App 的 Application.onCreate，在其进程内注册 BroadcastReceiver。
+     * 收到 ACTION_SYNC_PREFS 广播时，将偷好设置写入目标进程自己的 SharedPreferences，
+     * 彻底绕过 SELinux 跨 UID 文件读取限制。
+     */
+    private void hookApplicationOnCreate(XC_LoadPackage.LoadPackageParam lpparam) {
+        findAndHookMethod("android.app.Application", lpparam.classLoader,
+                "onCreate", new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam param) {
+                Context appCtx = (Context) param.thisObject;
+                IntentFilter filter = new IntentFilter(ACTION_SYNC_PREFS);
+                BroadcastReceiver receiver = new BroadcastReceiver() {
+                    @Override
+                    public void onReceive(Context context, Intent intent) {
+                        SharedPreferences.Editor ed = context
+                                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit();
+                        ed.putString("tpl_a",      intent.getStringExtra("tpl_a"));
+                        ed.putString("tpl_b",      intent.getStringExtra("tpl_b"));
+                        ed.putString("tpl_ticker", intent.getStringExtra("tpl_ticker"));
+                        ed.putBoolean("icon_a",    intent.getBooleanExtra("icon_a", true));
+                        ed.apply();
+                        XposedBridge.log(TAG + ": 偷好设置已同步到目标进程");
+                    }
+                };
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    appCtx.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
+                } else {
+                    appCtx.registerReceiver(receiver, filter);
+                }
+                XposedBridge.log(TAG + ": 偷好同步接收器已注册");
+            }
+        });
+    }
+
+    /**     * Hook 自身进程的 MainActivity.isModuleActive()，将返回值替换为 true，
      * 使主界面能正确检测到模块已激活。
      */
     private void hookSelfStatus(XC_LoadPackage.LoadPackageParam lpparam) {
@@ -601,12 +642,19 @@ public class MainHook implements IXposedHookLoadPackage {
      * 使用 XSharedPreferences 绕过 Android 9+ 的沙箱文件权限限制。
      * createPackageContext+MODE_PRIVATE 在 Android 9+ 会被 SELinux 拦截，无法使用。
      */
-    private android.content.SharedPreferences loadPrefs(Context ctx) {
+    private SharedPreferences loadPrefs(Context ctx) {
+        // 优先读取目标进程自己的 SP（由广播同步写入，无 SELinux 问题）
+        SharedPreferences local = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        if (local.getAll().size() > 0) {
+            XposedBridge.log(TAG + ": 读取目标进程偷好设置，条目数=" + local.getAll().size());
+            return local;
+        }
+        // 回退：XSharedPreferences（首次吏未同步时）
         try {
             de.robv.android.xposed.XSharedPreferences prefs =
                     new de.robv.android.xposed.XSharedPreferences(MODULE_PKG, PREFS_NAME);
             prefs.reload();
-            XposedBridge.log(TAG + ": XSharedPreferences 加载成功，条目数=" + prefs.getAll().size());
+            XposedBridge.log(TAG + ": XSharedPreferences 加载，条目数=" + prefs.getAll().size());
             return prefs;
         } catch (Exception e) {
             XposedBridge.log(TAG + ": loadPrefs 失败 → " + e.getMessage());
