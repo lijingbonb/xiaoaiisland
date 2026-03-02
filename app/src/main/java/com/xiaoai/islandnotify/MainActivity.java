@@ -583,14 +583,35 @@ public class MainActivity extends AppCompatActivity {
         EditText       etMinutes   = findViewById(R.id.et_reminder_minutes);
         TextView       tvHint      = findViewById(R.id.tv_reminder_hint);
 
+        // ── 自动静音控件 ──
+        SwitchMaterial swMute        = findViewById(R.id.sw_mute_enabled);
+        View           llMute        = findViewById(R.id.ll_mute_content);
+        EditText       etMuteBefore  = findViewById(R.id.et_mute_mins_before);
+        SwitchMaterial swUnmute      = findViewById(R.id.sw_unmute_enabled);
+        View           llUnmute      = findViewById(R.id.ll_unmute_content);
+        EditText       etUnmuteAfter = findViewById(R.id.et_unmute_mins_after);
+
         // 读取已保存状态
-        boolean savedEnabled = sp.getBoolean("custom_reminder_enabled", false);
-        int     savedMinutes = sp.getInt("reminder_minutes_before", 15);
+        boolean savedEnabled       = sp.getBoolean("custom_reminder_enabled", false);
+        int     savedMinutes       = sp.getInt("reminder_minutes_before", 15);
+        boolean savedMuteEnabled   = sp.getBoolean("mute_enabled", false);
+        int     savedMuteBefore    = sp.getInt("mute_mins_before", 0);
+        boolean savedUnmuteEnabled = sp.getBoolean("unmute_enabled", false);
+        int     savedUnmuteAfter   = sp.getInt("unmute_mins_after", 0);
+
         swEnabled.setChecked(savedEnabled);
         etMinutes.setText(String.valueOf(savedMinutes));
         llContent.setVisibility(savedEnabled ? View.VISIBLE : View.GONE);
 
-        // 开关切换时立即同步并显示/隐藏设置内容
+        swMute.setChecked(savedMuteEnabled);
+        llMute.setVisibility(savedMuteEnabled ? View.VISIBLE : View.GONE);
+        etMuteBefore.setText(String.valueOf(savedMuteBefore));
+
+        swUnmute.setChecked(savedUnmuteEnabled);
+        llUnmute.setVisibility(savedUnmuteEnabled ? View.VISIBLE : View.GONE);
+        etUnmuteAfter.setText(String.valueOf(savedUnmuteAfter));
+
+        // 主开关切换
         swEnabled.setOnCheckedChangeListener((btn, checked) -> {
             llContent.setVisibility(checked ? View.VISIBLE : View.GONE);
             sp.edit().putBoolean("custom_reminder_enabled", checked).apply();
@@ -622,6 +643,61 @@ public class MainActivity extends AppCompatActivity {
             sendBroadcast(sync);
 
             tvHint.setText("已保存，重新调度今日提醒（提前 " + minutes + " 分钟）");
+            tvHint.setVisibility(View.VISIBLE);
+        });
+
+        // 静音开关
+        swMute.setOnCheckedChangeListener((btn, checked) -> {
+            llMute.setVisibility(checked ? View.VISIBLE : View.GONE);
+            sp.edit().putBoolean("mute_enabled", checked).apply();
+            Intent sync = new Intent("com.xiaoai.islandnotify.ACTION_SYNC_PREFS");
+            sync.setPackage("com.miui.voiceassist");
+            sync.putExtra("mute_enabled", checked);
+            sendBroadcast(sync);
+        });
+
+        // 取消静音开关
+        swUnmute.setOnCheckedChangeListener((btn, checked) -> {
+            llUnmute.setVisibility(checked ? View.VISIBLE : View.GONE);
+            sp.edit().putBoolean("unmute_enabled", checked).apply();
+            Intent sync = new Intent("com.xiaoai.islandnotify.ACTION_SYNC_PREFS");
+            sync.setPackage("com.miui.voiceassist");
+            sync.putExtra("unmute_enabled", checked);
+            sendBroadcast(sync);
+        });
+
+        // 保存静音设置
+        findViewById(R.id.btn_save_mute).setOnClickListener(v -> {
+            int muteBefore;
+            int unmuteAfter;
+            try {
+                muteBefore = Integer.parseInt(
+                        etMuteBefore.getText() != null ? etMuteBefore.getText().toString().trim() : "0");
+                if (muteBefore < 0) muteBefore = 0;
+                if (muteBefore > 60) muteBefore = 60;
+            } catch (NumberFormatException e) { muteBefore = 0; }
+            try {
+                unmuteAfter = Integer.parseInt(
+                        etUnmuteAfter.getText() != null ? etUnmuteAfter.getText().toString().trim() : "0");
+                if (unmuteAfter < 0) unmuteAfter = 0;
+                if (unmuteAfter > 60) unmuteAfter = 60;
+            } catch (NumberFormatException e) { unmuteAfter = 0; }
+
+            etMuteBefore.setText(String.valueOf(muteBefore));
+            etUnmuteAfter.setText(String.valueOf(unmuteAfter));
+
+            sp.edit()
+              .putInt("mute_mins_before", muteBefore)
+              .putInt("unmute_mins_after", unmuteAfter)
+              .apply();
+
+            Intent sync = new Intent("com.xiaoai.islandnotify.ACTION_SYNC_PREFS");
+            sync.setPackage("com.miui.voiceassist");
+            sync.putExtra("mute_mins_before", muteBefore);
+            sync.putExtra("unmute_mins_after", unmuteAfter);
+            sendBroadcast(sync);
+
+            tvHint.setText("静音设置已保存并重新调度");
             tvHint.setVisibility(View.VISIBLE);
         });
     }
@@ -701,12 +777,26 @@ public class MainActivity extends AppCompatActivity {
         String endTime = String.format(java.util.Locale.getDefault(), "%02d:%02d",
                 cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE));
 
+        // 直接从 SP 读取当前静音设置一起带入 intent，避免 voiceassist 读 SP 缓存旧値
+        SharedPreferences sp = getSharedPreferences("island_custom", MODE_PRIVATE);
+        boolean muteEnabled   = sp.getBoolean("mute_enabled",   false);
+        int     muteBefore    = sp.getInt("mute_mins_before",    0);
+        boolean unmuteEnabled = sp.getBoolean("unmute_enabled", false);
+        int     unmuteAfter   = sp.getInt("unmute_mins_after",   0);
+
         Intent intent = new Intent("com.xiaoai.islandnotify.ACTION_TEST_NOTIFY");
         intent.setPackage("com.miui.voiceassist");
         intent.putExtra("course_name", courseName);
         intent.putExtra("start_time",  startTime);
         intent.putExtra("end_time",    endTime);
         intent.putExtra("classroom",   classroom);
+        intent.putExtra("mute_enabled",      muteEnabled);
+        intent.putExtra("mute_mins_before",  muteBefore);
+        intent.putExtra("unmute_enabled",    unmuteEnabled);
+        intent.putExtra("unmute_mins_after", unmuteAfter);
+        // 把精确的课程开始/结束毫秒时间戳带入，让 voiceassist 端完全复用真实调度逻辑
+        intent.putExtra("start_ms", startMs);
+        intent.putExtra("end_ms",   endMs);
         sendBroadcast(intent);
     }
 
