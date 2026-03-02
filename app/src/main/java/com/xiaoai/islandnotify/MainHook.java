@@ -87,6 +87,9 @@ public class MainHook implements IXposedHookLoadPackage {
     private android.os.Handler mRescheduleHandler;
     /** 防抖 token，用于 removeCallbacksAndMessages */
     private final Object mRescheduleToken = new Object();
+    /** 测试通知自增 ID，避免多次测试因相同 ID 互相替换 */
+    private static final java.util.concurrent.atomic.AtomicInteger sTestNotifId =
+            new java.util.concurrent.atomic.AtomicInteger(2001);
 
     /** 获取（或创建）防抖 Handler，保证在主 Looper 就绪后才初始化。 */
     private android.os.Handler getRescheduleHandler() {
@@ -267,15 +270,24 @@ public class MainHook implements IXposedHookLoadPackage {
 
                             android.app.Notification tNotif = new android.app.Notification.Builder(context, TEST_CHANNEL_ID)
                                     .setSmallIcon(android.R.drawable.ic_dialog_info)
+                                    // 加 title/text 防止 MIUI 因无内容静默丢弃通知
+                                    .setContentTitle("[" + tCourseName + "]快到了，提前准备一下吧")
+                                    .setContentText(tStartTime + " - " + tEndTime + "  " + tClassroom)
                                     .build();
                             if (tNotif.extras == null) tNotif.extras = new android.os.Bundle();
+                            // 清除 title/text 以匹配 voiceassist 真实通知（依靠 bigContentView）
+                            tNotif.extras.remove("android.title");
+                            tNotif.extras.remove("android.text");
+                            tNotif.extras.putBoolean("android.contains.customView", true);
                             tNotif.extras.putString("xiaoai.test.course_name", tCourseName);
                             tNotif.extras.putString("xiaoai.test.start_time",  tStartTime);
                             tNotif.extras.putString("xiaoai.test.end_time",    tEndTime);
                             tNotif.extras.putString("xiaoai.test.classroom",   tClassroom);
 
-                            tnm.notify(1001, tNotif);
-                            XposedBridge.log(TAG + ": 已在目标进程发出测试通知");
+                            XposedBridge.log(TAG + ": 即将发出测试通知 → " + tCourseName + " @" + tStartTime);
+                            int tNotifId = sTestNotifId.getAndIncrement();
+                            tnm.notify(tNotifId, tNotif);
+                            XposedBridge.log(TAG + ": 已在目标进程发出测试通知 id=" + tNotifId);
                         } else if (ACTION_COURSE_REMINDER.equals(intent.getAction())) {
                             // AlarmManager 触发课前提醒 → 在 voiceassist 进程构造通知
                             if (!sCustomReminderEnabled) return;
@@ -296,8 +308,13 @@ public class MainHook implements IXposedHookLoadPackage {
                             }
                             android.app.Notification crNotif = new android.app.Notification.Builder(context, CR_CH)
                                     .setSmallIcon(android.R.drawable.ic_dialog_info)
+                                    .setContentTitle("[" + crName + "]快到了，提前准备一下吧")
+                                    .setContentText(crStart + " - " + crEnd + "  " + crRoom)
                                     .build();
                             if (crNotif.extras == null) crNotif.extras = new android.os.Bundle();
+                            crNotif.extras.remove("android.title");
+                            crNotif.extras.remove("android.text");
+                            crNotif.extras.putBoolean("android.contains.customView", true);
                             crNotif.extras.putString("xiaoai.test.course_name", crName);
                             crNotif.extras.putString("xiaoai.test.start_time",  crStart);
                             crNotif.extras.putString("xiaoai.test.end_time",    crEnd);
