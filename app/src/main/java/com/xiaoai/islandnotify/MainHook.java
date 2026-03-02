@@ -80,7 +80,8 @@ public class MainHook implements IXposedHookLoadPackage {
     /** 自定义课前提醒是否启用（volatile，voiceassist 进程内快速读取，broadcast 后同步更新） */
     private static volatile boolean sCustomReminderEnabled = false;
     /** CourseData SP 监听器引用（持有防 GC） */
-    private SharedPreferences.OnSharedPreferenceChangeListener mCourseDataListener;
+    /** CourseData.xml FileObserver，跨进程写入时仍能感知 */
+    private android.os.FileObserver mCourseDataObserver;
     /** CourseData 变化防抖延迟（ms）：合并同一次写入触发的多个 inotify 事件 */
     private static final int RESCHEDULE_DEBOUNCE_MS = 1500;
     /** 防抖 Handler，懒加载避免 Xposed 初始化阶段 Looper 未就绪导致 NPE */
@@ -195,10 +196,9 @@ public class MainHook implements IXposedHookLoadPackage {
                                         registerCourseDataListener(context);
                                         scheduleTodayCourseReminders(context);
                                     } else {
-                                        if (mCourseDataListener != null) {
-                                            context.getSharedPreferences(PREFS_COURSE_DATA, Context.MODE_PRIVATE)
-                                                    .unregisterOnSharedPreferenceChangeListener(mCourseDataListener);
-                                            mCourseDataListener = null;
+                                        if (mCourseDataObserver != null) {
+                                            mCourseDataObserver.stopWatching();
+                                            mCourseDataObserver = null;
                                         }
                                     }
                                 }
@@ -515,24 +515,33 @@ public class MainHook implements IXposedHookLoadPackage {
     }
 
     /**
-     * 直接在 CourseData SP 实例上注册 OnSharedPreferenceChangeListener。
-     * 仅在 weekCourseBean 变化时触发，无 FileObserver 的目录轮询开销。
-     * 需持有引用（存于 mCourseDataListener）防止被 GC。
+     * 用 FileObserver 监听 CourseData.xml 的写入（包括跨进程写入）。
+     * Android SP 采用原子 rename（.bak → 目标文件），故监听 shared_prefs/ 目录的
+     * MOVED_TO 事件（同时保留 CLOSE_WRITE 兜底），过滤文件名 CourseData.xml。
      */
     private void registerCourseDataListener(Context ctx) {
-        if (mCourseDataListener != null) return; // 已注册，防重复
-        SharedPreferences coursePrefs = ctx.getSharedPreferences(PREFS_COURSE_DATA, Context.MODE_PRIVATE);
-        mCourseDataListener = (sp, key) -> {
-            if (!"weekCourseBean".equals(key)) return;
-            getRescheduleHandler().removeCallbacksAndMessages(mRescheduleToken);
-            getRescheduleHandler().postDelayed(() -> {
-                if (!sCustomReminderEnabled) return;
-                XposedBridge.log(TAG + ": CourseData 已更新，重新调度课前提醒");
-                scheduleTodayCourseReminders(ctx);
-            }, mRescheduleToken, RESCHEDULE_DEBOUNCE_MS);
+        if (mCourseDataObserver != null) return; // 已注册，防重复
+
+        // voiceassist 自有数据目录下的 shared_prefs/
+        String dirPath = ctx.getFilesDir().getParent() + "/shared_prefs";
+
+        mCourseDataObserver = new android.os.FileObserver(
+                dirPath,
+                android.os.FileObserver.MOVED_TO | android.os.FileObserver.CLOSE_WRITE) {
+            @Override
+            public void onEvent(int event, String path) {
+                if (path == null || !path.equals("CourseData.xml")) return;
+                // 防抖：移除上次未执行的任务，延迟 1500ms 执行
+                getRescheduleHandler().removeCallbacksAndMessages(mRescheduleToken);
+                getRescheduleHandler().postDelayed(() -> {
+                    if (!sCustomReminderEnabled) return;
+                    XposedBridge.log(TAG + ": CourseData.xml 已变化，重新调度课前提醒");
+                    scheduleTodayCourseReminders(ctx);
+                }, mRescheduleToken, RESCHEDULE_DEBOUNCE_MS);
+            }
         };
-        coursePrefs.registerOnSharedPreferenceChangeListener(mCourseDataListener);
-        XposedBridge.log(TAG + ": CourseData SP 监听器已注册");
+        mCourseDataObserver.startWatching();
+        XposedBridge.log(TAG + ": CourseData FileObserver 已启动，监控目录: " + dirPath);
     }
 
     /**     * Hook 自身进程的 MainActivity.isModuleActive()，将返回值替换为 true，
