@@ -394,11 +394,13 @@ public class MainHook implements IXposedHookLoadPackage {
                                             android.media.AudioManager auMgr =
                                                     (android.media.AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
                                             if (auMgr != null) {
-                                                if (auMgr.getRingerMode() != android.media.AudioManager.RINGER_MODE_SILENT) {
+                                                int mode = auMgr.getRingerMode();
+                                                if (mode != android.media.AudioManager.RINGER_MODE_SILENT
+                                                        && mode != android.media.AudioManager.RINGER_MODE_VIBRATE) {
                                                     sSavedRingVolume = auMgr.getStreamVolume(android.media.AudioManager.STREAM_RING);
                                                 }
                                                 auMgr.setStreamVolume(android.media.AudioManager.STREAM_RING, 0, 0);
-                                                auMgr.setRingerMode(android.media.AudioManager.RINGER_MODE_SILENT);
+                                                auMgr.setRingerMode(android.media.AudioManager.RINGER_MODE_VIBRATE);
                                                 XposedBridge.log(TAG + ": 测试通知 → [内联立即静音] 保存音量=" + sSavedRingVolume);
                                             }
                                         } catch (Exception e) {
@@ -454,14 +456,18 @@ public class MainHook implements IXposedHookLoadPackage {
                                 android.media.AudioManager auMgr =
                                         (android.media.AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
                                 if (auMgr != null) {
-                                    // 仅在非静音状态时保存，避免覆盖已保存的值
-                                    if (auMgr.getRingerMode() != android.media.AudioManager.RINGER_MODE_SILENT) {
+                                    // 仅在非静音/非震动状态时保存，避免覆盖已保存的值
+                                    int curMode = auMgr.getRingerMode();
+                                    if (curMode != android.media.AudioManager.RINGER_MODE_SILENT
+                                            && curMode != android.media.AudioManager.RINGER_MODE_VIBRATE) {
                                         sSavedRingVolume = auMgr.getStreamVolume(android.media.AudioManager.STREAM_RING);
                                     }
-                                    // flags=0：不弹 toast、不发出音效
+                                    // 先清零 ring 音量（flags=0 不弹 toast/音效），再切到震动模式
+                                    // 使用 VIBRATE 而非 SILENT：SILENT 需要 ACCESS_NOTIFICATION_POLICY(DND) 权限，
+                                    // voiceassist 进程无该权限会抛 SecurityException；VIBRATE 无此限制
                                     auMgr.setStreamVolume(android.media.AudioManager.STREAM_RING, 0, 0);
-                                    auMgr.setRingerMode(android.media.AudioManager.RINGER_MODE_SILENT);
-                                    XposedBridge.log(TAG + ": [DO_MUTE] 已静音，保存音量=" + sSavedRingVolume + " ← " + muteCourseName);
+                                    auMgr.setRingerMode(android.media.AudioManager.RINGER_MODE_VIBRATE);
+                                    XposedBridge.log(TAG + ": [DO_MUTE] 已静音(振动模式+音量0)，保存音量=" + sSavedRingVolume + " ← " + muteCourseName);
                                 }
                             } catch (Exception e) {
                                 XposedBridge.log(TAG + ": [DO_MUTE] 失败 → " + e.getMessage());
@@ -836,11 +842,17 @@ public class MainHook implements IXposedHookLoadPackage {
                         try {
                             android.media.AudioManager auMgr =
                                     (android.media.AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
-                            if (auMgr != null) auMgr.setRingerMode(android.media.AudioManager.RINGER_MODE_SILENT);
+                            if (auMgr != null) {
+                                int mode = auMgr.getRingerMode();
+                                if (mode != android.media.AudioManager.RINGER_MODE_SILENT
+                                        && mode != android.media.AudioManager.RINGER_MODE_VIBRATE) {
+                                    sSavedRingVolume = auMgr.getStreamVolume(android.media.AudioManager.STREAM_RING);
+                                }
+                                auMgr.setStreamVolume(android.media.AudioManager.STREAM_RING, 0, 0);
+                                auMgr.setRingerMode(android.media.AudioManager.RINGER_MODE_VIBRATE);
+                            }
                         } catch (Exception e) {
-                            Intent fb = new Intent(MUTE_ACTION).setPackage(MODULE_PKG);
-                            fb.putExtra("course_name", courseName);
-                            ctx.sendBroadcast(fb);
+                            XposedBridge.log(TAG + ": [立即静音] 失败 → " + e.getMessage());
                         }
                         XposedBridge.log(TAG + ": [立即静音] " + courseName);
                     } else if (muteTriggerMs > nowMs) {
