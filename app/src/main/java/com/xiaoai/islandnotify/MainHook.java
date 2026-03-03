@@ -92,6 +92,8 @@ public class MainHook implements IXposedHookLoadPackage {
     private android.os.Handler mRescheduleHandler;
     /** 防抖 token，用于 removeCallbacksAndMessages */
     private final Object mRescheduleToken = new Object();
+    /** 上次成功调度时 weekCourseBean 的 hashCode；FileObserver 触发时若内容未变则跳过重调度，避免补发重复通知 */
+    private volatile int mLastCourseDataHash = 0;
     /** 测试通知自增 ID，避免多次测试因相同 ID 互相替换 */
     private static final java.util.concurrent.atomic.AtomicInteger sTestNotifId =
             new java.util.concurrent.atomic.AtomicInteger(2001);
@@ -256,7 +258,8 @@ public class MainHook implements IXposedHookLoadPackage {
                                     || intent.hasExtra(KEY_DND_MODE);
                             // 课前提醒分钟数变化时重新调度（仅自定义提醒开启时）
                             if (intent.hasExtra(KEY_REMINDER_MINUTES) && sCustomReminderEnabled) {
-                                scheduleTodayCourseReminders(context);
+                                mLastCourseDataHash = 0; // 提醒分钟数改变，强制重调
+                                scheduleTodayCourseReminders(context, null);
                             }
                             // 静音设置变化时独立重调（不依赖自定义提醒开关）
                             if (muteSettingChanged) {
@@ -294,7 +297,8 @@ public class MainHook implements IXposedHookLoadPackage {
                                             }
                                         } catch (Exception ignored) {}
                                         registerCourseDataListener(context);
-                                        scheduleTodayCourseReminders(context);
+                                        mLastCourseDataHash = 0; // 首次启用自定义提醒，强制调度
+                                        scheduleTodayCourseReminders(context, null);
                                     } else {
                                         // 仅当静音功能也关闭时才停止 FileObserver
                                         if (!sMuteEnabled && !sUnmuteEnabled) {
@@ -547,7 +551,8 @@ public class MainHook implements IXposedHookLoadPackage {
                             sUnmuteEnabled = dp.getBoolean(KEY_UNMUTE_ENABLED, false);
                             sDndMode       = dp.getBoolean(KEY_DND_MODE,       false);
                             if (sCustomReminderEnabled) {
-                                scheduleTodayCourseReminders(context);
+                                mLastCourseDataHash = 0; // 跨日强制重调，忽略内容哈希缓存
+                                scheduleTodayCourseReminders(context, null);
                             }
                             if (sMuteEnabled || sUnmuteEnabled) {
                                 scheduleTodayMuteAlarms(context);
@@ -583,7 +588,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 sUnmuteEnabled         = initPrefs.getBoolean(KEY_UNMUTE_ENABLED, false);
                 sDndMode               = initPrefs.getBoolean(KEY_DND_MODE, false);
                 if (sCustomReminderEnabled) {
-                    scheduleTodayCourseReminders(appCtx);
+                    scheduleTodayCourseReminders(appCtx, null);
                 }
                 // 静音功能独立于自定义提醒开关
                 if (sMuteEnabled || sUnmuteEnabled) {
@@ -593,6 +598,19 @@ public class MainHook implements IXposedHookLoadPackage {
                 if (sCustomReminderEnabled || sMuteEnabled || sUnmuteEnabled) {
                     registerCourseDataListener(appCtx);
                 }
+                // ── 无条件初始化课表内容哈希 ──
+                // 若只开了静音（sCustomReminderEnabled=false），scheduleTodayCourseReminders 不会被调用，
+                // mLastCourseDataHash 将保持 0，导致 FileObserver 每次触发都被误判为「内容已变化」。
+                // 在此统一读取并写入当前哈希，确保 FileObserver 首次触发时能正确跳过未实质变动的写入。
+                try {
+                    @SuppressWarnings("deprecation")
+                    SharedPreferences initCp = appCtx.getSharedPreferences(
+                            PREFS_COURSE_DATA, Context.MODE_PRIVATE | Context.MODE_MULTI_PROCESS);
+                    String initBj = initCp.getString("weekCourseBean", null);
+                    if (initBj != null && !initBj.isEmpty()) {
+                        mLastCourseDataHash = stableCourseHash(initBj);
+                    }
+                } catch (Throwable ignored) {}
                 // 跨日自动重调：每天 00:01 重新调度当日闹钟，链式保证次日不丢失
                 scheduleMidnightReschedule(appCtx);
                 XposedBridge.log(TAG + ": 偷好同步接收器已注册，自定义提醒=" + sCustomReminderEnabled);
@@ -608,21 +626,36 @@ public class MainHook implements IXposedHookLoadPackage {
      * 读取 voiceassist 自身的 CourseData SharedPreferences，解析今日课程，
      * 为每节课在开始前 N 分钟设置 AlarmManager 精确闹钟。
      */
-    private void scheduleTodayCourseReminders(Context ctx) {
+    private void scheduleTodayCourseReminders(Context ctx, String cachedBeanJson) {
         try {
-            // MODE_MULTI_PROCESS：每次调用都从磁盘重新读取，避免跨进程写入后本进程缓存陈旧
-            // 重新调度前先取消所有旧闹钟，避免课程删除后残留
-            cancelAllScheduledAlarms(ctx);
-            mScheduledAlarmIds.clear();
-
-            @SuppressWarnings("deprecation")
-            SharedPreferences coursePrefs = ctx.getSharedPreferences(
-                    PREFS_COURSE_DATA, Context.MODE_PRIVATE | Context.MODE_MULTI_PROCESS);
-            String beanJson = coursePrefs.getString("weekCourseBean", null);
-            if (beanJson == null || beanJson.isEmpty()) {
+            // ── 1. 先读数据，内容哈希去重（必须在 cancel 前），避免相同课表重复写盘触发补发 ──
+            final String beanJson;
+            if (cachedBeanJson != null) {
+                // 来自 FileObserver 回调：直接使用已读好的 bean，不再二次读盘，
+                // 且 mLastCourseDataHash 已由 callback 写入，此处不覆盖，防止双重读导致 hash 不一致。
+                beanJson = cachedBeanJson;
+            } else {
+                // 来自强制重调路径（跨日/提醒分钟变化等）：从磁盘读取最新值并更新 hash。
+                @SuppressWarnings("deprecation")
+                SharedPreferences coursePrefs = ctx.getSharedPreferences(
+                        PREFS_COURSE_DATA, Context.MODE_PRIVATE | Context.MODE_MULTI_PROCESS);
+                String raw = coursePrefs.getString("weekCourseBean", null);
+                if (raw == null || raw.isEmpty()) {
+                    XposedBridge.log(TAG + ": CourseData 为空，跳过课前提醒调度");
+                    return;
+                }
+                beanJson = raw;
+                mLastCourseDataHash = stableCourseHash(beanJson);
+            }
+            if (beanJson.isEmpty()) {
                 XposedBridge.log(TAG + ": CourseData 为空，跳过课前提醒调度");
                 return;
             }
+
+            // ── 2. 取消所有旧闹钟，按新课表重新调度 ──
+            // MODE_MULTI_PROCESS 保证从磁盘读取最新值；cancel 在 hash 检查之后，避免提前撤销正在运行的 alarm
+            cancelAllScheduledAlarms(ctx);
+            mScheduledAlarmIds.clear();
 
             // 今天是星期几（课程数据: 1=周一, 7=周日）
             java.util.Calendar cal = java.util.Calendar.getInstance();
@@ -733,6 +766,30 @@ public class MainHook implements IXposedHookLoadPackage {
                     + " 条（第 " + currentWeek + " 周，提前 " + reminderMinutes + " 分钟）");
         } catch (Throwable e) {
             XposedBridge.log(TAG + ": scheduleTodayCourseReminders 失败 → " + e.getMessage());
+        }
+    }
+
+    /**
+     * 提取 weekCourseBean JSON 中真正影响调度的字段（courses / sectionTimes / startSemester /
+     * totalWeek / weekStart）并计算其 hashCode，过滤掉 updateTime、level、rtPresentWeek、
+     * presentWeek 等每次写盘都会变化的时间戳字段，避免误判「内容已变化」。
+     */
+    private int stableCourseHash(String beanJson) {
+        if (beanJson == null || beanJson.isEmpty()) return 0;
+        try {
+            org.json.JSONObject root    = new org.json.JSONObject(beanJson);
+            org.json.JSONObject data    = root.getJSONObject("data");
+            org.json.JSONObject setting = data.getJSONObject("setting");
+            // 只取影响调度的字段拼接成稳定字符串
+            String stable = data.optJSONArray("courses").toString()
+                    + setting.optString("sectionTimes")
+                    + setting.optString("startSemester")
+                    + setting.optString("totalWeek")
+                    + setting.optString("weekStart");
+            return stable.hashCode();
+        } catch (Throwable e) {
+            // 解析失败时退化为全文 hash，保证不会永久卡死
+            return beanJson.hashCode();
         }
     }
 
@@ -1161,9 +1218,29 @@ public class MainHook implements IXposedHookLoadPackage {
                 // 防抖：移除上次未执行的任务，延迟 1500ms 执行
                 getRescheduleHandler().removeCallbacksAndMessages(mRescheduleToken);
                 getRescheduleHandler().postDelayed(() -> {
+                    // ── 回调层统一哈希去重：课前提醒 + 静音两条路径共享同一份检查 ──
+                    // 只在这里【读取并比较】哈希；mLastCourseDataHash 的【更新】由 scheduleTodayCourseReminders
+                    // 负责（RESCHEDULE_DAILY / SYNC_PREFS 强制重调时也会先重置为 0）。
+                    // 若只开静音（sCustomReminderEnabled=false），mLastCourseDataHash 由 init block 初始化。
+                    String bj = null;
+                    try {
+                        @SuppressWarnings("deprecation")
+                        SharedPreferences cp = ctx.getSharedPreferences(
+                                PREFS_COURSE_DATA, Context.MODE_PRIVATE | Context.MODE_MULTI_PROCESS);
+                        bj = cp.getString("weekCourseBean", null);
+                        if (bj != null && !bj.isEmpty()) {
+                            int h = stableCourseHash(bj);
+                            if (h == mLastCourseDataHash) {
+                                XposedBridge.log(TAG + ": [FileObserver] 内容未变化，跳过重调度（hash=" + h + "）");
+                                return;
+                            }
+                            // 内容已变化：更新哈希，后续两个调度函数均需执行
+                            mLastCourseDataHash = h;
+                        }
+                    } catch (Throwable ignored) {}
                     if (sCustomReminderEnabled) {
                         XposedBridge.log(TAG + ": CourseData.xml 已变化，重新调度课前提醒");
-                        scheduleTodayCourseReminders(ctx);
+                        scheduleTodayCourseReminders(ctx, bj);
                     }
                     if (sMuteEnabled || sUnmuteEnabled) {
                         XposedBridge.log(TAG + ": CourseData.xml 已变化，重新调度静音闹钟");
