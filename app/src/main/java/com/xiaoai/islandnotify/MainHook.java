@@ -101,18 +101,19 @@ public class MainHook implements IXposedHookLoadPackage {
     private final java.util.Set<Integer> mScheduledAlarmIds = new java.util.HashSet<>();
 
     // ── 自动静音相关常量 ──
-    private static final String ACTION_MUTE_CLASS   = "com.xiaoai.islandnotify.ACTION_MUTE_CLASS";
-    private static final String ACTION_UNMUTE_CLASS = "com.xiaoai.islandnotify.ACTION_UNMUTE_CLASS";
     private static final String KEY_MUTE_ENABLED         = "mute_enabled";
     private static final String KEY_MUTE_MINS_BEFORE      = "mute_mins_before";   // 上课前多少分钟静音
     private static final String KEY_UNMUTE_ENABLED        = "unmute_enabled";
     private static final String KEY_UNMUTE_MINS_AFTER     = "unmute_mins_after";  // 下课后多少分钟取消静音
+    private static final String KEY_DND_MODE              = "dnd_mode";           // true=勿扰(DND), false=静音（默认）
     private static final int    DEFAULT_MUTE_MINS_BEFORE  = 0;   // 默认：上课时才静音
     private static final int    DEFAULT_UNMUTE_MINS_AFTER = 0;   // 默认：下课立即恢复
     /** 静音功能开关（volatile，跨 Xposed 回调线程读取） */
     private static volatile boolean sMuteEnabled   = false;
     /** 取消静音功能开关 */
     private static volatile boolean sUnmuteEnabled = false;
+    /** 勿扰模式开关：true=启用 DND（勿扰），false=静音（默认） */
+    private static volatile boolean sDndMode       = false;
     /** 静音前保存的铃声模式，解除时还原；-1 表示未保存 */
     private static volatile int  sSavedRingerMode = -1;
     /** 静音前保存的 STREAM_RING 音量，解除时还原；-1 表示未保存 */
@@ -224,6 +225,10 @@ public class MainHook implements IXposedHookLoadPackage {
                                 ed.putInt(KEY_UNMUTE_MINS_AFTER,
                                         intent.getIntExtra(KEY_UNMUTE_MINS_AFTER, DEFAULT_UNMUTE_MINS_AFTER));
                             }
+                            if (intent.hasExtra(KEY_DND_MODE)) {
+                                ed.putBoolean(KEY_DND_MODE,
+                                        intent.getBooleanExtra(KEY_DND_MODE, false));
+                            }
                             if (intent.hasExtra(KEY_CUSTOM_REMINDER_ENABLED)) {
                                 ed.putBoolean(KEY_CUSTOM_REMINDER_ENABLED,
                                         intent.getBooleanExtra(KEY_CUSTOM_REMINDER_ENABLED, false));
@@ -234,11 +239,14 @@ public class MainHook implements IXposedHookLoadPackage {
                                 sMuteEnabled   = intent.getBooleanExtra(KEY_MUTE_ENABLED, false);
                             if (intent.hasExtra(KEY_UNMUTE_ENABLED))
                                 sUnmuteEnabled = intent.getBooleanExtra(KEY_UNMUTE_ENABLED, false);
+                            if (intent.hasExtra(KEY_DND_MODE))
+                                sDndMode       = intent.getBooleanExtra(KEY_DND_MODE, false);
                             // 提醒分钟数或静音参数变化时重新调度（仅自定义模式已开启）
                             boolean muteSettingChanged = intent.hasExtra(KEY_MUTE_ENABLED)
                                     || intent.hasExtra(KEY_MUTE_MINS_BEFORE)
                                     || intent.hasExtra(KEY_UNMUTE_ENABLED)
-                                    || intent.hasExtra(KEY_UNMUTE_MINS_AFTER);
+                                    || intent.hasExtra(KEY_UNMUTE_MINS_AFTER)
+                                    || intent.hasExtra(KEY_DND_MODE);
                             // 课前提醒分钟数变化时重新调度（仅自定义提醒开启时）
                             if (intent.hasExtra(KEY_REMINDER_MINUTES) && sCustomReminderEnabled) {
                                 scheduleTodayCourseReminders(context);
@@ -511,6 +519,7 @@ public class MainHook implements IXposedHookLoadPackage {
                             sCustomReminderEnabled = dp.getBoolean(KEY_CUSTOM_REMINDER_ENABLED, false);
                             sMuteEnabled   = dp.getBoolean(KEY_MUTE_ENABLED,   false);
                             sUnmuteEnabled = dp.getBoolean(KEY_UNMUTE_ENABLED, false);
+                            sDndMode       = dp.getBoolean(KEY_DND_MODE,       false);
                             if (sCustomReminderEnabled) {
                                 scheduleTodayCourseReminders(context);
                             }
@@ -545,6 +554,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 sCustomReminderEnabled = initPrefs.getBoolean(KEY_CUSTOM_REMINDER_ENABLED, false);
                 sMuteEnabled           = initPrefs.getBoolean(KEY_MUTE_ENABLED, false);
                 sUnmuteEnabled         = initPrefs.getBoolean(KEY_UNMUTE_ENABLED, false);
+                sDndMode               = initPrefs.getBoolean(KEY_DND_MODE, false);
                 if (sCustomReminderEnabled) {
                     scheduleTodayCourseReminders(appCtx);
                 }
@@ -882,8 +892,13 @@ public class MainHook implements IXposedHookLoadPackage {
     private void applyMuteState(Context ctx, boolean mute, String courseName) {
         XposedBridge.log(TAG + ": applyMuteState mute=" + mute + " ← " + courseName);
         // ⓪ 优先调用小米自身工具类 SettingsUtil.change()（动态定位，跨版本兼容，最安全）
-        if (MiuiSettingsInvoker.applyMute(ctx, mute)) {
-            XposedBridge.log(TAG + ": [" + (mute ? "静音" : "恢复") + "] ⓪ MiuiSettingsInvoker 成功");
+        //    根据用户选择走 DND（勿扰）或静音两条路径
+        boolean invokerOk = sDndMode
+                ? MiuiSettingsInvoker.applyDnd(ctx, mute)
+                : MiuiSettingsInvoker.applyMute(ctx, mute);
+        if (invokerOk) {
+            String modeTip = mute ? (sDndMode ? "开启勿扰" : "静音") : (sDndMode ? "关闭勿扰" : "恢复铃声");
+            XposedBridge.log(TAG + ": [" + modeTip + "] ⓪ MiuiSettingsInvoker 成功");
             return;
         }
         // 回退：直接操作 AudioManager（voiceassist 是系统 App，有 ACCESS_NOTIFICATION_POLICY）
@@ -1637,7 +1652,9 @@ public class MainHook implements IXposedHookLoadPackage {
         // ── actionInfo ────────────────────────────────────────────
         // 发给 voiceassist 自身进程内的广播接收器（同进程，无跨包权限问题）
         String muteAction  = isFinished ? ACTION_DO_UNMUTE : ACTION_DO_MUTE;
-        String actionTitle = isFinished ? "解除静音" : "上课静音";
+        String actionTitle = isFinished
+                ? (sDndMode ? "解除勿扰" : "解除静音")
+                : (sDndMode ? "上课勿扰" : "上课静音");
         JSONObject actionInfo = new JSONObject();
         actionInfo.put("actionIntentType", 2);
         actionInfo.put("actionIntent",

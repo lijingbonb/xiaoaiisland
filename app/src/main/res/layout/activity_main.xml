@@ -824,7 +824,7 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- ⑤.6 上课自动静音 -->
+            <!-- ⑤.6 上课自动静音／勿扰 -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/card_mute"
                 android:layout_width="match_parent"
@@ -844,11 +844,34 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="上课自动静音"
+                        android:text="上课免打扰"
                         android:textAppearance="?attr/textAppearanceLabelLarge"
                         android:textColor="?attr/colorPrimary" />
 
-                    <!-- 静音开关 -->
+                    <!-- 静音 / 勿扰 模式选择 -->
+                    <RadioGroup
+                        android:id="@+id/rg_mute_mode"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="10dp">
+
+                        <RadioButton
+                            android:id="@+id/rb_mode_silent"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="静音"
+                            android:checked="true" />
+
+                        <RadioButton
+                            android:id="@+id/rb_mode_dnd"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="勿扰（DND）" />
+
+                    </RadioGroup>
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -863,12 +886,14 @@
                             android:orientation="vertical">
 
                             <TextView
+                                android:id="@+id/tv_mute_switch_title"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="上课自动静音"
                                 android:textAppearance="?attr/textAppearanceBodyMedium" />
 
                             <TextView
+                                android:id="@+id/tv_mute_switch_desc"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="在课程开始前指定时间将手机调为静音"
@@ -901,6 +926,7 @@
                             android:layout_marginTop="4dp">
 
                             <TextView
+                                android:id="@+id/tv_mute_mins_label"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
@@ -934,7 +960,7 @@
                         android:layout_marginTop="12dp"
                         android:layout_marginBottom="12dp" />
 
-                    <!-- 取消静音开关 -->
+                    <!-- 取消静音 / 解除勿扰 开关 -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -948,12 +974,14 @@
                             android:orientation="vertical">
 
                             <TextView
+                                android:id="@+id/tv_unmute_switch_title"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="下课自动恢复铃声"
                                 android:textAppearance="?attr/textAppearanceBodyMedium" />
 
                             <TextView
+                                android:id="@+id/tv_unmute_switch_desc"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="在课程结束后指定时间将手机恢复为正常响铃"
@@ -986,6 +1014,7 @@
                             android:layout_marginTop="4dp">
 
                             <TextView
+                                android:id="@+id/tv_unmute_mins_label"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
