@@ -666,6 +666,8 @@ public class MainHook implements IXposedHookLoadPackage {
             JSONObject data    = root.getJSONObject("data");
             JSONObject setting = data.getJSONObject("setting");
             long startSemMs    = Long.parseLong(setting.getString("startSemester"));
+            // 兼容秒级（10位）与毫秒级（13位）时间戳
+            if (startSemMs > 0 && startSemMs < 10_000_000_000L) startSemMs *= 1000L;
             int  currentWeek   = getCurrentWeek(startSemMs);
 
             JSONArray sectionTimes = new JSONArray(setting.getString("sectionTimes"));
@@ -1096,6 +1098,8 @@ public class MainHook implements IXposedHookLoadPackage {
             JSONObject data    = root.getJSONObject("data");
             JSONObject setting = data.getJSONObject("setting");
             long startSemMs    = Long.parseLong(setting.getString("startSemester"));
+            // 兼容秒级（10位）与毫秒级（13位）时间戳
+            if (startSemMs > 0 && startSemMs < 10_000_000_000L) startSemMs *= 1000L;
             int  currentWeek   = getCurrentWeek(startSemMs);
             JSONArray sectionTimes = new JSONArray(setting.getString("sectionTimes"));
             JSONArray courses      = data.getJSONArray("courses");
