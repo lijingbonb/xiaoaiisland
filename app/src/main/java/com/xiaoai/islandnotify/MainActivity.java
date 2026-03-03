@@ -85,6 +85,7 @@ public class MainActivity extends AppCompatActivity {
         initCustomCard();
         initTimeoutCard();
         initReminderCard();
+        initMuteCard();
         initHideIconSwitch();
         initAboutSection(); // 初始化关于页面的版本信息
     }
@@ -578,38 +579,17 @@ public class MainActivity extends AppCompatActivity {
      */
     private void initReminderCard() {
         SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        SwitchMaterial swEnabled   = findViewById(R.id.sw_custom_reminder);
-        View           llContent   = findViewById(R.id.ll_reminder_content);
-        EditText       etMinutes   = findViewById(R.id.et_reminder_minutes);
-        TextView       tvHint      = findViewById(R.id.tv_reminder_hint);
+        SwitchMaterial swEnabled = findViewById(R.id.sw_custom_reminder);
+        View           llContent = findViewById(R.id.ll_reminder_content);
+        EditText       etMinutes = findViewById(R.id.et_reminder_minutes);
+        TextView       tvHint    = findViewById(R.id.tv_reminder_hint);
 
-        // ── 自动静音控件 ──
-        SwitchMaterial swMute        = findViewById(R.id.sw_mute_enabled);
-        View           llMute        = findViewById(R.id.ll_mute_content);
-        EditText       etMuteBefore  = findViewById(R.id.et_mute_mins_before);
-        SwitchMaterial swUnmute      = findViewById(R.id.sw_unmute_enabled);
-        View           llUnmute      = findViewById(R.id.ll_unmute_content);
-        EditText       etUnmuteAfter = findViewById(R.id.et_unmute_mins_after);
-
-        // 读取已保存状态
-        boolean savedEnabled       = sp.getBoolean("custom_reminder_enabled", false);
-        int     savedMinutes       = sp.getInt("reminder_minutes_before", 15);
-        boolean savedMuteEnabled   = sp.getBoolean("mute_enabled", false);
-        int     savedMuteBefore    = sp.getInt("mute_mins_before", 0);
-        boolean savedUnmuteEnabled = sp.getBoolean("unmute_enabled", false);
-        int     savedUnmuteAfter   = sp.getInt("unmute_mins_after", 0);
+        boolean savedEnabled = sp.getBoolean("custom_reminder_enabled", false);
+        int     savedMinutes = sp.getInt("reminder_minutes_before", 15);
 
         swEnabled.setChecked(savedEnabled);
         etMinutes.setText(String.valueOf(savedMinutes));
         llContent.setVisibility(savedEnabled ? View.VISIBLE : View.GONE);
-
-        swMute.setChecked(savedMuteEnabled);
-        llMute.setVisibility(savedMuteEnabled ? View.VISIBLE : View.GONE);
-        etMuteBefore.setText(String.valueOf(savedMuteBefore));
-
-        swUnmute.setChecked(savedUnmuteEnabled);
-        llUnmute.setVisibility(savedUnmuteEnabled ? View.VISIBLE : View.GONE);
-        etUnmuteAfter.setText(String.valueOf(savedUnmuteAfter));
 
         // 主开关切换
         swEnabled.setOnCheckedChangeListener((btn, checked) -> {
@@ -645,6 +625,35 @@ public class MainActivity extends AppCompatActivity {
             tvHint.setText("已保存，重新调度今日提醒（提前 " + minutes + " 分钟）");
             tvHint.setVisibility(View.VISIBLE);
         });
+    }
+
+    /**
+     * 初始化「上课自动静音」卡片。
+     * 与课前提醒卡片完全独立，静音功能可单独开关，无需课前提醒开关。
+     */
+    private void initMuteCard() {
+        SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+
+        SwitchMaterial swMute        = findViewById(R.id.sw_mute_enabled);
+        View           llMute        = findViewById(R.id.ll_mute_content);
+        EditText       etMuteBefore  = findViewById(R.id.et_mute_mins_before);
+        SwitchMaterial swUnmute      = findViewById(R.id.sw_unmute_enabled);
+        View           llUnmute      = findViewById(R.id.ll_unmute_content);
+        EditText       etUnmuteAfter = findViewById(R.id.et_unmute_mins_after);
+        TextView       tvMuteHint    = findViewById(R.id.tv_mute_hint);
+
+        boolean savedMuteEnabled   = sp.getBoolean("mute_enabled", false);
+        int     savedMuteBefore    = sp.getInt("mute_mins_before", 0);
+        boolean savedUnmuteEnabled = sp.getBoolean("unmute_enabled", false);
+        int     savedUnmuteAfter   = sp.getInt("unmute_mins_after", 0);
+
+        swMute.setChecked(savedMuteEnabled);
+        llMute.setVisibility(savedMuteEnabled ? View.VISIBLE : View.GONE);
+        etMuteBefore.setText(String.valueOf(savedMuteBefore));
+
+        swUnmute.setChecked(savedUnmuteEnabled);
+        llUnmute.setVisibility(savedUnmuteEnabled ? View.VISIBLE : View.GONE);
+        etUnmuteAfter.setText(String.valueOf(savedUnmuteAfter));
 
         // 静音开关
         swMute.setOnCheckedChangeListener((btn, checked) -> {
@@ -666,7 +675,7 @@ public class MainActivity extends AppCompatActivity {
             sendBroadcast(sync);
         });
 
-        // 保存静音设置
+        // 保存静音时间设置
         findViewById(R.id.btn_save_mute).setOnClickListener(v -> {
             int muteBefore;
             int unmuteAfter;
@@ -697,8 +706,8 @@ public class MainActivity extends AppCompatActivity {
             sync.putExtra("unmute_mins_after", unmuteAfter);
             sendBroadcast(sync);
 
-            tvHint.setText("静音设置已保存并重新调度");
-            tvHint.setVisibility(View.VISIBLE);
+            tvMuteHint.setText("静音设置已保存并重新调度");
+            tvMuteHint.setVisibility(View.VISIBLE);
         });
     }
 

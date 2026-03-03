@@ -40,16 +40,14 @@ public class MainHook implements IXposedHookLoadPackage {
     /** 目标应用包名（小爱同学） */
     private static final String TARGET_PACKAGE = "com.miui.voiceassist";
 
-    /** 触发上课静音的广播 Action（保留，供 MuteReceiver fallback 使用） */
-    private static final String MUTE_ACTION   = "com.xiaoai.islandnotify.ACTION_MUTE";
-    /** 触发解除静音的广播 Action（保留，供 MuteReceiver fallback 使用） */
-    private static final String UNMUTE_ACTION = "com.xiaoai.islandnotify.ACTION_UNMUTE";
     /** AlarmManager 触发上课静音（发给 voiceassist 自身，不受 MIUI 电池限制） */
     private static final String ACTION_DO_MUTE   = "com.xiaoai.islandnotify.DO_MUTE";
     /** AlarmManager 触发下课解除静音（发给 voiceassist 自身，不受 MIUI 电池限制） */
     private static final String ACTION_DO_UNMUTE = "com.xiaoai.islandnotify.DO_UNMUTE";
     /** 每日 00:01 跨日重调广播 Action（链式保证次日课程 alarm 不丢失） */
     private static final String ACTION_RESCHEDULE_DAILY = "com.xiaoai.islandnotify.ACTION_RESCHEDULE_DAILY";
+    /** 通知定时取消广播 Action（替代 Handler.postDelayed，setAlarmClock 保证精确触发） */
+    private static final String ACTION_NOTIF_CANCEL = "com.xiaoai.islandnotify.ACTION_NOTIF_CANCEL";
     /** shareData 拖拽分享图片在 miui.focus.pics Bundle 中的 key */
     private static final String PIC_KEY_SHARE = "miui.focus.pic_share";
 
@@ -115,8 +113,10 @@ public class MainHook implements IXposedHookLoadPackage {
     private static volatile boolean sMuteEnabled   = false;
     /** 取消静音功能开关 */
     private static volatile boolean sUnmuteEnabled = false;
-    /** 静音前保存的铃声音量，解除静音时还原；-1 表示未保存 */
-    private static volatile int sSavedRingVolume = -1;
+    /** 静音前保存的铃声模式，解除时还原；-1 表示未保存 */
+    private static volatile int  sSavedRingerMode = -1;
+    /** 静音前保存的 STREAM_RING 音量，解除时还原；-1 表示未保存 */
+    private static volatile int  sSavedRingVolume = -1;
     /** 已调度的静音/取消静音 alarm reqCode 集合，用于批量取消 */
     private final java.util.Set<Integer> mScheduledMuteIds = new java.util.HashSet<>();
 
@@ -175,6 +175,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 filter.addAction(ACTION_DO_MUTE);
                 filter.addAction(ACTION_DO_UNMUTE);
                 filter.addAction(ACTION_RESCHEDULE_DAILY);
+                filter.addAction(ACTION_NOTIF_CANCEL);
                 BroadcastReceiver receiver = new BroadcastReceiver() {
                     @Override
                     public void onReceive(Context context, Intent intent) {
@@ -245,6 +246,15 @@ public class MainHook implements IXposedHookLoadPackage {
                             // 静音设置变化时独立重调（不依赖自定义提醒开关）
                             if (muteSettingChanged) {
                                 scheduleTodayMuteAlarms(context);
+                                // 管理 FileObserver：静音启用时启动，两者都关闭时（且提醒也关）才停
+                                if (sMuteEnabled || sUnmuteEnabled) {
+                                    registerCourseDataListener(context); // 内部防重复
+                                } else if (!sCustomReminderEnabled) {
+                                    if (mCourseDataObserver != null) {
+                                        mCourseDataObserver.stopWatching();
+                                        mCourseDataObserver = null;
+                                    }
+                                }
                             }
                             // 自定义开关变化：启动或停止监听+调度
                             if (intent.hasExtra(KEY_CUSTOM_REMINDER_ENABLED)) {
@@ -271,9 +281,12 @@ public class MainHook implements IXposedHookLoadPackage {
                                         registerCourseDataListener(context);
                                         scheduleTodayCourseReminders(context);
                                     } else {
-                                        if (mCourseDataObserver != null) {
-                                            mCourseDataObserver.stopWatching();
-                                            mCourseDataObserver = null;
+                                        // 仅当静音功能也关闭时才停止 FileObserver
+                                        if (!sMuteEnabled && !sUnmuteEnabled) {
+                                            if (mCourseDataObserver != null) {
+                                                mCourseDataObserver.stopWatching();
+                                                mCourseDataObserver = null;
+                                            }
                                         }
                                         cancelAllScheduledAlarms(context); // 仅取消提醒闹钟，静音闹钟保持
                                     }
@@ -392,21 +405,8 @@ public class MainHook implements IXposedHookLoadPackage {
                                 long tUnmuteSecsLeft = (tUnmuteTrigger - tNow) / 1_000;
                                 if (tMuteEnabled) {
                                     if (tMuteTrigger <= tNow) {
-                                        // 静音时刻已过（如 muteMinsBefore > startOffset 分钟）→ 内联立即执行
-                                        try {
-                                            android.media.AudioManager auMgr =
-                                                    (android.media.AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-                                            if (auMgr != null) {
-                                                // 仅在音量非零时保存（避免已静音时覆盖已保存值）
-                                                int curVol = auMgr.getStreamVolume(android.media.AudioManager.STREAM_RING);
-                                                if (curVol > 0) sSavedRingVolume = curVol;
-                                                // 纯音量操作：不改 RingerMode（避免 DND SecurityException）
-                                                auMgr.setStreamVolume(android.media.AudioManager.STREAM_RING, 0, 0);
-                                                XposedBridge.log(TAG + ": 测试通知 → [内联立即静音] 保存音量=" + sSavedRingVolume);
-                                            }
-                                        } catch (Exception e) {
-                                            XposedBridge.log(TAG + ": 测试通知内联静音失败 → " + e.getMessage());
-                                        }
+                                        // 静音时刻已过 → 立即静音
+                                        applyMuteState(context, true, tCourseName);
                                     } else {
                                         scheduleMuteAlarm(context, tCourseName, tMuteTrigger, tAlarmId);
                                         XposedBridge.log(TAG + ": 测试通知 → 静音闹钟已调度，" + tMuteSecsLeft + " 秒后触发");
@@ -425,13 +425,60 @@ public class MainHook implements IXposedHookLoadPackage {
                             String crEnd   = safeStr(intent.getStringExtra("end_time"));
                             String crRoom  = safeStr(intent.getStringExtra("classroom"));
                             int    crId    = intent.getIntExtra("notif_id", 2001);
+                            boolean crConsecutive = intent.getBooleanExtra("consecutive", false);
 
-                            // 使用独立渠道（不依赖 voiceassist 自带的 COURSE_SCHEDULER_REMINDER_sound，
-                            // 因为该渠道由 voiceassist 自身创建，importance 不受我们控制）
-                            final String CR_CH = "xiaoai_course_reminder_alert";
                             android.app.NotificationManager crnm =
                                     context.getSystemService(android.app.NotificationManager.class);
                             if (crnm == null) return;
+
+                            // ── 连续课程：直接更新现有岛，避免双岛并存 ────────────────────
+                            if (crConsecutive) {
+                                android.service.notification.StatusBarNotification prevSbn = null;
+                                for (android.service.notification.StatusBarNotification sbn
+                                        : crnm.getActiveNotifications()) {
+                                    android.app.Notification sn = sbn.getNotification();
+                                    // 找到我们注入过岛参数或带有课程标记的活跃通知
+                                    if (sn.extras != null
+                                            && (sn.extras.containsKey(KEY_FOCUS_PARAM)
+                                                || sn.extras.containsKey("xiaoai.test.course_name"))) {
+                                        prevSbn = sbn;
+                                        break;
+                                    }
+                                }
+                                if (prevSbn != null) {
+                                    // 用新课程信息直接更新现有岛（STATE_COUNTDOWN），无新通知声音
+                                    CourseInfo newInfo = new CourseInfo(crName, crStart, crEnd, crRoom);
+                                    SharedPreferences crPrefs = context.getSharedPreferences(
+                                            PREFS_NAME, Context.MODE_PRIVATE);
+                                    int    prevId  = prevSbn.getId();
+                                    String prevTag = prevSbn.getTag();
+                                    sendIslandUpdate(newInfo, STATE_COUNTDOWN, context,
+                                            prevSbn.getNotification().getChannelId(),
+                                            prevSbn.getNotification(), crnm,
+                                            prevTag, prevId, crPrefs);
+                                    // 为新课程调度 STATE_ELAPSED / STATE_FINISHED
+                                    // reqCode 复用 prevId，FLAG_UPDATE_CURRENT 会自动覆盖旧课程的同类 alarm
+                                    long crStartMs = computeClassStartMs(crStart);
+                                    long crEndMs   = computeClassStartMs(crEnd);
+                                    long nowCr     = System.currentTimeMillis();
+                                    if (crStartMs > nowCr)
+                                        MainHook.this.scheduleIslandAlarm(context, newInfo,
+                                                STATE_ELAPSED, ISLAND_UPDATE_CHANNEL, prevTag, prevId, crStartMs);
+                                    if (crEndMs > nowCr)
+                                        MainHook.this.scheduleIslandAlarm(context, newInfo,
+                                                STATE_FINISHED, ISLAND_UPDATE_CHANNEL, prevTag, prevId, crEndMs);
+                                    scheduleNotifCancelAlarms(context, crPrefs, prevTag, prevId,
+                                            nowCr, crStartMs, crEndMs);
+                                    XposedBridge.log(TAG + ": [连续课程] 岛已更新 → " + crName
+                                            + " id=" + prevId);
+                                    return; // 不再发新通知
+                                }
+                                // 未找到现有岛，降级到正常发送路径
+                                XposedBridge.log(TAG + ": [连续课程] 未找到现有岛，降级为新通知");
+                            }
+
+                            // ── 正常路径：发新通知（首节课或降级）────────────────────────
+                            final String CR_CH = "xiaoai_course_reminder_alert";
                             if (crnm.getNotificationChannel(CR_CH) == null) {
                                 android.app.NotificationChannel crch = new android.app.NotificationChannel(
                                         CR_CH, "课程提醒", android.app.NotificationManager.IMPORTANCE_HIGH);
@@ -452,39 +499,11 @@ public class MainHook implements IXposedHookLoadPackage {
                             crnm.notify(crId, crNotif);
                             XposedBridge.log(TAG + ": 课前提醒通知已发送 → " + crName + " @" + crStart);
                         } else if (ACTION_DO_MUTE.equals(intent.getAction())) {
-                            // AlarmManager 触发上课静音：先保存当前音量，再清零+切模式
                             String muteCourseName = intent.getStringExtra("course_name");
-                            try {
-                                android.media.AudioManager auMgr =
-                                        (android.media.AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-                                if (auMgr != null) {
-                                    // 仅在音量非零时保存，避免覆盖已保存值
-                                    int curVol = auMgr.getStreamVolume(android.media.AudioManager.STREAM_RING);
-                                    if (curVol > 0) sSavedRingVolume = curVol;
-                                    // 纯音量清零：不调用 setRingerMode，彻底避免 DND(ACCESS_NOTIFICATION_POLICY) 限制
-                                    auMgr.setStreamVolume(android.media.AudioManager.STREAM_RING, 0, 0);
-                                    XposedBridge.log(TAG + ": [DO_MUTE] 已静音(音量→0)，保存音量=" + sSavedRingVolume + " ← " + muteCourseName);
-                                }
-                            } catch (Exception e) {
-                                XposedBridge.log(TAG + ": [DO_MUTE] 失败 → " + e.getMessage());
-                            }
+                            applyMuteState(context, true, muteCourseName);
                         } else if (ACTION_DO_UNMUTE.equals(intent.getAction())) {
-                            // AlarmManager 触发下课恢复：纯音量操作，不改 RingerMode（避免 DND 权限问题）
                             String unmuteCourseName = intent.getStringExtra("course_name");
-                            try {
-                                android.media.AudioManager auMgr =
-                                        (android.media.AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-                                if (auMgr != null) {
-                                    // 不调用 setRingerMode，只还原音量；flags=0 不播音效
-                                    int restoreVol = sSavedRingVolume > 0 ? sSavedRingVolume
-                                            : Math.max(1, auMgr.getStreamMaxVolume(android.media.AudioManager.STREAM_RING) / 2);
-                                    auMgr.setStreamVolume(android.media.AudioManager.STREAM_RING, restoreVol, 0);
-                                    sSavedRingVolume = -1;
-                                    XposedBridge.log(TAG + ": [DO_UNMUTE] 已恢复铃声 vol=" + restoreVol + " ← " + unmuteCourseName);
-                                }
-                            } catch (Exception e) {
-                                XposedBridge.log(TAG + ": [DO_UNMUTE] 失败 → " + e.getMessage());
-                            }
+                            applyMuteState(context, false, unmuteCourseName);
                         } else if (ACTION_RESCHEDULE_DAILY.equals(intent.getAction())) {
                             // 每日 00:01 跨日重调：重新同步开关状态，重新调度当日 alarm，再链式设置下一个 00:01
                             XposedBridge.log(TAG + ": [跨日重调] 触发，重新调度今日课程/静音闹钟");
@@ -500,6 +519,17 @@ public class MainHook implements IXposedHookLoadPackage {
                             }
                             // 链式调度下一个 00:01
                             scheduleMidnightReschedule(context);
+                        } else if (ACTION_NOTIF_CANCEL.equals(intent.getAction())) {
+                            // AlarmClock 触发通知定时取消
+                            int    cancelId  = intent.getIntExtra("notif_id", -1);
+                            String cancelTag = intent.getStringExtra("notif_tag");
+                            String phase     = safeStr(intent.getStringExtra("phase"));
+                            if (cancelId == -1) return;
+                            android.app.NotificationManager cnm =
+                                    context.getSystemService(android.app.NotificationManager.class);
+                            if (cancelTag != null) cnm.cancel(cancelTag, cancelId);
+                            else                   cnm.cancel(cancelId);
+                            XposedBridge.log(TAG + ": 通知定时取消 [" + phase + "] id=" + cancelId);
                         }
                     }
                 };
@@ -508,18 +538,23 @@ public class MainHook implements IXposedHookLoadPackage {
                 } else {
                     appCtx.registerReceiver(receiver, filter);
                 }
+                // 动态定位小米内部 SettingsUtil（change 方法），用于静音/勿扰模式切换，结果按版本号缓存
+                MiuiSettingsInvoker.init(appCtx, appCtx.getClassLoader());
                 // 从 SP 读取自定义提醒开关，按需启动监听和调度（开关关闭时不注册任何监听器）
                 SharedPreferences initPrefs = appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
                 sCustomReminderEnabled = initPrefs.getBoolean(KEY_CUSTOM_REMINDER_ENABLED, false);
                 sMuteEnabled           = initPrefs.getBoolean(KEY_MUTE_ENABLED, false);
                 sUnmuteEnabled         = initPrefs.getBoolean(KEY_UNMUTE_ENABLED, false);
                 if (sCustomReminderEnabled) {
-                    registerCourseDataListener(appCtx);
                     scheduleTodayCourseReminders(appCtx);
                 }
                 // 静音功能独立于自定义提醒开关
                 if (sMuteEnabled || sUnmuteEnabled) {
                     scheduleTodayMuteAlarms(appCtx);
+                }
+                // FileObserver：任一功能启用时均需监听 CourseData 变化
+                if (sCustomReminderEnabled || sMuteEnabled || sUnmuteEnabled) {
+                    registerCourseDataListener(appCtx);
                 }
                 // 跨日自动重调：每天 00:01 重新调度当日闹钟，链式保证次日不丢失
                 scheduleMidnightReschedule(appCtx);
@@ -841,13 +876,108 @@ public class MainHook implements IXposedHookLoadPackage {
     }
 
     /**
+     * 在 voiceassist 进程内执行静音/恢复。
+     * 三层回退：① setRingerMode  ② setStreamVolume  ③ adjustStreamVolume(ADJUST_MUTE)
+     */
+    private void applyMuteState(Context ctx, boolean mute, String courseName) {
+        XposedBridge.log(TAG + ": applyMuteState mute=" + mute + " ← " + courseName);
+        // ⓪ 优先调用小米自身工具类 SettingsUtil.change()（动态定位，跨版本兼容，最安全）
+        if (MiuiSettingsInvoker.applyMute(ctx, mute)) {
+            XposedBridge.log(TAG + ": [" + (mute ? "静音" : "恢复") + "] ⓪ MiuiSettingsInvoker 成功");
+            return;
+        }
+        // 回退：直接操作 AudioManager（voiceassist 是系统 App，有 ACCESS_NOTIFICATION_POLICY）
+        android.media.AudioManager am =
+                (android.media.AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
+        if (am == null) {
+            XposedBridge.log(TAG + ": applyMuteState 起点失败： AudioManager 为 null");
+            return;
+        }
+        XposedBridge.log(TAG + ": applyMuteState 进入 mute=" + mute
+                + " 当前铃声模式=" + am.getRingerMode()
+                + " STREAM_RING音量=" + am.getStreamVolume(android.media.AudioManager.STREAM_RING)
+                + " ← " + courseName);
+
+        if (mute) {
+            // 保存当前状态
+            int curMode = am.getRingerMode();
+            int curVol  = am.getStreamVolume(android.media.AudioManager.STREAM_RING);
+            if (curMode != android.media.AudioManager.RINGER_MODE_SILENT) sSavedRingerMode = curMode;
+            if (curVol  > 0) sSavedRingVolume = curVol;
+            XposedBridge.log(TAG + ": [静音] 保存 ringerMode=" + sSavedRingerMode + " vol=" + sSavedRingVolume);
+
+            // ① setRingerMode(SILENT)
+            try {
+                am.setRingerMode(android.media.AudioManager.RINGER_MODE_SILENT);
+                XposedBridge.log(TAG + ": [静音] ① setRingerMode(SILENT) 成功");
+                return;
+            } catch (Exception e1) {
+                XposedBridge.log(TAG + ": [静音] ① setRingerMode 失败: " + e1.getMessage());
+            }
+            // ② setStreamVolume(音量至 0, FLAG_ALLOW_RINGER_MODES)
+            try {
+                am.setStreamVolume(android.media.AudioManager.STREAM_RING, 0,
+                        android.media.AudioManager.FLAG_ALLOW_RINGER_MODES);
+                XposedBridge.log(TAG + ": [静音] ② setStreamVolume(0) 成功");
+                return;
+            } catch (Exception e2) {
+                XposedBridge.log(TAG + ": [静音] ② setStreamVolume 失败: " + e2.getMessage());
+            }
+            // ③ adjustStreamVolume(ADJUST_MUTE) —— 流级静音，无需任何权限
+            try {
+                am.adjustStreamVolume(android.media.AudioManager.STREAM_RING,
+                        android.media.AudioManager.ADJUST_MUTE, 0);
+                XposedBridge.log(TAG + ": [静音] ③ adjustStreamVolume(ADJUST_MUTE) 成功");
+            } catch (Exception e3) {
+                XposedBridge.log(TAG + ": [静音] ③ adjustStreamVolume 失败: " + e3.getMessage());
+            }
+        } else {
+            // ① setRingerMode(已保存模式)
+            int restoreMode = (sSavedRingerMode >= 0) ? sSavedRingerMode
+                    : android.media.AudioManager.RINGER_MODE_NORMAL;
+            try {
+                am.setRingerMode(restoreMode);
+                XposedBridge.log(TAG + ": [恢复] ① setRingerMode(" + restoreMode + ") 成功");
+                sSavedRingerMode = -1;
+                sSavedRingVolume = -1;
+                return;
+            } catch (Exception e1) {
+                XposedBridge.log(TAG + ": [恢复] ① setRingerMode 失败: " + e1.getMessage());
+            }
+            // ② setStreamVolume(已保存音量, FLAG_ALLOW_RINGER_MODES)
+            int restoreVol = (sSavedRingVolume > 0) ? sSavedRingVolume
+                    : Math.max(1, am.getStreamMaxVolume(android.media.AudioManager.STREAM_RING) / 2);
+            try {
+                am.setStreamVolume(android.media.AudioManager.STREAM_RING, restoreVol,
+                        android.media.AudioManager.FLAG_ALLOW_RINGER_MODES);
+                XposedBridge.log(TAG + ": [恢复] ② setStreamVolume(" + restoreVol + ") 成功");
+                sSavedRingerMode = -1;
+                sSavedRingVolume = -1;
+                return;
+            } catch (Exception e2) {
+                XposedBridge.log(TAG + ": [恢复] ② setStreamVolume 失败: " + e2.getMessage());
+            }
+            // ③ adjustStreamVolume(ADJUST_UNMUTE)
+            try {
+                am.adjustStreamVolume(android.media.AudioManager.STREAM_RING,
+                        android.media.AudioManager.ADJUST_UNMUTE, 0);
+                XposedBridge.log(TAG + ": [恢复] ③ adjustStreamVolume(ADJUST_UNMUTE) 成功");
+                sSavedRingerMode = -1;
+                sSavedRingVolume = -1;
+            } catch (Exception e3) {
+                XposedBridge.log(TAG + ": [恢复] ③ adjustStreamVolume 失败: " + e3.getMessage());
+            }
+        }
+    }
+
+    /**
      * 独立读取 CourseData 并调度今日静音/取消静音闹钟。
      * 完全独立于自定义提醒开关，两者可单独启用。
      */
     private void scheduleTodayMuteAlarms(Context ctx) {
+        cancelAllMuteAlarms(ctx);           // 先无条件取消旧闹钟，防止关闭静音后残留
         if (!sMuteEnabled && !sUnmuteEnabled) return;
         try {
-            cancelAllMuteAlarms(ctx);
             @SuppressWarnings("deprecation")
             SharedPreferences coursePrefs = ctx.getSharedPreferences(
                     PREFS_COURSE_DATA, Context.MODE_PRIVATE | Context.MODE_MULTI_PROCESS);
@@ -895,19 +1025,8 @@ public class MainHook implements IXposedHookLoadPackage {
                 if (sMuteEnabled) {
                     long muteTriggerMs = startMs - (long) muteMinsBefore * 60_000L;
                     if (muteTriggerMs <= nowMs && nowMs < endMs) {
-                        // 已在课中且静音时刻已过 → 直接在 voiceassist 进程内静音
-                        try {
-                            android.media.AudioManager auMgr =
-                                    (android.media.AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
-                            if (auMgr != null) {
-                                int curVol = auMgr.getStreamVolume(android.media.AudioManager.STREAM_RING);
-                                if (curVol > 0) sSavedRingVolume = curVol;
-                                auMgr.setStreamVolume(android.media.AudioManager.STREAM_RING, 0, 0);
-                            }
-                        } catch (Exception e) {
-                            XposedBridge.log(TAG + ": [立即静音] 失败 → " + e.getMessage());
-                        }
-                        XposedBridge.log(TAG + ": [立即静音] " + courseName);
+                        // 已在课中且静音时刻已过 → 立即静音
+                        applyMuteState(ctx, true, courseName);
                     } else if (muteTriggerMs > nowMs) {
                         scheduleMuteAlarm(ctx, courseName, muteTriggerMs, alarmId);
                         count++;
@@ -995,9 +1114,14 @@ public class MainHook implements IXposedHookLoadPackage {
                 // 防抖：移除上次未执行的任务，延迟 1500ms 执行
                 getRescheduleHandler().removeCallbacksAndMessages(mRescheduleToken);
                 getRescheduleHandler().postDelayed(() -> {
-                    if (!sCustomReminderEnabled) return;
-                    XposedBridge.log(TAG + ": CourseData.xml 已变化，重新调度课前提醒");
-                    scheduleTodayCourseReminders(ctx);
+                    if (sCustomReminderEnabled) {
+                        XposedBridge.log(TAG + ": CourseData.xml 已变化，重新调度课前提醒");
+                        scheduleTodayCourseReminders(ctx);
+                    }
+                    if (sMuteEnabled || sUnmuteEnabled) {
+                        XposedBridge.log(TAG + ": CourseData.xml 已变化，重新调度静音闹钟");
+                        scheduleTodayMuteAlarms(ctx);
+                    }
                 }, mRescheduleToken, RESCHEDULE_DEBOUNCE_MS);
             }
         };
@@ -1404,47 +1528,40 @@ public class MainHook implements IXposedHookLoadPackage {
     }
 
     /**
-     * 在三个时间点各调度一个 ACTION_NOTIF_CANCEL 闹钟，先触发者取消通知并自动使其余成为 no-op。
-     *
-     * 时间点：
-     *   pre    → notifPostedMs + delay_pre
-     *   active → startMs       + delay_active
-     *   post   → endMs         + delay_post
-     *
-     * 任何阶段若 val=-1（默认）则跳过调度。
-     */
-    /**
-     * 在 voiceassist 主线程通过 Handler.postDelayed 延迟取消通知。
-     * 比 AlarmManager+Broadcast 更简单可靠：voiceassist 是常驻进程，
-     * 且若被杀通知也会自动消失，无需持久化 alarm。
+     * 在三个时间点各调度一个 ACTION_NOTIF_CANCEL 闹钟，先触发者取消通知（其余成为 no-op）。
+     * 时间点：pre→通知发出后，active→上课后，post→下课后。val=-1 表示跳过该阶段。
+     * 使用 setAlarmClock 保证精确触发，替代原 Handler.postDelayed。
      */
     private void scheduleNotifCancelAlarms(Context ctx,
             android.content.SharedPreferences prefs,
             String tag, int id,
             long notifPostedMs, long startMs, long endMs) {
         if (ctx == null) return;
-        // 不限制进程：模块进程测试通知 / voiceassist 真实通知均适用
         final String[] phases = {"pre", "active", "post"};
         final long[]   baseMs = {notifPostedMs, startMs, endMs};
-        android.app.NotificationManager nm =
-                ctx.getSystemService(android.app.NotificationManager.class);
-        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        AlarmManager am = ctx.getSystemService(AlarmManager.class);
         for (int i = 0; i < 3; i++) {
             int    val  = (prefs != null) ? prefs.getInt   ("to_notif_val_"  + phases[i], -1) : -1;
             String unit = (prefs != null) ? safeStr(prefs.getString("to_notif_unit_" + phases[i], "m")) : "m";
             if (val <= 0 || baseMs[i] <= 0) continue;
-            long delayMs  = "s".equals(unit) ? (long) val * 1000 : (long) val * 60 * 1000;
-            long remainMs = baseMs[i] + delayMs - System.currentTimeMillis();
-            if (remainMs <= 0) continue;
-            final String finalTag   = tag;
-            final int    finalId    = id;
-            final String phaseName  = phases[i];
-            handler.postDelayed(() -> {
-                if (finalTag != null) nm.cancel(finalTag, finalId);
-                else                 nm.cancel(finalId);
-                XposedBridge.log(TAG + ": 通知已取消 [" + phaseName + "] id=" + finalId);
-            }, remainMs);
-            XposedBridge.log(TAG + ": 通知取消 Handler [" + phases[i] + "] in " + remainMs / 1000 + "s");
+            long delayMs   = "s".equals(unit) ? (long) val * 1000L : (long) val * 60_000L;
+            long triggerMs = baseMs[i] + delayMs;
+            if (triggerMs <= System.currentTimeMillis()) continue;
+            // reqCode: id * 10 + state 已用 0-2，+3+i 用于 cancel（3/4/5），不冲突
+            int reqCode = id * 10 + 3 + i;
+            Intent ci = new Intent(ACTION_NOTIF_CANCEL);
+            ci.setPackage(TARGET_PACKAGE);
+            ci.putExtra("notif_id",  id);
+            ci.putExtra("notif_tag", tag);
+            ci.putExtra("phase",     phases[i]);
+            PendingIntent pi = PendingIntent.getBroadcast(ctx, reqCode, ci,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            PendingIntent showPi = PendingIntent.getBroadcast(ctx, reqCode | 0x60000000,
+                    new Intent(ACTION_NOTIF_CANCEL).setPackage(TARGET_PACKAGE),
+                    PendingIntent.FLAG_IMMUTABLE);
+            am.setAlarmClock(new AlarmManager.AlarmClockInfo(triggerMs, showPi), pi);
+            XposedBridge.log(TAG + ": 通知取消 AlarmClock [" + phases[i] + "] in "
+                    + (triggerMs - System.currentTimeMillis()) / 1000 + "s");
         }
     }
 
@@ -1518,13 +1635,14 @@ public class MainHook implements IXposedHookLoadPackage {
         notifPicInfo.put("type", 1); // 1 = appIcon
 
         // ── actionInfo ────────────────────────────────────────────
-        String actionAction = isFinished ? UNMUTE_ACTION : MUTE_ACTION;
-        String actionTitle  = isFinished ? "解除静音" : "上课静音";
+        // 发给 voiceassist 自身进程内的广播接收器（同进程，无跨包权限问题）
+        String muteAction  = isFinished ? ACTION_DO_UNMUTE : ACTION_DO_MUTE;
+        String actionTitle = isFinished ? "解除静音" : "上课静音";
         JSONObject actionInfo = new JSONObject();
         actionInfo.put("actionIntentType", 2);
         actionInfo.put("actionIntent",
-                "intent:#Intent;action=" + actionAction
-                + ";component=com.xiaoai.islandnotify/.MuteReceiver"
+                "intent:#Intent;action=" + muteAction
+                + ";package=" + TARGET_PACKAGE
                 + ";launchFlags=0x10000000;end");
         actionInfo.put("actionTitle", actionTitle);
 

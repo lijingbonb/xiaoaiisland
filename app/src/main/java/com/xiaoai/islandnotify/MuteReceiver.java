@@ -3,29 +3,9 @@ package com.xiaoai.islandnotify;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.media.AudioManager;
 
-/**
- * 上课静音接收器：收到广播后将铃声切为静音。
- * 由超级岛通知的"上课静音"按钮触发（miui.focus.actions → ACTION_KEY_MUTE）。
- */
+/** 已废弃，静音操作全部在 voiceassist 进程内由 MainHook 处理。保留仅供编译通过。 */
 public class MuteReceiver extends BroadcastReceiver {
     @Override
-    public void onReceive(Context context, Intent intent) {
-        AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-        if (am == null) return;
-        String action = intent.getAction();
-        if ("com.xiaoai.islandnotify.ACTION_UNMUTE".equals(action)) {
-            try {
-                am.setRingerMode(AudioManager.RINGER_MODE_NORMAL);
-            } catch (Exception ignored) {}
-        } else {
-            // ACTION_MUTE 或其他：静音
-            try {
-                am.setRingerMode(AudioManager.RINGER_MODE_SILENT);
-            } catch (SecurityException e) {
-                try { am.setRingerMode(AudioManager.RINGER_MODE_VIBRATE); } catch (Exception ignored) {}
-            }
-        }
-    }
+    public void onReceive(Context context, Intent intent) {}
 }

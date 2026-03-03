@@ -38,16 +38,6 @@
             android:name="xposedscope"
             android:value="com.miui.voiceassist" />
 
-        <!-- 上课静音广播接收器 -->
-        <receiver
-            android:name=".MuteReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.xiaoai.islandnotify.ACTION_MUTE" />
-                <action android:name="com.xiaoai.islandnotify.ACTION_UNMUTE" />
-            </intent-filter>
-        </receiver>
-
         <!-- 模块主界面（MODULE_SETTINGS 供 LSPosed 打开，与桌面图标无关） -->
         <activity
             android:name=".MainActivity"
