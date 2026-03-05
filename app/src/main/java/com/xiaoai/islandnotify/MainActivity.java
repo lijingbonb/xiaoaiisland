@@ -1130,6 +1130,9 @@ public class MainActivity extends AppCompatActivity {
                     }
                     HolidayManager.mergeAndSave(this, year, apiEntries);
                     syncHolidayToHook(year);
+                    for (HolidayManager.HolidayEntry e : apiEntries)
+                        rescheduleIfCoversToday(e.date,
+                                e.endDate != null && !e.endDate.isEmpty() ? e.endDate : e.date);
                     int hCount = 0, wCount = 0;
                     java.text.SimpleDateFormat sCnt =
                             new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault());
@@ -1159,15 +1162,21 @@ public class MainActivity extends AppCompatActivity {
             }).start();
         });
 
-        // ── 全部清除 ───────────────────────────────────────────────
+        // ── 清除本年 ───────────────────────────────────────────────
         findViewById(R.id.btn_clear_all_holiday).setOnClickListener(v ->
                 new AlertDialog.Builder(this)
-                        .setTitle("全部清除")
-                        .setMessage("将清除所有已保存的假期和调休数据（包括自定义条目）。确定吗？")
+                        .setTitle("清除本年")
+                        .setMessage("将清除 " + mCurrentHolidayYear + " 年已保存的全部假期和调休数据（包括自定义条目）。确定吗？")
                         .setPositiveButton("清除", (d, w) -> {
-                            HolidayManager.clearAll(this);
+                            List<HolidayManager.HolidayEntry> old =
+                                    HolidayManager.loadEntries(this, mCurrentHolidayYear);
+                            HolidayManager.saveEntries(this, mCurrentHolidayYear, new java.util.ArrayList<>());
+                            syncHolidayToHook(mCurrentHolidayYear);
+                            for (HolidayManager.HolidayEntry e : old)
+                                rescheduleIfCoversToday(e.date,
+                                        e.endDate != null && !e.endDate.isEmpty() ? e.endDate : e.date);
                             renderHolidayLists();
-                            Toast.makeText(this, "已清除全部假期数据", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(this, "已清除 " + mCurrentHolidayYear + " 年假期数据", Toast.LENGTH_SHORT).show();
                         })
                         .setNegativeButton("取消", null)
                         .show());
@@ -1276,6 +1285,7 @@ public class MainActivity extends AppCompatActivity {
             all.remove(entry);
             HolidayManager.saveEntries(this, mCurrentHolidayYear, all);
             syncHolidayToHook(mCurrentHolidayYear);
+            rescheduleIfCoversToday(entry.date, entry.endDate);
             renderHolidayLists();
         });
         row.addView(btnDel);
@@ -1363,6 +1373,7 @@ public class MainActivity extends AppCompatActivity {
             all.remove(entry);
             HolidayManager.saveEntries(this, mCurrentHolidayYear, all);
             syncHolidayToHook(mCurrentHolidayYear);
+            rescheduleIfCoversToday(entry.date, null);
             renderHolidayLists();
         });
         row.addView(btnDel);
@@ -1431,13 +1442,25 @@ public class MainActivity extends AppCompatActivity {
                     String name = etName.getText().toString().trim();
                     if (name.isEmpty()) name = "节假日";
                     List<HolidayManager.HolidayEntry> all = HolidayManager.loadEntries(this, mCurrentHolidayYear);
-                    if (editEntry != null) all.remove(editEntry);
+                    if (editEntry != null) {
+                        final String ed = editEntry.date;
+                        final String ee = editEntry.endDate != null ? editEntry.endDate : "";
+                        final String en = editEntry.name;
+                        final int    et = editEntry.type;
+                        all.removeIf(e -> ed.equals(e.date)
+                                && ee.equals(e.endDate != null ? e.endDate : "")
+                                && en.equals(e.name) && et == e.type);
+                    }
                     HolidayManager.HolidayEntry e =
                             new HolidayManager.HolidayEntry(startDate[0], endDate[0], name, HolidayManager.TYPE_HOLIDAY, true);
                     all.add(e);
                     all.sort((a, b) -> a.date.compareTo(b.date));
                     HolidayManager.saveEntries(this, mCurrentHolidayYear, all);
                     syncHolidayToHook(mCurrentHolidayYear);
+                    rescheduleIfCoversToday(startDate[0], endDate[0].isEmpty() ? startDate[0] : endDate[0]);
+                    if (editEntry != null)
+                        rescheduleIfCoversToday(editEntry.date,
+                                editEntry.endDate != null ? editEntry.endDate : editEntry.date);
                     renderHolidayLists();
                 })
                 .setNegativeButton("取消", null)
@@ -1535,7 +1558,12 @@ public class MainActivity extends AppCompatActivity {
                     int wd   = spinnerWd.getSelectedItemPosition()   + 1;
                     List<HolidayManager.HolidayEntry> all =
                             HolidayManager.loadEntries(this, mCurrentHolidayYear);
-                    if (editEntry != null) all.remove(editEntry);
+                    if (editEntry != null) {
+                        final String ed = editEntry.date;
+                        final String en = editEntry.name;
+                        final int    et = editEntry.type;
+                        all.removeIf(e -> ed.equals(e.date) && en.equals(e.name) && et == e.type);
+                    }
                     HolidayManager.HolidayEntry e =
                             new HolidayManager.HolidayEntry(date[0], "", name, HolidayManager.TYPE_WORKSWAP, true);
                     e.followWeek    = week;
@@ -1544,6 +1572,8 @@ public class MainActivity extends AppCompatActivity {
                     all.sort((a, b) -> a.date.compareTo(b.date));
                     HolidayManager.saveEntries(this, mCurrentHolidayYear, all);
                     syncHolidayToHook(mCurrentHolidayYear);
+                    rescheduleIfCoversToday(date[0], null);
+                    if (editEntry != null) rescheduleIfCoversToday(editEntry.date, null);
                     renderHolidayLists();
                 })
                 .setNegativeButton("取消", null)
@@ -1562,6 +1592,26 @@ public class MainActivity extends AppCompatActivity {
         sync.setPackage("com.miui.voiceassist");
         sync.putExtra(HolidayManager.EXTRA_LIST_PREFIX + year, json);
         sendBroadcast(sync);
+    }
+
+    /** 若今天落在 [date, endDate] 范围内（含），向 Hook 发送重新调度广播。 */
+    private void rescheduleIfCoversToday(String date, String endDate) {
+        try {
+            java.text.SimpleDateFormat sdf =
+                    new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault());
+            String today = sdf.format(new java.util.Date());
+            boolean covers;
+            if (endDate != null && !endDate.isEmpty()) {
+                covers = today.compareTo(date) >= 0 && today.compareTo(endDate) <= 0;
+            } else {
+                covers = today.equals(date);
+            }
+            if (covers) {
+                Intent reschedule = new Intent("com.xiaoai.islandnotify.ACTION_RESCHEDULE_DAILY");
+                reschedule.setPackage("com.miui.voiceassist");
+                sendBroadcast(reschedule);
+            }
+        } catch (Exception ignored) {}
     }
 
     // ── 工具 ─────────────────────────────────────────────────────────
