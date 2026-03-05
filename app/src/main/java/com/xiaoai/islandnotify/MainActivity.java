@@ -68,10 +68,6 @@ import java.util.List;
  */
 public class MainActivity extends AppCompatActivity {
 
-    /** Android 13+ 通知权限运行时请求 */
-    private ActivityResultLauncher<String> notifPermLauncher;
-    /** 权限通过后执行的挂起动作 */
-    private Runnable pendingTestAction;
     // 保存按钮引用与脏状态
     private MaterialButton btnSaveCustom;
     private MaterialButton btnSaveTimeout;
@@ -91,17 +87,6 @@ public class MainActivity extends AppCompatActivity {
         DynamicColors.applyToActivityIfAvailable(this);
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
-        // 注册通知权限请求（Android 13+）
-        notifPermLauncher = registerForActivityResult(
-                new ActivityResultContracts.RequestPermission(), granted -> {
-                    if (granted && pendingTestAction != null) {
-                        pendingTestAction.run();
-                    } else {
-                        showTestHint("通知权限被拒绝，无法发送测试通知");
-                    }
-                    pendingTestAction = null;
-                });
 
         // 设置 Toolbar 为 ActionBar
         Toolbar toolbar = findViewById(R.id.toolbar);
@@ -132,11 +117,10 @@ public class MainActivity extends AppCompatActivity {
         });
 
         // 测试通知：1分钟后上课（倒计时）
-        findViewById(R.id.btn_send_test).setOnClickListener(v ->
-                requireNotifPermAndRun(() -> {
-                    sendTestBroadcastToTarget(60_000L);
-                    showTestHint("已发送测试通知（倒计时），请下拉通知栏查看超级岛效果");
-                }));
+        findViewById(R.id.btn_send_test).setOnClickListener(v -> {
+            sendTestBroadcastToTarget(60_000L);
+            showTestHint("已发送测试通知（倒计时），请下拉通知栏查看超级岛效果");
+        });
 
         updateModuleStatus();
         initCustomCard();
@@ -837,19 +821,6 @@ public class MainActivity extends AppCompatActivity {
             Log.e("MainActivity", "获取版本信息失败", e);
             return "未知版本";
         }
-    }
-
-    /** 检查/请求通知权限，通过后再执行 action。 */
-    private void requireNotifPermAndRun(Runnable action) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                pendingTestAction = action;
-                notifPermLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS);
-                return;
-            }
-        }
-        action.run();
     }
 
     /**
