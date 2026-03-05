@@ -724,49 +724,23 @@
                         android:textAppearance="?attr/textAppearanceLabelLarge"
                         android:textColor="?attr/colorPrimary" />
 
-                    <!-- 启用开关 -->
-                    <LinearLayout
+                    <!-- 说明文字，始终显示 -->
+                    <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="12dp">
+                        android:layout_marginTop="10dp"
+                        android:text="读取小爱同学课程表，在每节课开始前发送超级岛提醒，并屏蔽小爱自身的课前通知。"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:layout_marginBottom="14dp" />
 
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="启用自定义课前提醒"
-                            android:textAppearance="?attr/textAppearanceBodyMedium" />
-
-                        <com.google.android.material.switchmaterial.SwitchMaterial
-                            android:id="@+id/sw_custom_reminder"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content" />
-
-                    </LinearLayout>
-
-                    <com.google.android.material.divider.MaterialDivider
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:layout_marginBottom="12dp" />
-
-                    <!-- 仅开关开启时展示的设置内容 -->
+                    <!-- 设置内容，始终可见 -->
                     <LinearLayout
                         android:id="@+id/ll_reminder_content"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:visibility="gone">
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="读取小爱同学课程表，在每节课开始前发送超级岛提醒，并屏蔽小爱自身的课前通知。"
-                            android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:layout_marginBottom="14dp" />
+                        android:visibility="visible">
 
                         <LinearLayout
                             android:layout_width="match_parent"

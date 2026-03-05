@@ -8,13 +8,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
-import android.graphics.Bitmap;
-import android.graphics.drawable.BitmapDrawable;
-import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.service.notification.StatusBarNotification;
-import android.widget.RemoteViews;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -79,11 +75,6 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final String KEY_REMINDER_MINUTES = "reminder_minutes_before";
     /** 课前提醒默认提前分钟数 */
     private static final int DEFAULT_REMINDER_MINUTES = 15;
-    /** 自定义课前提醒开关键（存入 island_custom SP） */
-    private static final String KEY_CUSTOM_REMINDER_ENABLED = "custom_reminder_enabled";
-    /** 自定义课前提醒是否启用（volatile，voiceassist 进程内快速读取，broadcast 后同步更新） */
-    private static volatile boolean sCustomReminderEnabled = false;
-    /** CourseData SP 监听器引用（持有防 GC） */
     /** CourseData.xml FileObserver，跨进程写入时仍能感知 */
     private android.os.FileObserver mCourseDataObserver;
     /** CourseData 变化防抖延迟（ms）：合并同一次写入触发的多个 inotify 事件 */
@@ -116,10 +107,6 @@ public class MainHook implements IXposedHookLoadPackage {
     private static volatile boolean sUnmuteEnabled = false;
     /** 勿扰模式开关：true=启用 DND（勿扰），false=静音（默认） */
     private static volatile boolean sDndMode       = false;
-    /** 静音前保存的铃声模式，解除时还原；-1 表示未保存 */
-    private static volatile int  sSavedRingerMode = -1;
-    /** 静音前保存的 STREAM_RING 音量，解除时还原；-1 表示未保存 */
-    private static volatile int  sSavedRingVolume = -1;
     /** 已调度的静音/取消静音 alarm reqCode 集合，用于批量取消 */
     private final java.util.Set<Integer> mScheduledMuteIds = new java.util.HashSet<>();
     /** 有连续后续课程的通知 alarmId 集合：injectIslandParams 跳过 cancel alarm 注册，
@@ -144,10 +131,9 @@ public class MainHook implements IXposedHookLoadPackage {
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
-        // 注入自身进程 → hook isModuleActive()；同时 hook notify，支持测试通知
+        // 注入自身进程 → hook isModuleActive()
         if ("com.xiaoai.islandnotify".equals(lpparam.packageName)) {
             hookSelfStatus(lpparam);
-            hookNotifyMethods(lpparam);
             return;
         }
         // 只注入目标进程
@@ -238,10 +224,6 @@ public class MainHook implements IXposedHookLoadPackage {
                                 ed.putBoolean(KEY_DND_MODE,
                                         intent.getBooleanExtra(KEY_DND_MODE, false));
                             }
-                            if (intent.hasExtra(KEY_CUSTOM_REMINDER_ENABLED)) {
-                                ed.putBoolean(KEY_CUSTOM_REMINDER_ENABLED,
-                                        intent.getBooleanExtra(KEY_CUSTOM_REMINDER_ENABLED, false));
-                            }
                             ed.apply();
                             // 同步内存开关
                             if (intent.hasExtra(KEY_MUTE_ENABLED))
@@ -256,8 +238,8 @@ public class MainHook implements IXposedHookLoadPackage {
                                     || intent.hasExtra(KEY_UNMUTE_ENABLED)
                                     || intent.hasExtra(KEY_UNMUTE_MINS_AFTER)
                                     || intent.hasExtra(KEY_DND_MODE);
-                            // 课前提醒分钟数变化时重新调度（仅自定义提醒开启时）
-                            if (intent.hasExtra(KEY_REMINDER_MINUTES) && sCustomReminderEnabled) {
+                            // 课前提醒分钟数变化时重新调度
+                            if (intent.hasExtra(KEY_REMINDER_MINUTES)) {
                                 mLastCourseDataHash = 0; // 提醒分钟数改变，强制重调
                                 scheduleTodayCourseReminders(context, null);
                             }
@@ -267,47 +249,10 @@ public class MainHook implements IXposedHookLoadPackage {
                                 // 管理 FileObserver：静音启用时启动，两者都关闭时（且提醒也关）才停
                                 if (sMuteEnabled || sUnmuteEnabled) {
                                     registerCourseDataListener(context); // 内部防重复
-                                } else if (!sCustomReminderEnabled) {
+                                } else {
                                     if (mCourseDataObserver != null) {
                                         mCourseDataObserver.stopWatching();
                                         mCourseDataObserver = null;
-                                    }
-                                }
-                            }
-                            // 自定义开关变化：启动或停止监听+调度
-                            if (intent.hasExtra(KEY_CUSTOM_REMINDER_ENABLED)) {
-                                boolean newEnabled = intent.getBooleanExtra(KEY_CUSTOM_REMINDER_ENABLED, false);
-                                if (newEnabled != sCustomReminderEnabled) {
-                                    sCustomReminderEnabled = newEnabled;
-                                    if (newEnabled) {
-                                        // 立即 cancel 小爱已在通知栏的课程提醒残留
-                                        try {
-                                            android.app.NotificationManager snm =
-                                                    context.getSystemService(android.app.NotificationManager.class);
-                                            if (snm != null) {
-                                                for (android.service.notification.StatusBarNotification sbn
-                                                        : snm.getActiveNotifications()) {
-                                                    android.app.Notification sn = sbn.getNotification();
-                                                    if ("COURSE_SCHEDULER_REMINDER_sound".equals(sn.getChannelId())
-                                                            && (sn.extras == null
-                                                                || !sn.extras.containsKey("xiaoai.test.course_name"))) {
-                                                        snm.cancel(sbn.getId());
-                                                    }
-                                                }
-                                            }
-                                        } catch (Exception ignored) {}
-                                        registerCourseDataListener(context);
-                                        mLastCourseDataHash = 0; // 首次启用自定义提醒，强制调度
-                                        scheduleTodayCourseReminders(context, null);
-                                    } else {
-                                        // 仅当静音功能也关闭时才停止 FileObserver
-                                        if (!sMuteEnabled && !sUnmuteEnabled) {
-                                            if (mCourseDataObserver != null) {
-                                                mCourseDataObserver.stopWatching();
-                                                mCourseDataObserver = null;
-                                            }
-                                        }
-                                        cancelAllScheduledAlarms(context); // 仅取消提醒闹钟，静音闹钟保持
                                     }
                                 }
                             }
@@ -410,6 +355,8 @@ public class MainHook implements IXposedHookLoadPackage {
                             }
                             sLastTestNotifId = tNotifId;
                             XposedBridge.log(TAG + ": 即将发出测试通知 → " + tCourseName + " @" + tStartTime);
+                            CourseInfo tInfo = new CourseInfo(tCourseName, tStartTime, tEndTime, tClassroom);
+                            applyIslandParams(context, tNotif, tInfo, tNotifId, null);
                             tnm.notify(tNotifId, tNotif);
                             XposedBridge.log(TAG + ": 已在目标进程发出测试通知 id=" + tNotifId);
                             // 测试通知按用户设定的时间逻辑调度静音/取消静音闹钟：
@@ -446,7 +393,6 @@ public class MainHook implements IXposedHookLoadPackage {
                             }
                         } else if (ACTION_COURSE_REMINDER.equals(intent.getAction())) {
                             // AlarmManager 触发课前提醒 → 在 voiceassist 进程构造通知
-                            if (!sCustomReminderEnabled) return;
                             String crName  = safeStr(intent.getStringExtra("course_name"));
                             String crStart = safeStr(intent.getStringExtra("start_time"));
                             String crEnd   = safeStr(intent.getStringExtra("end_time"));
@@ -534,6 +480,8 @@ public class MainHook implements IXposedHookLoadPackage {
                             crNotif.extras.putString("xiaoai.test.start_time",  crStart);
                             crNotif.extras.putString("xiaoai.test.end_time",    crEnd);
                             crNotif.extras.putString("xiaoai.test.classroom",   crRoom);
+                            CourseInfo crInfo = new CourseInfo(crName, crStart, crEnd, crRoom);
+                            applyIslandParams(context, crNotif, crInfo, crId, null);
                             crnm.notify(crId, crNotif);
                             XposedBridge.log(TAG + ": 课前提醒通知已发送 → " + crName + " @" + crStart);
                         } else if (ACTION_DO_MUTE.equals(intent.getAction())) {
@@ -546,14 +494,11 @@ public class MainHook implements IXposedHookLoadPackage {
                             // 每日 00:01 跨日重调：重新同步开关状态，重新调度当日 alarm，再链式设置下一个 00:01
                             XposedBridge.log(TAG + ": [跨日重调] 触发，重新调度今日课程/静音闹钟");
                             SharedPreferences dp = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-                            sCustomReminderEnabled = dp.getBoolean(KEY_CUSTOM_REMINDER_ENABLED, false);
                             sMuteEnabled   = dp.getBoolean(KEY_MUTE_ENABLED,   false);
                             sUnmuteEnabled = dp.getBoolean(KEY_UNMUTE_ENABLED, false);
                             sDndMode       = dp.getBoolean(KEY_DND_MODE,       false);
-                            if (sCustomReminderEnabled) {
-                                mLastCourseDataHash = 0; // 跨日强制重调，忽略内容哈希缓存
-                                scheduleTodayCourseReminders(context, null);
-                            }
+                            mLastCourseDataHash = 0; // 跨日强制重调，忽略内容哈希缓存
+                            scheduleTodayCourseReminders(context, null);
                             if (sMuteEnabled || sUnmuteEnabled) {
                                 scheduleTodayMuteAlarms(context);
                             }
@@ -581,27 +526,20 @@ public class MainHook implements IXposedHookLoadPackage {
                 }
                 // 动态定位小米内部 SettingsUtil（change 方法），用于静音/勿扰模式切换，结果按版本号缓存
                 MiuiSettingsInvoker.init(appCtx, appCtx.getClassLoader());
-                // 从 SP 读取自定义提醒开关，按需启动监听和调度（开关关闭时不注册任何监听器）
+                // 从 SP 读取开关状态
                 SharedPreferences initPrefs = appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-                sCustomReminderEnabled = initPrefs.getBoolean(KEY_CUSTOM_REMINDER_ENABLED, false);
                 sMuteEnabled           = initPrefs.getBoolean(KEY_MUTE_ENABLED, false);
                 sUnmuteEnabled         = initPrefs.getBoolean(KEY_UNMUTE_ENABLED, false);
                 sDndMode               = initPrefs.getBoolean(KEY_DND_MODE, false);
-                if (sCustomReminderEnabled) {
-                    scheduleTodayCourseReminders(appCtx, null);
-                }
+                // 课前提醒始终开启，无条件调度
+                scheduleTodayCourseReminders(appCtx, null);
                 // 静音功能独立于自定义提醒开关
                 if (sMuteEnabled || sUnmuteEnabled) {
                     scheduleTodayMuteAlarms(appCtx);
                 }
-                // FileObserver：任一功能启用时均需监听 CourseData 变化
-                if (sCustomReminderEnabled || sMuteEnabled || sUnmuteEnabled) {
-                    registerCourseDataListener(appCtx);
-                }
-                // ── 无条件初始化课表内容哈希 ──
-                // 若只开了静音（sCustomReminderEnabled=false），scheduleTodayCourseReminders 不会被调用，
-                // mLastCourseDataHash 将保持 0，导致 FileObserver 每次触发都被误判为「内容已变化」。
-                // 在此统一读取并写入当前哈希，确保 FileObserver 首次触发时能正确跳过未实质变动的写入。
+                // FileObserver：常住监听 CourseData 变化
+                registerCourseDataListener(appCtx);
+                // 初始化课表内容哈希，确保 FileObserver 首次触发时能正确跳过未实质变动的写入。
                 try {
                     @SuppressWarnings("deprecation")
                     SharedPreferences initCp = appCtx.getSharedPreferences(
@@ -613,7 +551,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 } catch (Throwable ignored) {}
                 // 跨日自动重调：每天 00:01 重新调度当日闹钟，链式保证次日不丢失
                 scheduleMidnightReschedule(appCtx);
-                XposedBridge.log(TAG + ": 偷好同步接收器已注册，自定义提醒=" + sCustomReminderEnabled);
+                XposedBridge.log(TAG + ": 偷好同步接收器已注册，课前提醒已开启");
             }
         });
     }
@@ -988,97 +926,14 @@ public class MainHook implements IXposedHookLoadPackage {
      */
     private void applyMuteState(Context ctx, boolean mute, String courseName) {
         XposedBridge.log(TAG + ": applyMuteState mute=" + mute + " ← " + courseName);
-        // ⓪ 优先调用小米自身工具类 SettingsUtil.change()（动态定位，跨版本兼容，最安全）
-        //    根据用户选择走 DND（勿扰）或静音两条路径
         boolean invokerOk = sDndMode
                 ? MiuiSettingsInvoker.applyDnd(ctx, mute)
                 : MiuiSettingsInvoker.applyMute(ctx, mute);
+        String modeTip = mute ? (sDndMode ? "开启勿扰" : "静音") : (sDndMode ? "关闭勿扰" : "恢复铃声");
         if (invokerOk) {
-            String modeTip = mute ? (sDndMode ? "开启勿扰" : "静音") : (sDndMode ? "关闭勿扰" : "恢复铃声");
-            XposedBridge.log(TAG + ": [" + modeTip + "] ⓪ MiuiSettingsInvoker 成功");
-            return;
-        }
-        // 回退：直接操作 AudioManager（voiceassist 是系统 App，有 ACCESS_NOTIFICATION_POLICY）
-        android.media.AudioManager am =
-                (android.media.AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
-        if (am == null) {
-            XposedBridge.log(TAG + ": applyMuteState 起点失败： AudioManager 为 null");
-            return;
-        }
-        XposedBridge.log(TAG + ": applyMuteState 进入 mute=" + mute
-                + " 当前铃声模式=" + am.getRingerMode()
-                + " STREAM_RING音量=" + am.getStreamVolume(android.media.AudioManager.STREAM_RING)
-                + " ← " + courseName);
-
-        if (mute) {
-            // 保存当前状态
-            int curMode = am.getRingerMode();
-            int curVol  = am.getStreamVolume(android.media.AudioManager.STREAM_RING);
-            if (curMode != android.media.AudioManager.RINGER_MODE_SILENT) sSavedRingerMode = curMode;
-            if (curVol  > 0) sSavedRingVolume = curVol;
-            XposedBridge.log(TAG + ": [静音] 保存 ringerMode=" + sSavedRingerMode + " vol=" + sSavedRingVolume);
-
-            // ① setRingerMode(SILENT)
-            try {
-                am.setRingerMode(android.media.AudioManager.RINGER_MODE_SILENT);
-                XposedBridge.log(TAG + ": [静音] ① setRingerMode(SILENT) 成功");
-                return;
-            } catch (Exception e1) {
-                XposedBridge.log(TAG + ": [静音] ① setRingerMode 失败: " + e1.getMessage());
-            }
-            // ② setStreamVolume(音量至 0, FLAG_ALLOW_RINGER_MODES)
-            try {
-                am.setStreamVolume(android.media.AudioManager.STREAM_RING, 0,
-                        android.media.AudioManager.FLAG_ALLOW_RINGER_MODES);
-                XposedBridge.log(TAG + ": [静音] ② setStreamVolume(0) 成功");
-                return;
-            } catch (Exception e2) {
-                XposedBridge.log(TAG + ": [静音] ② setStreamVolume 失败: " + e2.getMessage());
-            }
-            // ③ adjustStreamVolume(ADJUST_MUTE) —— 流级静音，无需任何权限
-            try {
-                am.adjustStreamVolume(android.media.AudioManager.STREAM_RING,
-                        android.media.AudioManager.ADJUST_MUTE, 0);
-                XposedBridge.log(TAG + ": [静音] ③ adjustStreamVolume(ADJUST_MUTE) 成功");
-            } catch (Exception e3) {
-                XposedBridge.log(TAG + ": [静音] ③ adjustStreamVolume 失败: " + e3.getMessage());
-            }
+            XposedBridge.log(TAG + ": [" + modeTip + "] MiuiSettingsInvoker 成功");
         } else {
-            // ① setRingerMode(已保存模式)
-            int restoreMode = (sSavedRingerMode >= 0) ? sSavedRingerMode
-                    : android.media.AudioManager.RINGER_MODE_NORMAL;
-            try {
-                am.setRingerMode(restoreMode);
-                XposedBridge.log(TAG + ": [恢复] ① setRingerMode(" + restoreMode + ") 成功");
-                sSavedRingerMode = -1;
-                sSavedRingVolume = -1;
-                return;
-            } catch (Exception e1) {
-                XposedBridge.log(TAG + ": [恢复] ① setRingerMode 失败: " + e1.getMessage());
-            }
-            // ② setStreamVolume(已保存音量, FLAG_ALLOW_RINGER_MODES)
-            int restoreVol = (sSavedRingVolume > 0) ? sSavedRingVolume
-                    : Math.max(1, am.getStreamMaxVolume(android.media.AudioManager.STREAM_RING) / 2);
-            try {
-                am.setStreamVolume(android.media.AudioManager.STREAM_RING, restoreVol,
-                        android.media.AudioManager.FLAG_ALLOW_RINGER_MODES);
-                XposedBridge.log(TAG + ": [恢复] ② setStreamVolume(" + restoreVol + ") 成功");
-                sSavedRingerMode = -1;
-                sSavedRingVolume = -1;
-                return;
-            } catch (Exception e2) {
-                XposedBridge.log(TAG + ": [恢复] ② setStreamVolume 失败: " + e2.getMessage());
-            }
-            // ③ adjustStreamVolume(ADJUST_UNMUTE)
-            try {
-                am.adjustStreamVolume(android.media.AudioManager.STREAM_RING,
-                        android.media.AudioManager.ADJUST_UNMUTE, 0);
-                XposedBridge.log(TAG + ": [恢复] ③ adjustStreamVolume(ADJUST_UNMUTE) 成功");
-                sSavedRingerMode = -1;
-                sSavedRingVolume = -1;
-            } catch (Exception e3) {
-                XposedBridge.log(TAG + ": [恢复] ③ adjustStreamVolume 失败: " + e3.getMessage());
-            }
+            XposedBridge.log(TAG + ": [" + modeTip + "] MiuiSettingsInvoker 失败 ← " + courseName);
         }
     }
 
@@ -1207,6 +1062,7 @@ public class MainHook implements IXposedHookLoadPackage {
             notif.extras.putString("xiaoai.test.start_time",  info.startTime);
             notif.extras.putString("xiaoai.test.end_time",    info.endTime);
             notif.extras.putString("xiaoai.test.classroom",   info.classroom);
+            applyIslandParams(ctx, notif, info, notifId, null);
             nm.notify(notifId, notif);
             XposedBridge.log(TAG + ": [立即] 课前提醒通知已发送 " + info.courseName
                     + " @" + info.startTime + " id=" + notifId);
@@ -1255,10 +1111,8 @@ public class MainHook implements IXposedHookLoadPackage {
                             mLastCourseDataHash = h;
                         }
                     } catch (Throwable ignored) {}
-                    if (sCustomReminderEnabled) {
-                        XposedBridge.log(TAG + ": CourseData.xml 已变化，重新调度课前提醒");
-                        scheduleTodayCourseReminders(ctx, bj);
-                    }
+                    XposedBridge.log(TAG + ": CourseData.xml 已变化，重新调度课前提醒");
+                    scheduleTodayCourseReminders(ctx, bj);
                     if (sMuteEnabled || sUnmuteEnabled) {
                         XposedBridge.log(TAG + ": CourseData.xml 已变化，重新调度静音闹钟");
                         scheduleTodayMuteAlarms(ctx);
@@ -1346,29 +1200,17 @@ public class MainHook implements IXposedHookLoadPackage {
             Notification notification = (Notification) param.args[notifArgIndex];
             if (notification == null) return;
 
-            // 防止重复处理（已注入岛参数的通知直接放行）
+            // 我方通知（已含岛参数）直接放行
             if (isAlreadyIsland(notification)) return;
 
+            // 我方课程通知（携带课程标记）直接放行
+            if (notification.extras != null
+                    && notification.extras.containsKey("xiaoai.test.course_name")) return;
+
+            // 小爱原生课程提醒 → 屏蔽，由我方通知替代
             if (isScheduleNotification(notification)) {
-                // 自定义模式开启时，屏蔽小爱自身的课程提醒（无我方注入标记的通知）
-                // 我方注入的通知携带 xiaoai.test.course_name，让其正常通过
-                boolean isOurInjected = notification.extras != null
-                        && notification.extras.containsKey("xiaoai.test.course_name");
-                if (sCustomReminderEnabled && !isOurInjected) {
-                    param.setResult(null); // 抑制 notify()
-                    return;
-                }
-                XposedBridge.log(TAG + ": 检测到课程表提醒，开始注入超级岛参数");
-                int notifId;
-                String notifTag;
-                if (notifArgIndex == 1) {
-                    notifId  = (int) param.args[0];
-                    notifTag = null;
-                } else {
-                    notifTag = (String) param.args[0];
-                    notifId  = (int)   param.args[1];
-                }
-                injectIslandParams(notification, param.thisObject, notifId, notifTag);
+                param.setResult(null);
+                XposedBridge.log(TAG + ": 已屏蔽小爱原生课程提醒通知");
             }
         }
     }
@@ -1403,217 +1245,44 @@ public class MainHook implements IXposedHookLoadPackage {
     // ─────────────────────────────────────────────────────────────
 
     /**
-     * 向通知的 extras 中注入 miui.focus.param（及图标/Action Bundle），
-     * 使其变为超级岛通知，并设置整体点击事件跳转到课表页。
+     * 向通知注入超级岛参数（miui.focus.param），并调度岛状态更新/取消闹钟。
+     * 在 nm.notify() 之前调用，使通知直接携带岛参数发出。
      */
-    private void injectIslandParams(Notification notification, Object nmInstance,
-                                     int notifId, String notifTag) {
-        Bundle extras = notification.extras;
-        if (extras == null) {
-            extras = new Bundle();
-            notification.extras = extras;
-        }
-
+    private void applyIslandParams(Context ctx, Notification notif,
+            CourseInfo info, int notifId, String notifTag) {
         try {
-            CourseInfo info = extractCourseInfo(notification);
-            XposedBridge.log(TAG + ": 解析结果 → 课程=" + info.courseName
-                    + " 时间=" + info.startTime + " 结束=" + info.endTime
-                    + " 教室=" + info.classroom);
-            // 记录此通知 id 的当前课程持有者，用于防止连续课程切换时旧课状态广播覆写新课岛
+            if (notif.extras == null) notif.extras = new Bundle();
+            SharedPreferences prefs = loadPrefs(ctx);
+            notif.extras.putString(KEY_FOCUS_PARAM, buildIslandJson(info, STATE_COUNTDOWN, prefs));
             mNotifCourseOwner.put(notifId, info.courseName);
-
-            // ── 1. 计算开始时间戳 ─────────────────────────────────────
+            try {
+                Intent tableIntent = Intent.parseUri(COURSE_TABLE_INTENT, Intent.URI_INTENT_SCHEME);
+                notif.contentIntent = PendingIntent.getActivity(ctx, 1, tableIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            } catch (Exception e) {
+                XposedBridge.log(TAG + ": 课表 intent 解析失败 → " + e.getMessage());
+            }
             long startMs = computeClassStartMs(info.startTime);
-
-            // ── 2. 获取 ctx ──────────────────────────────────────────
-            Context ctx = null;
-            try {
-                ctx = (Context) XposedHelpers.getObjectField(nmInstance, "mContext");
-            } catch (Throwable ignored) {}
-            XposedBridge.log(TAG + ": ctx=" + (ctx != null ? "ok" : "null"));
-
-            // ── 3. 读取用户偏好设置 ───────────────────────────────────
-            final android.content.SharedPreferences prefs =
-                    (ctx != null) ? loadPrefs(ctx) : null;
-
-            // ── 4. 构建超级岛 JSON ────────────────────────────────────
-            String islandJson = buildIslandJson(info, STATE_COUNTDOWN, prefs);
-            extras.putString(KEY_FOCUS_PARAM, islandJson);
-            XposedBridge.log(TAG + ": JSON 长度=" + islandJson.length()
-                    + " startMs=" + startMs);
-
-            if (ctx != null) {
-                try {
-                    Intent tableIntent = Intent.parseUri(
-                            COURSE_TABLE_INTENT, Intent.URI_INTENT_SCHEME);
-                    PendingIntent tablePi = PendingIntent.getActivity(
-                            ctx, 1, tableIntent,
-                            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                    notification.contentIntent = tablePi;
-                } catch (Exception e) {
-                    XposedBridge.log(TAG + ": 课表 intent 解析失败 → " + e.getMessage());
-                }
-
-                // ── 6. 用 AlarmManager 闹钟调度岛状态更新（可唤醒 Doze）────────
-                // 替换原 Handler.postDelayed，避免进程被杀后延迟/丢失
-                final String channelId = safeStr(notification.getChannelId());
-
-                // 6a. 开课时刻 → 正计时（STATE_ELAPSED）
-                long delay = startMs - System.currentTimeMillis();
-                if (delay > 0 && delay <= 6 * 3600 * 1000L) {
-                    scheduleIslandAlarm(ctx, info, STATE_ELAPSED, channelId,
-                            notifTag, notifId, startMs);
-                }
-
-                // 6b. 下课时刻 → 下课状态（STATE_FINISHED）独立调度
-                long endMs2 = computeClassStartMs(info.endTime);
-                long delayEnd = endMs2 - System.currentTimeMillis();
-                if (!info.endTime.isEmpty() && endMs2 > 0 && delayEnd > 0 && delayEnd <= 6 * 3600 * 1000L) {
-                    scheduleIslandAlarm(ctx, info, STATE_FINISHED, channelId,
-                            notifTag, notifId, endMs2);
-                }
-
-                // 6c. 通知取消闹钟（三个阶段各自独立调度，先触发者生效）
-                // 锚点课程（有连续后续课）跳过此处注册，防止中间课程通知被提前清除
-                // cancel 由 consecutive 路径在每次接管时用新课时间重建
-                if (!mConsecutiveAnchors.contains(notifId)) {
-                    scheduleNotifCancelAlarms(ctx, prefs, notifTag, notifId,
-                            System.currentTimeMillis(), startMs, endMs2);
-                } else {
-                    XposedBridge.log(TAG + ": [锚点课程] id=" + notifId + " 跳过 cancel alarm，等待 consecutive 路径接管");
-                }
-            }
-
-            XposedBridge.log(TAG + ": 注入成功");
-        } catch (JSONException e) {
-            XposedBridge.log(TAG + ": 构建 JSON 失败 → " + e.getMessage());
+            long endMs   = computeClassStartMs(info.endTime);
+            long now     = System.currentTimeMillis();
+            String chId  = safeStr(notif.getChannelId());
+            if (startMs > now && (startMs - now) <= 6 * 3600 * 1000L)
+                scheduleIslandAlarm(ctx, info, STATE_ELAPSED,  chId, notifTag, notifId, startMs);
+            if (!info.endTime.isEmpty() && endMs > now && (endMs - now) <= 6 * 3600 * 1000L)
+                scheduleIslandAlarm(ctx, info, STATE_FINISHED, chId, notifTag, notifId, endMs);
+            if (!mConsecutiveAnchors.contains(notifId))
+                scheduleNotifCancelAlarms(ctx, prefs, notifTag, notifId, now, startMs, endMs);
+            else
+                XposedBridge.log(TAG + ": [锚点课程] id=" + notifId + " 跳过 cancel alarm");
+            XposedBridge.log(TAG + ": applyIslandParams 完成 → " + info.courseName + " id=" + notifId);
+        } catch (Exception e) {
+            XposedBridge.log(TAG + ": applyIslandParams 失败 → " + e.getMessage());
         }
-    }
-
-    /**
-     * 从 Notification 的 RemoteViews 中直接提取课程信息。
-     *
-     * 实测（02-24 11:30 logcat）：voiceassist 使用完全自定义 View，
-     * extras 中 android.title / android.text 均为 null。
-     * 数据存在 bigContentView 的 ReflectionAction.mValue 字段序列中：
-     *   [0] "[课程]快到了，提前准备一下吧"  ← 课程名在 [] 内
-     *   [1] "11:45"                         ← 开始时间（HH:mm）
-     *   [2] "12:30"                         ← 结束时间（HH:mm）
-     *   [3] "课程"                           ← 课程名（纯文字，无括号）
-     *   [4] "教室"                           ← 教室
-     * contentView 中有 "11:45 | 教室" 格式，可作补充来源。
-     */
-    private CourseInfo extractCourseInfo(Notification notification) {
-        // 优先读取测试广播注入的课程信息（来自目标进程测试通知）
-        if (notification.extras != null
-                && notification.extras.containsKey("xiaoai.test.course_name")) {
-            String name  = safeStr(notification.extras.getString("xiaoai.test.course_name"));
-            String start = safeStr(notification.extras.getString("xiaoai.test.start_time"));
-            String end   = safeStr(notification.extras.getString("xiaoai.test.end_time"));
-            String room  = safeStr(notification.extras.getString("xiaoai.test.classroom"));
-            XposedBridge.log(TAG + ": [测试通知] 直接读取 extras → 课程=" + name
-                    + " 开始=" + start + " 结束=" + end + " 教室=" + room);
-            return new CourseInfo(name, start, end, room);
-        }
-        CourseInfo fromView = extractFromRemoteViews(notification);
-        if (fromView != null) {
-            XposedBridge.log(TAG + ": [RemoteViews] 精确提取 → 课程=" + fromView.courseName
-                    + " 开始=" + fromView.startTime + " 结束=" + fromView.endTime
-                    + " 教室=" + fromView.classroom);
-            return fromView;
-        }
-
-        XposedBridge.log(TAG + ": [兜底] RemoteViews 解析失败，返回空课程信息");
-        return new CourseInfo("课程提醒", "", "", "");
-    }
-
-    /**
-     * 用反射从 RemoteViews.mActions 中收集所有 CharSequence 值，
-     * 然后按规则匹配课程名、开始/结束时间、教室。
-     *
-     * 匹配规则（基于实测 bigContentView 顺序）：
-     *   - 含 "[...]" 的字符串 → 提取括号内作课程名
-     *   - 纯 "HH:mm" 格式 → 按出现顺序：第1个=开始时间，第2个=结束时间
-     *   - "HH:mm | 教室" 格式 → 拆分开始时间和教室
-     *   - 2~20字且非时间非按钮文字 → 优先作教室，其次作课程名
-     */
-    private CourseInfo extractFromRemoteViews(Notification notif) {
-        if (notif == null) return null;
-        RemoteViews big     = notif.bigContentView;
-        RemoteViews content = notif.contentView;
-        if (big == null && content == null) return null;
-
-        java.util.List<String> texts = new java.util.ArrayList<>();
-        for (RemoteViews rv : new RemoteViews[]{big, content}) {
-            if (rv == null) continue;
-            try {
-                java.lang.reflect.Field fActions = RemoteViews.class.getDeclaredField("mActions");
-                fActions.setAccessible(true);
-                java.util.ArrayList<?> actions = (java.util.ArrayList<?>) fActions.get(rv);
-                if (actions == null) continue;
-                for (Object act : actions) {
-                    if (!act.getClass().getSimpleName().equals("ReflectionAction")) continue;
-                    try {
-                        java.lang.reflect.Field fValue = act.getClass().getDeclaredField("mValue");
-                        fValue.setAccessible(true);
-                        Object val = fValue.get(act);
-                        if (!(val instanceof CharSequence)) continue;
-                        String sv = val.toString().trim();
-                        if (!sv.isEmpty()) texts.add(sv);
-                    } catch (Throwable ignored) {}
-                }
-            } catch (Throwable ignored) {}
-            if (!texts.isEmpty()) break;
-        }
-        if (texts.isEmpty()) return null;
-
-        String courseName = "", startTime = "", endTime = "", classroom = "";
-        java.util.regex.Pattern timePattern = java.util.regex.Pattern.compile("^\\d{1,2}:\\d{2}$");
-        java.util.regex.Pattern subPattern  = java.util.regex.Pattern.compile("(\\d{1,2}:\\d{2})\\s*[|｜]\\s*(.+)");
-        // 跳过按钮文字
-        java.util.Set<String> buttonTexts = new java.util.HashSet<>(
-                java.util.Arrays.asList("上课静音", "完整课表", "静音", "课表"));
-
-        for (String t : texts) {
-            if (buttonTexts.contains(t)) continue;
-
-            // "[课程]快到了..." → 课程名
-            java.util.regex.Matcher mb = java.util.regex.Pattern.compile("\\[([^\\]]+)\\]").matcher(t);
-            if (mb.find() && courseName.isEmpty()) {
-                courseName = mb.group(1).trim();
-                continue;
-            }
-            // "11:45 | 教室" → 开始时间 + 教室
-            java.util.regex.Matcher ms = subPattern.matcher(t);
-            if (ms.find()) {
-                if (startTime.isEmpty()) startTime = ms.group(1).trim();
-                if (classroom.isEmpty())  classroom  = ms.group(2).trim();
-                continue;
-            }
-            // 纯时间 "HH:mm"
-            if (timePattern.matcher(t).matches()) {
-                if (startTime.isEmpty())     startTime = t;
-                else if (endTime.isEmpty())  endTime   = t;
-                continue;
-            }
-            // 短文本（2-20字）
-            if (t.length() >= 2 && t.length() <= 20) {
-                if (t.equals(courseName)) continue;           // 课程名重复出现，跳过
-                if (classroom.isEmpty())  classroom  = t;    // 第一个未知短文本就是教室
-                else if (courseName.isEmpty()) courseName = t;
-            }
-        }
-
-        if (courseName.isEmpty()) courseName = "课程提醒";
-
-        if (startTime.isEmpty()) return null; // 连时间都没有，本方法无效
-        return new CourseInfo(courseName, startTime, endTime, classroom);
     }
 
     private static String safeStr(String s) {
         return s != null ? s : "";
     }
-
     // 岛状态常量
     private static final int STATE_COUNTDOWN = 0; // 倒计时（上课前）
     private static final int STATE_ELAPSED   = 1; // 正计时（上课中）

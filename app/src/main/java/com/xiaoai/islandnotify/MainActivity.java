@@ -575,34 +575,15 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * 初始化「课前提醒」卡片。
-     * 开关控制整体启用/禁用；分钟数输入在开关开启时可见。
-     * 保存时将 custom_reminder_enabled 和 reminder_minutes_before 同步到 voiceassist 进程。
+     * 仅开放提醒时间自定义，保存时同步 reminder_minutes_before 到 voiceassist 进程。
      */
     private void initReminderCard() {
         SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        SwitchMaterial swEnabled = findViewById(R.id.sw_custom_reminder);
-        View           llContent = findViewById(R.id.ll_reminder_content);
-        EditText       etMinutes = findViewById(R.id.et_reminder_minutes);
-        TextView       tvHint    = findViewById(R.id.tv_reminder_hint);
+        EditText etMinutes = findViewById(R.id.et_reminder_minutes);
+        TextView tvHint    = findViewById(R.id.tv_reminder_hint);
 
-        boolean savedEnabled = sp.getBoolean("custom_reminder_enabled", false);
-        int     savedMinutes = sp.getInt("reminder_minutes_before", 15);
-
-        swEnabled.setChecked(savedEnabled);
+        int savedMinutes = sp.getInt("reminder_minutes_before", 15);
         etMinutes.setText(String.valueOf(savedMinutes));
-        llContent.setVisibility(savedEnabled ? View.VISIBLE : View.GONE);
-
-        // 主开关切换
-        swEnabled.setOnCheckedChangeListener((btn, checked) -> {
-            llContent.setVisibility(checked ? View.VISIBLE : View.GONE);
-            sp.edit().putBoolean("custom_reminder_enabled", checked).apply();
-            Intent sync = new Intent("com.xiaoai.islandnotify.ACTION_SYNC_PREFS");
-            sync.setPackage("com.miui.voiceassist");
-            sync.putExtra("custom_reminder_enabled", checked);
-            sendBroadcast(sync);
-            tvHint.setText(checked ? "自定义提醒已启用" : "已关闭，小爱将按自身逻辑发送提醒");
-            tvHint.setVisibility(View.VISIBLE);
-        });
 
         // 保存分钟数并重新调度
         findViewById(R.id.btn_save_reminder).setOnClickListener(v -> {
