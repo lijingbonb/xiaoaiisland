@@ -53,13 +53,6 @@ import com.google.android.material.textfield.TextInputLayout;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.tabs.TabLayout;
 
-import android.app.AlertDialog;
-import android.view.Gravity;
-import android.widget.ArrayAdapter;
-import android.widget.LinearLayout;
-import android.widget.Spinner;
-import android.widget.Toast;
-
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -1013,6 +1006,33 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onTabUnselected(TabLayout.Tab tab) {}
             @Override public void onTabReselected(TabLayout.Tab tab) {}
         });
+
+        // 水平滑动手势切换 Tab
+        android.view.GestureDetector swipeDetector = new android.view.GestureDetector(this,
+                new android.view.GestureDetector.SimpleOnGestureListener() {
+                    @Override
+                    public boolean onFling(android.view.MotionEvent e1, android.view.MotionEvent e2,
+                                          float velocityX, float velocityY) {
+                        if (e1 == null || e2 == null) return false;
+                        float dx = e2.getX() - e1.getX();
+                        float dy = e2.getY() - e1.getY();
+                        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 80
+                                && Math.abs(velocityX) > 100) {
+                            int pos = tabLayout.getSelectedTabPosition();
+                            if (dx < 0 && pos < tabLayout.getTabCount() - 1)
+                                tabLayout.selectTab(tabLayout.getTabAt(pos + 1));
+                            else if (dx > 0 && pos > 0)
+                                tabLayout.selectTab(tabLayout.getTabAt(pos - 1));
+                            return true;
+                        }
+                        return false;
+                    }
+                });
+        androidx.core.widget.NestedScrollView scrollView = findViewById(R.id.scroll_view);
+        scrollView.setOnTouchListener((v, event) -> {
+            swipeDetector.onTouchEvent(event);
+            return false;
+        });
     }
 
     private void showSettingsTab(boolean showSettings) {
@@ -1061,68 +1081,70 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // ── 从网络获取 ─────────────────────────────────────────────
+        // ── 从网络获取（当年 + 次年） ──────────────────────────────
         findViewById(R.id.btn_fetch_holiday).setOnClickListener(v -> {
             tvFetchHint.setText("正在获取…");
             tvFetchHint.setVisibility(View.VISIBLE);
             int year = mCurrentHolidayYear;
             new Thread(() -> {
-                try {
-                    URL url = new URL("https://unpkg.com/holiday-calendar@1.3.0/data/CN/" + year + ".json");
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setConnectTimeout(10_000);
-                    conn.setReadTimeout(10_000);
-                    conn.setRequestProperty("User-Agent", "XiaoaiIsland/1.0");
-                    BufferedReader reader = new BufferedReader(
-                            new InputStreamReader(conn.getInputStream(), "UTF-8"));
-                    StringBuilder sb = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) sb.append(line);
-                    reader.close();
-                    conn.disconnect();
+                int totalH = 0, totalW = 0;
+                boolean anyFailed = false;
+                StringBuilder hint = new StringBuilder();
+                for (int y = year; y <= year + 1; y++) {
+                    try {
+                        URL url = new URL("https://unpkg.com/holiday-calendar@1.3.0/data/CN/" + y + ".json");
+                        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                        conn.setConnectTimeout(10_000);
+                        conn.setReadTimeout(10_000);
+                        conn.setRequestProperty("User-Agent", "XiaoaiIsland/1.0");
+                        BufferedReader reader = new BufferedReader(
+                                new InputStreamReader(conn.getInputStream(), "UTF-8"));
+                        StringBuilder sb = new StringBuilder();
+                        String line;
+                        while ((line = reader.readLine()) != null) sb.append(line);
+                        reader.close();
+                        conn.disconnect();
 
-                    List<HolidayManager.HolidayEntry> apiEntries =
-                            HolidayManager.parseApiResponse(sb.toString());
-
-                    // 合并：保留用户自定义条目，替换/追加 API 条目（按日期去重 API 部分）
-                    List<HolidayManager.HolidayEntry> existing =
-                            HolidayManager.loadEntries(this, year);
-                    List<HolidayManager.HolidayEntry> merged = new ArrayList<>();
-                    // 先保留自定义
-                    for (HolidayManager.HolidayEntry e : existing) {
-                        if (e.isCustom) merged.add(e);
-                    }
-                    // 追加 API 条目（若自定义里没有同日期的则直接加，否则跳过）
-                    for (HolidayManager.HolidayEntry ae : apiEntries) {
-                        boolean conflict = false;
-                        for (HolidayManager.HolidayEntry ce : merged) {
-                            if (ce.date.equals(ae.date)) { conflict = true; break; }
+                        List<HolidayManager.HolidayEntry> apiEntries =
+                                HolidayManager.parseApiResponse(sb.toString());
+                        if (apiEntries.isEmpty()) {
+                            hint.append(y).append("年暂无数据; ");
+                        } else {
+                            HolidayManager.mergeAndSave(this, y, apiEntries);
+                            syncHolidayToHook(y);
+                            int hCount = 0, wCount = 0;
+                            for (HolidayManager.HolidayEntry e : apiEntries)
+                                if (e.type == HolidayManager.TYPE_HOLIDAY) hCount++; else wCount++;
+                            totalH += hCount; totalW += wCount;
                         }
-                        if (!conflict) merged.add(ae);
+                    } catch (Exception e) {
+                        hint.append(y).append("年失败(").append(e.getMessage()).append("); ");
+                        anyFailed = true;
                     }
-                    merged.sort((a, b) -> a.date.compareTo(b.date));
-
-                    HolidayManager.saveEntries(this, year, merged);
-                    syncHolidayToHook(year);
-
-                    int hCount = 0, wCount = 0;
-                    for (HolidayManager.HolidayEntry e : apiEntries)
-                        if (e.type == HolidayManager.TYPE_HOLIDAY) hCount++; else wCount++;
-                    int finalHCount = hCount, finalWCount = wCount;
-
-                    runOnUiThread(() -> {
-                        renderHolidayLists();
-                        tvFetchHint.setText("获取成功：节假日 " + finalHCount + " 天，调休工作日 " + finalWCount + " 天");
-                        tvFetchHint.setVisibility(View.VISIBLE);
-                    });
-                } catch (Exception e) {
-                    runOnUiThread(() -> {
-                        tvFetchHint.setText("获取失败：" + e.getMessage());
-                        tvFetchHint.setVisibility(View.VISIBLE);
-                    });
                 }
+                String extra = hint.toString();
+                String summary = "获取完成：节假日 " + totalH + " 天，调休 " + totalW + " 天"
+                        + (extra.isEmpty() ? "" : "\n" + extra.trim());
+                runOnUiThread(() -> {
+                    renderHolidayLists();
+                    tvFetchHint.setText(summary);
+                    tvFetchHint.setVisibility(View.VISIBLE);
+                });
             }).start();
         });
+
+        // ── 全部清除 ───────────────────────────────────────────────
+        findViewById(R.id.btn_clear_all_holiday).setOnClickListener(v ->
+                new AlertDialog.Builder(this)
+                        .setTitle("全部清除")
+                        .setMessage("将清除所有已保存的假期和调休数据（包括自定义条目）。确定吗？")
+                        .setPositiveButton("清除", (d, w) -> {
+                            HolidayManager.clearAll(this);
+                            renderHolidayLists();
+                            Toast.makeText(this, "已清除全部假期数据", Toast.LENGTH_SHORT).show();
+                        })
+                        .setNegativeButton("取消", null)
+                        .show());
 
         // ── 新增节假日 ─────────────────────────────────────────────
         findViewById(R.id.btn_add_holiday).setOnClickListener(v ->
@@ -1180,11 +1202,13 @@ public class MainActivity extends AppCompatActivity {
         TextView tvMain = new TextView(this);
         tvMain.setTextSize(15f);
         tvMain.setTypeface(null, android.graphics.Typeface.BOLD);
-        String dateDesc = entry.date;
+        String dateLabel;
         if (entry.endDate != null && !entry.endDate.isEmpty() && !entry.endDate.equals(entry.date)) {
-            dateDesc += " ~ " + entry.endDate.substring(5); // 简写结束日期
+            dateLabel = formatShortDate(entry.date) + "–" + formatShortDate(entry.endDate);
+        } else {
+            dateLabel = formatShortDate(entry.date);
         }
-        tvMain.setText(dateDesc + "  " + entry.name);
+        tvMain.setText(dateLabel + "  " + entry.name);
         textArea.addView(tvMain);
 
         TextView tvTag = new TextView(this);
@@ -1194,6 +1218,20 @@ public class MainActivity extends AppCompatActivity {
         textArea.addView(tvTag);
 
         row.addView(textArea);
+
+        // 编辑按钮
+        MaterialButton btnEdit = new MaterialButton(this, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        btnEdit.setText("编辑");
+        btnEdit.setTextSize(12f);
+        android.widget.LinearLayout.LayoutParams ep =
+                new android.widget.LinearLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                        dpToPx(36));
+        ep.setMarginStart(dpToPx(8));
+        btnEdit.setLayoutParams(ep);
+        btnEdit.setOnClickListener(v -> showAddHolidayDialog(entry));
+        row.addView(btnEdit);
 
         // 删除按钮
         MaterialButton btnDel = new MaterialButton(this, null,
@@ -1206,7 +1244,7 @@ public class MainActivity extends AppCompatActivity {
                 new android.widget.LinearLayout.LayoutParams(
                         android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
                         dpToPx(36));
-        dp.setMarginStart(dpToPx(8));
+        dp.setMarginStart(dpToPx(4));
         btnDel.setLayoutParams(dp);
         btnDel.setOnClickListener(v -> {
             all.remove(entry);
@@ -1216,6 +1254,18 @@ public class MainActivity extends AppCompatActivity {
         });
         row.addView(btnDel);
         return row;
+    }
+
+    /** 将 "yyyy-MM-dd" 格式化为 "M/d" 短形式 */
+    private String formatShortDate(String isoDate) {
+        if (isoDate == null || isoDate.length() < 10) return isoDate != null ? isoDate : "";
+        try {
+            int m = Integer.parseInt(isoDate.substring(5, 7));
+            int d = Integer.parseInt(isoDate.substring(8, 10));
+            return m + "/" + d;
+        } catch (Exception e) {
+            return isoDate;
+        }
     }
 
     /** 调休工作日条目行视图（带编辑按钮） */

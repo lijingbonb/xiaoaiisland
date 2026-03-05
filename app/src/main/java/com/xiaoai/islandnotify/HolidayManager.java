@@ -150,6 +150,35 @@ public class HolidayManager {
            .apply();
     }
 
+    /**
+     * 合并 API 条目到本地：保留已有自定义条目，追加 API 中无冲突的条目。
+     * 不会删除任何用户手动添加的条目。
+     */
+    public static void mergeAndSave(Context ctx, int year, List<HolidayEntry> apiEntries) {
+        List<HolidayEntry> existing = loadEntries(ctx, year);
+        List<HolidayEntry> merged = new ArrayList<>();
+        for (HolidayEntry e : existing) if (e.isCustom) merged.add(e);
+        for (HolidayEntry ae : apiEntries) {
+            boolean conflict = false;
+            for (HolidayEntry ce : merged) {
+                if (ce.date.equals(ae.date)) { conflict = true; break; }
+            }
+            if (!conflict) merged.add(ae);
+        }
+        merged.sort((a, b) -> a.date.compareTo(b.date));
+        saveEntries(ctx, year, merged);
+    }
+
+    /** 清除所有年份的假期数据（包括自定义和 API 数据） */
+    public static void clearAll(Context ctx) {
+        SharedPreferences sp = ctx.getSharedPreferences(PREFS_HOLIDAY, Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = sp.edit();
+        for (String key : sp.getAll().keySet()) {
+            if (key.startsWith("list_")) editor.remove(key);
+        }
+        editor.apply();
+    }
+
     // ── 查询（Hook 侧调用） ──────────────────────────────────────────────────
 
     /**
@@ -229,7 +258,7 @@ public class HolidayManager {
                         if (isHoliday)   addEntry(result, date, name, true);
                         else if (isWorkSwap) addEntry(result, date, name, false);
                     }
-                    return result;
+                    return mergeConsecutiveEntries(result);
                 }
 
                 // ── 格式 B: days 数组 ──
@@ -242,7 +271,7 @@ public class HolidayManager {
                                 || d.optBoolean("isOffDay", true);
                         addEntry(result, d.optString("date"), d.optString("name"), isHoliday);
                     }
-                    return result;
+                    return mergeConsecutiveEntries(result);
                 }
 
                 // ── 格式 D: 对象 key=日期 ──

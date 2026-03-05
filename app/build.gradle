@@ -153,17 +153,13 @@ android {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.release
-            
-            // 自定义Release APK文件名和输出路径
+
             applicationVariants.all { variant ->
                 if (variant.buildType.name == 'release') {
                     variant.outputs.all {
                         def appName = "课程表超级岛"
-                        def versionName = variant.versionName  // 纯数字版本号
+                        def versionName = variant.versionName
                         outputFileName = "${appName}_${versionName}.apk"
-                        
-                        // 设置输出目录
-                        variant.packageApplicationProvider.get().outputDirectory = file("$rootDir/build/release")
                     }
                 }
             }
@@ -171,16 +167,13 @@ android {
         debug {
             minifyEnabled false
             versionNameSuffix "_debug"
-            // 自定义Debug APK文件名和输出路径
+
             applicationVariants.all { variant ->
                 if (variant.buildType.name == 'debug') {
                     variant.outputs.all {
                         def appName = "课程表超级岛"
-                        def versionName = variant.versionName  // 纯数字版本号
+                        def versionName = variant.versionName
                         outputFileName = "${appName}_${versionName}.apk"
-                        
-                        // 设置输出目录
-                        variant.packageApplicationProvider.get().outputDirectory = file("$rootDir/build/debug")
                     }
                 }
             }
@@ -190,6 +183,16 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
+    }
+}
+
+// 输出目录重定向（afterEvaluate 里只改目录，不改文件名）
+afterEvaluate {
+    android.applicationVariants.all { variant ->
+        def buildType = variant.buildType.name
+        variant.packageApplicationProvider.configure { pkg ->
+            pkg.outputDirectory.set(file("$rootDir/build/${buildType}"))
+        }
     }
 }
 

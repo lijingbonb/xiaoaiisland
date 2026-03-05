@@ -626,11 +626,8 @@ public class MainHook implements IXposedHookLoadPackage {
             JSONObject root    = new JSONObject(beanJson);
             JSONObject data    = root.getJSONObject("data");
             JSONObject setting = data.getJSONObject("setting");
-            // 服务端返回的 presentWeek 仅仅是数据缓存时的周次，无法反映当前真实时间的周次！
-            // 因此必须始终根据 startSemester 动态推算当前真实周次。
-            long startSemMs = Long.parseLong(setting.getString("startSemester"));
-            if (startSemMs > 0 && startSemMs < 10_000_000_000L) startSemMs *= 1000L;
-            int currentWeek = getCurrentWeek(startSemMs);
+            // 直接使用服务端 presentWeek（已处理开学延期、调课周等特殊情况）
+            int currentWeek = setting.optInt("presentWeek", 0);
             // 调休工作日：将当天星期和周次替换为指定的调休酬条件
             if (workSwapDay != null && workSwapDay.followWeek > 0 && workSwapDay.followWeekday > 0) {
                 XposedBridge.log(TAG + ": 今日 " + todayDateStr + " 为调休工作日，"
@@ -755,9 +752,9 @@ public class MainHook implements IXposedHookLoadPackage {
     }
 
     /**
-     * 提取 weekCourseBean JSON 中真正影响调度的字段（courses / sectionTimes / startSemester /
+     * 提取 weekCourseBean JSON 中真正影响调度的字段（courses / sectionTimes / presentWeek /
      * totalWeek / weekStart）并计算其 hashCode，过滤掉 updateTime、level、rtPresentWeek、
-     * presentWeek 等每次写盘都会变化的时间戳字段，避免误判「内容已变化」。
+     * startSemester 等无关字段，避免误判「内容已变化」。
      */
     private int stableCourseHash(String beanJson) {
         if (beanJson == null || beanJson.isEmpty()) return 0;
@@ -766,10 +763,9 @@ public class MainHook implements IXposedHookLoadPackage {
             org.json.JSONObject data    = root.getJSONObject("data");
             org.json.JSONObject setting = data.getJSONObject("setting");
             // presentWeek 每周变化一次（周次推进），必须纳入哈希否则新周课表不重调度
-            // updateTime / level / rtPresentWeek 每次写盘都变，仍排除
+            // updateTime / level / rtPresentWeek / startSemester 每次写盘都变，排除
             String stable = data.optJSONArray("courses").toString()
                     + setting.optString("sectionTimes")
-                    + setting.optString("startSemester")
                     + setting.optString("totalWeek")
                     + setting.optString("weekStart")
                     + setting.optInt("presentWeek", 0);
@@ -777,28 +773,6 @@ public class MainHook implements IXposedHookLoadPackage {
         } catch (Throwable e) {
             return beanJson.hashCode();
         }
-    }
-
-    /** 计算当前教学周（从学期开始日起算，第1周=前7天）。学期未开始返回 0，课程 inWeek 检查自然跳过。 */
-    private int getCurrentWeek(long startSemesterMs) {
-        java.util.Calendar now = java.util.Calendar.getInstance();
-        java.util.Calendar start = java.util.Calendar.getInstance();
-        start.setTimeInMillis(startSemesterMs);
-
-        // 设置到中午12点，避免夏令时或时区转换带来的天数误差
-        now.set(java.util.Calendar.HOUR_OF_DAY, 12);
-        now.set(java.util.Calendar.MINUTE, 0);
-        now.set(java.util.Calendar.SECOND, 0);
-        now.set(java.util.Calendar.MILLISECOND, 0);
-
-        start.set(java.util.Calendar.HOUR_OF_DAY, 12);
-        start.set(java.util.Calendar.MINUTE, 0);
-        start.set(java.util.Calendar.SECOND, 0);
-        start.set(java.util.Calendar.MILLISECOND, 0);
-
-        long diff = now.getTimeInMillis() - start.getTimeInMillis();
-        if (diff < 0) return 0; // 学期尚未开始，不调度任何课程
-        return (int) (diff / (7L * 24 * 3600 * 1000)) + 1;
     }
 
     /** 从 sectionTimes JSON 数组中查找某节课的开始或结束时间（HH:mm）。 */
@@ -1013,17 +987,8 @@ public class MainHook implements IXposedHookLoadPackage {
             JSONObject root    = new JSONObject(beanJson);
             JSONObject data    = root.getJSONObject("data");
             JSONObject setting = data.getJSONObject("setting");
-            // 优先使用服务端返回的 presentWeek（已处理开学延期、调课周等特殊情况）；
-            // 若为 0 或缺失，回退到本地根据 startSemester 推算。
-            int presentWeekM = setting.optInt("presentWeek", 0);
-            final int currentWeek;
-            if (presentWeekM > 0) {
-                currentWeek = presentWeekM;
-            } else {
-                long startSemMs = Long.parseLong(setting.getString("startSemester"));
-                if (startSemMs > 0 && startSemMs < 10_000_000_000L) startSemMs *= 1000L;
-                currentWeek = getCurrentWeek(startSemMs);
-            }
+            // 直接使用服务端 presentWeek（已处理开学延期、调课周等特殊情况）
+            final int currentWeek = setting.optInt("presentWeek", 0);
             JSONArray sectionTimes = new JSONArray(setting.getString("sectionTimes"));
             JSONArray courses      = data.getJSONArray("courses");
 
