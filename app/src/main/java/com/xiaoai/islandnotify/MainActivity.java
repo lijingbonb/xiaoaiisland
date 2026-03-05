@@ -1036,13 +1036,26 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showSettingsTab(boolean showSettings) {
-        for (int id : SETTINGS_CARD_IDS) {
-            View v = findViewById(id);
-            if (v != null) v.setVisibility(showSettings ? View.VISIBLE : View.GONE);
+        View settingsView = findViewById(R.id.container_settings);
+        View holidayView  = findViewById(R.id.container_holiday);
+        if (settingsView == null || holidayView == null) return;
+
+        View outView = showSettings ? holidayView : settingsView;
+        View inView  = showSettings ? settingsView : holidayView;
+        if (outView.getVisibility() == View.GONE) {
+            // 初始化时直接设置，无动画
+            inView.setVisibility(View.VISIBLE);
+            inView.setAlpha(1f);
+            outView.setVisibility(View.GONE);
+            return;
         }
-        View hContainer = findViewById(R.id.container_holiday);
-        if (hContainer != null)
-            hContainer.setVisibility(showSettings ? View.GONE : View.VISIBLE);
+        outView.animate().alpha(0f).setDuration(160)
+                .withEndAction(() -> {
+                    outView.setVisibility(View.GONE);
+                    inView.setAlpha(0f);
+                    inView.setVisibility(View.VISIBLE);
+                    inView.animate().alpha(1f).setDuration(160).start();
+                }).start();
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -1062,23 +1075,31 @@ public class MainActivity extends AppCompatActivity {
         TextView tvFetchHint = findViewById(R.id.tv_holiday_fetch_hint);
 
         // ── 年份选择（自由输入） ───────────────────────────────────
-        EditText etYear = findViewById(R.id.et_holiday_year);
-        etYear.setText(String.valueOf(mCurrentHolidayYear));
-        etYear.addTextChangedListener(new android.text.TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
-            @Override public void onTextChanged(CharSequence s, int st, int b, int c) {}
-            @Override public void afterTextChanged(android.text.Editable s) {
-                String t = s.toString().trim();
-                if (t.length() == 4) {
-                    try {
-                        int y = Integer.parseInt(t);
-                        if (y >= 2020 && y <= 2099) {
-                            mCurrentHolidayYear = y;
-                            renderHolidayLists();
-                        }
-                    } catch (NumberFormatException ignored) {}
-                }
-            }
+        MaterialButton btnYear = findViewById(R.id.btn_year_picker);
+        btnYear.setText(String.valueOf(mCurrentHolidayYear));
+        btnYear.setOnClickListener(v -> {
+            android.widget.NumberPicker np = new android.widget.NumberPicker(this);
+            np.setMinValue(2020);
+            np.setMaxValue(2099);
+            np.setValue(mCurrentHolidayYear);
+            np.setWrapSelectorWheel(false);
+            android.widget.FrameLayout fl = new android.widget.FrameLayout(this);
+            android.widget.FrameLayout.LayoutParams nlp = new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER);
+            np.setLayoutParams(nlp);
+            fl.addView(np);
+            new AlertDialog.Builder(this)
+                    .setTitle("选择年份")
+                    .setView(fl)
+                    .setPositiveButton("确定", (d, w) -> {
+                        mCurrentHolidayYear = np.getValue();
+                        btnYear.setText(String.valueOf(mCurrentHolidayYear));
+                        renderHolidayLists();
+                    })
+                    .setNegativeButton("取消", null)
+                    .show();
         });
 
         // ── 从网络获取（当年 + 次年） ──────────────────────────────
@@ -1087,49 +1108,46 @@ public class MainActivity extends AppCompatActivity {
             tvFetchHint.setVisibility(View.VISIBLE);
             int year = mCurrentHolidayYear;
             new Thread(() -> {
-                int totalH = 0, totalW = 0;
-                boolean anyFailed = false;
-                StringBuilder hint = new StringBuilder();
-                for (int y = year; y <= year + 1; y++) {
-                    try {
-                        URL url = new URL("https://unpkg.com/holiday-calendar@1.3.0/data/CN/" + y + ".json");
-                        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                        conn.setConnectTimeout(10_000);
-                        conn.setReadTimeout(10_000);
-                        conn.setRequestProperty("User-Agent", "XiaoaiIsland/1.0");
-                        BufferedReader reader = new BufferedReader(
-                                new InputStreamReader(conn.getInputStream(), "UTF-8"));
-                        StringBuilder sb = new StringBuilder();
-                        String line;
-                        while ((line = reader.readLine()) != null) sb.append(line);
-                        reader.close();
-                        conn.disconnect();
+                try {
+                    URL url = new URL("https://unpkg.com/holiday-calendar@1.3.0/data/CN/" + year + ".json");
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(10_000);
+                    conn.setReadTimeout(10_000);
+                    conn.setRequestProperty("User-Agent", "XiaoaiIsland/1.0");
+                    BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(conn.getInputStream(), "UTF-8"));
+                    StringBuilder sb = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) sb.append(line);
+                    reader.close();
+                    conn.disconnect();
 
-                        List<HolidayManager.HolidayEntry> apiEntries =
-                                HolidayManager.parseApiResponse(sb.toString());
-                        if (apiEntries.isEmpty()) {
-                            hint.append(y).append("年暂无数据; ");
-                        } else {
-                            HolidayManager.mergeAndSave(this, y, apiEntries);
-                            syncHolidayToHook(y);
-                            int hCount = 0, wCount = 0;
-                            for (HolidayManager.HolidayEntry e : apiEntries)
-                                if (e.type == HolidayManager.TYPE_HOLIDAY) hCount++; else wCount++;
-                            totalH += hCount; totalW += wCount;
-                        }
-                    } catch (Exception e) {
-                        hint.append(y).append("年失败(").append(e.getMessage()).append("); ");
-                        anyFailed = true;
+                    List<HolidayManager.HolidayEntry> apiEntries =
+                            HolidayManager.parseApiResponse(sb.toString());
+                    if (apiEntries.isEmpty()) {
+                        runOnUiThread(() -> {
+                            tvFetchHint.setText(year + "年暂无数据");
+                            tvFetchHint.setVisibility(View.VISIBLE);
+                        });
+                        return;
                     }
+                    HolidayManager.mergeAndSave(this, year, apiEntries);
+                    syncHolidayToHook(year);
+                    int hCount = 0, wCount = 0;
+                    for (HolidayManager.HolidayEntry e : apiEntries)
+                        if (e.type == HolidayManager.TYPE_HOLIDAY) hCount++; else wCount++;
+                    int fH = hCount, fW = wCount;
+                    runOnUiThread(() -> {
+                        renderHolidayLists();
+                        tvFetchHint.setText("获取完成：节假日 " + fH + " 天，调休 " + fW + " 天");
+                        tvFetchHint.setVisibility(View.VISIBLE);
+                    });
+                } catch (Exception e) {
+                    runOnUiThread(() -> {
+                        tvFetchHint.setText("获取失败：" + e.getMessage());
+                        tvFetchHint.setVisibility(View.VISIBLE);
+                    });
                 }
-                String extra = hint.toString();
-                String summary = "获取完成：节假日 " + totalH + " 天，调休 " + totalW + " 天"
-                        + (extra.isEmpty() ? "" : "\n" + extra.trim());
-                runOnUiThread(() -> {
-                    renderHolidayLists();
-                    tvFetchHint.setText(summary);
-                    tvFetchHint.setVisibility(View.VISIBLE);
-                });
             }).start();
         });
 

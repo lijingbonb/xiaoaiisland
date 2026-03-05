@@ -39,6 +39,13 @@
             android:paddingTop="8dp"
             android:paddingBottom="32dp">
 
+            <!-- 设置页内容包装，用于切换动画 -->
+            <LinearLayout
+                android:id="@+id/container_settings"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
             <!-- ① 模块状态卡片（filled，颜色由 Java 动态设置） -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/card_status"
@@ -1137,6 +1144,9 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            </LinearLayout>
+            <!-- end container_settings -->
+
             <!-- ─────────────── Tab: 假期/调休 ─────────────── -->
             <LinearLayout
                 android:id="@+id/container_holiday"
@@ -1179,13 +1189,13 @@
                             android:textColor="?attr/colorOnSecondaryContainer"
                             android:alpha="0.85" />
 
-                        <!-- 年份输入行 -->
+                        <!-- 年份 + 操作按钮一行 -->
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:orientation="horizontal"
                             android:gravity="center_vertical"
-                            android:layout_marginBottom="12dp">
+                            android:layout_marginBottom="8dp">
 
                             <TextView
                                 android:layout_width="wrap_content"
@@ -1193,34 +1203,36 @@
                                 android:text="年份"
                                 android:textAppearance="?attr/textAppearanceBodyMedium"
                                 android:textColor="?attr/colorOnSecondaryContainer"
-                                android:layout_marginEnd="12dp" />
+                                android:layout_marginEnd="8dp" />
 
-                            <com.google.android.material.textfield.TextInputLayout
-                                android:id="@+id/til_holiday_year"
-                                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
-                                android:layout_width="100dp"
-                                android:layout_height="wrap_content">
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_year_picker"
+                                style="@style/Widget.Material3.Button.OutlinedButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:minWidth="0dp"
+                                android:paddingHorizontal="12dp"
+                                android:layout_marginEnd="8dp"
+                                tools:text="2026"
+                                xmlns:tools="http://schemas.android.com/tools" />
 
-                                <com.google.android.material.textfield.TextInputEditText
-                                    android:id="@+id/et_holiday_year"
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:inputType="number"
-                                    android:maxLength="4"
-                                    android:gravity="center"
-                                    android:imeOptions="actionDone"
-                                    android:singleLine="true" />
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_fetch_holiday"
+                                style="@style/Widget.Material3.Button"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="从网络获取" />
 
-                            </com.google.android.material.textfield.TextInputLayout>
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_clear_all_holiday"
+                                style="@style/Widget.Material3.Button.TonalButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="8dp"
+                                android:text="全部清除" />
 
                         </LinearLayout>
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btn_fetch_holiday"
-                            style="@style/Widget.Material3.Button"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="从网络获取" />
 
                         <TextView
                             android:id="@+id/tv_holiday_fetch_hint"
