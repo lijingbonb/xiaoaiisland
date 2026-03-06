@@ -116,6 +116,19 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final int    DEFAULT_UNMUTE_MINS_AFTER = 0;
     private static final int    DEFAULT_DND_MINS_BEFORE   = 0;
     private static final int    DEFAULT_UNDND_MINS_AFTER  = 0;
+    // ── 自动叫醒（系统闹钟）相关常量 ──
+    private static final String ACTION_SCHEDULE_CLOCK_ALARMS  = DeskClockHook.ACTION_SCHEDULE_CLOCK_ALARMS;
+    private static final String DESKCLOCK_PKG                  = "com.android.deskclock";
+    private static final String KEY_WAKEUP_MORNING_ENABLED      = "wakeup_morning_enabled";
+    private static final String KEY_WAKEUP_MORNING_LAST_SEC     = "wakeup_morning_last_sec";
+    private static final String KEY_WAKEUP_MORNING_RULES_JSON    = "wakeup_morning_rules_json";
+    private static final String KEY_WAKEUP_AFTERNOON_ENABLED      = "wakeup_afternoon_enabled";
+    private static final String KEY_WAKEUP_AFTERNOON_FIRST_SEC    = "wakeup_afternoon_first_sec";
+    private static final String KEY_WAKEUP_AFTERNOON_RULES_JSON   = "wakeup_afternoon_rules_json";
+    private static final int    DEFAULT_WAKEUP_MORNING_LAST_SEC       = 4;
+    private static final int    DEFAULT_WAKEUP_AFTERNOON_FIRST_SEC    = 5;
+    private static final String DEFAULT_WAKEUP_MORNING_RULES_JSON     = "[{\"sec\":1,\"hour\":7,\"minute\":0}]";
+    private static final String DEFAULT_WAKEUP_AFTERNOON_RULES_JSON   = "[{\"sec\":5,\"hour\":12,\"minute\":0}]";
     /** 静音功能开关（volatile，跨 Xposed 回调线程读取） */
     private static volatile boolean sMuteEnabled   = false;
     /** 取消静音功能开关 */
@@ -123,6 +136,9 @@ public class MainHook implements IXposedHookLoadPackage {
     /** 勿扰独立开关（与静音相互独立，可同时启用） */
     private static volatile boolean sDndEnabled    = false;
     private static volatile boolean sUnDndEnabled  = false;
+    /** 自动叫醒功能开关 */
+    private static volatile boolean sWakeupMorningEnabled   = false;
+    private static volatile boolean sWakeupAfternoonEnabled = false;
     /** 已调度的静音/取消静音 alarm reqCode 集合，用于批量取消 */
     private final java.util.Set<Integer> mScheduledMuteIds = new java.util.HashSet<>();
     /** 有连续后续课程的通知 alarmId 集合：injectIslandParams 跳过 cancel alarm 注册，
@@ -256,6 +272,18 @@ public class MainHook implements IXposedHookLoadPackage {
                                 ed.putInt(KEY_UNDND_MINS_AFTER,
                                         intent.getIntExtra(KEY_UNDND_MINS_AFTER, DEFAULT_UNDND_MINS_AFTER));
                             }
+                            if (intent.hasExtra(KEY_WAKEUP_MORNING_ENABLED))
+                                ed.putBoolean(KEY_WAKEUP_MORNING_ENABLED, intent.getBooleanExtra(KEY_WAKEUP_MORNING_ENABLED, false));
+                            if (intent.hasExtra(KEY_WAKEUP_MORNING_LAST_SEC))
+                                ed.putInt(KEY_WAKEUP_MORNING_LAST_SEC, intent.getIntExtra(KEY_WAKEUP_MORNING_LAST_SEC, DEFAULT_WAKEUP_MORNING_LAST_SEC));
+                            if (intent.hasExtra(KEY_WAKEUP_MORNING_RULES_JSON))
+                                ed.putString(KEY_WAKEUP_MORNING_RULES_JSON, intent.getStringExtra(KEY_WAKEUP_MORNING_RULES_JSON));
+                            if (intent.hasExtra(KEY_WAKEUP_AFTERNOON_ENABLED))
+                                ed.putBoolean(KEY_WAKEUP_AFTERNOON_ENABLED, intent.getBooleanExtra(KEY_WAKEUP_AFTERNOON_ENABLED, false));
+                            if (intent.hasExtra(KEY_WAKEUP_AFTERNOON_FIRST_SEC))
+                                ed.putInt(KEY_WAKEUP_AFTERNOON_FIRST_SEC, intent.getIntExtra(KEY_WAKEUP_AFTERNOON_FIRST_SEC, DEFAULT_WAKEUP_AFTERNOON_FIRST_SEC));
+                            if (intent.hasExtra(KEY_WAKEUP_AFTERNOON_RULES_JSON))
+                                ed.putString(KEY_WAKEUP_AFTERNOON_RULES_JSON, intent.getStringExtra(KEY_WAKEUP_AFTERNOON_RULES_JSON));
                             ed.apply();
                             // 同步假期数据（2025–2028）到 island_holiday 文件
                             for (int yr = 2025; yr <= 2028; yr++) {
@@ -277,6 +305,10 @@ public class MainHook implements IXposedHookLoadPackage {
                                 sDndEnabled    = intent.getBooleanExtra(KEY_DND_ENABLED, false);
                             if (intent.hasExtra(KEY_UNDND_ENABLED))
                                 sUnDndEnabled  = intent.getBooleanExtra(KEY_UNDND_ENABLED, false);
+                            if (intent.hasExtra(KEY_WAKEUP_MORNING_ENABLED))
+                                sWakeupMorningEnabled   = intent.getBooleanExtra(KEY_WAKEUP_MORNING_ENABLED, false);
+                            if (intent.hasExtra(KEY_WAKEUP_AFTERNOON_ENABLED))
+                                sWakeupAfternoonEnabled = intent.getBooleanExtra(KEY_WAKEUP_AFTERNOON_ENABLED, false);
                             // 提醒分钟数或静音参数变化时重新调度
                             boolean muteSettingChanged = intent.hasExtra(KEY_MUTE_ENABLED)
                                     || intent.hasExtra(KEY_MUTE_MINS_BEFORE)
@@ -303,6 +335,16 @@ public class MainHook implements IXposedHookLoadPackage {
                                         mCourseDataObserver = null;
                                     }
                                 }
+                            }
+                            // 叫醒闹钟设置变化时重新调度
+                            boolean wakeupSettingChanged = intent.hasExtra(KEY_WAKEUP_MORNING_ENABLED)
+                                    || intent.hasExtra(KEY_WAKEUP_MORNING_LAST_SEC)
+                                    || intent.hasExtra(KEY_WAKEUP_MORNING_RULES_JSON)
+                                    || intent.hasExtra(KEY_WAKEUP_AFTERNOON_ENABLED)
+                                    || intent.hasExtra(KEY_WAKEUP_AFTERNOON_FIRST_SEC)
+                                    || intent.hasExtra(KEY_WAKEUP_AFTERNOON_RULES_JSON);
+                            if (wakeupSettingChanged) {
+                                scheduleTodayWakeupAlarms(context);
                             }
                             // 记录接收到的 extras 与写入的键值，便于排查模块进程与目标进程不一致问题
                             try {
@@ -573,11 +615,14 @@ public class MainHook implements IXposedHookLoadPackage {
                             sUnmuteEnabled = dp.getBoolean(KEY_UNMUTE_ENABLED, false);
                             sDndEnabled    = dp.getBoolean(KEY_DND_ENABLED,    false);
                             sUnDndEnabled  = dp.getBoolean(KEY_UNDND_ENABLED,  false);
+                            sWakeupMorningEnabled   = dp.getBoolean(KEY_WAKEUP_MORNING_ENABLED,   false);
+                            sWakeupAfternoonEnabled = dp.getBoolean(KEY_WAKEUP_AFTERNOON_ENABLED, false);
                             mLastCourseDataHash = 0; // 跨日强制重调，忽略内容哈希缓存
                             scheduleTodayCourseReminders(context, null);
                             if (sMuteEnabled || sUnmuteEnabled || sDndEnabled || sUnDndEnabled) {
                                 scheduleTodayMuteAlarms(context);
                             }
+                            scheduleTodayWakeupAlarms(context);
                             // 链式调度下一个 00:01
                             scheduleMidnightReschedule(context);
                         } else if (ACTION_NOTIF_CANCEL.equals(intent.getAction())) {
@@ -609,12 +654,15 @@ public class MainHook implements IXposedHookLoadPackage {
                 sUnmuteEnabled         = initPrefs.getBoolean(KEY_UNMUTE_ENABLED, false);
                 sDndEnabled    = initPrefs.getBoolean(KEY_DND_ENABLED,    false);
                 sUnDndEnabled  = initPrefs.getBoolean(KEY_UNDND_ENABLED,  false);
+                sWakeupMorningEnabled   = initPrefs.getBoolean(KEY_WAKEUP_MORNING_ENABLED,   false);
+                sWakeupAfternoonEnabled = initPrefs.getBoolean(KEY_WAKEUP_AFTERNOON_ENABLED, false);
                 // 课前提醒始终开启，无条件调度
                 scheduleTodayCourseReminders(appCtx, null);
                 // 静音/勿扰功能独立于自定义提醒开关
                 if (sMuteEnabled || sUnmuteEnabled || sDndEnabled || sUnDndEnabled) {
                     scheduleTodayMuteAlarms(appCtx);
                 }
+                scheduleTodayWakeupAlarms(appCtx);
                 // FileObserver：常住监听 CourseData 变化
                 registerCourseDataListener(appCtx);
                 // 初始化课表内容哈希，确保 FileObserver 首次触发时能正确跳过未实质变动的写入。
@@ -1195,8 +1243,69 @@ public class MainHook implements IXposedHookLoadPackage {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // 自动叫醒：向 deskclock 进程发送广播，携带今日首节课时间
+    // ═══════════════════════════════════════════════════════════════
+
     /**
-     * 立即在 voiceassist 进程内发出课前提醒通知。
+     * 根据今日课表计算上午/下午首节课时间，广播给 DeskClockHook。
+     * <ul>
+     *   <li>若上午/下午叫醒均关闭，则发 clear_only 清除旧闹钟。</li>
+     *   <li>目标时间已过则忽略（不设）。</li>
+     *   <li>每次调用均先清除之前创建的闹钟再重建（在 DeskClockHook 侧）。</li>
+     * </ul>
+     */
+    /**
+     * 将今日课程原始数据 + 用户叫醒配置打包发给 deskclock 进程。
+     * 所有课程解析、判断是否有课、决定时间的逻辑全部由 DeskClockHook 在 deskclock 进程内完成。
+     */
+    private void scheduleTodayWakeupAlarms(Context ctx) {
+        if (!sWakeupMorningEnabled && !sWakeupAfternoonEnabled) {
+            sendClearClockAlarms(ctx);
+            return;
+        }
+        try {
+            @SuppressWarnings("deprecation")
+            SharedPreferences coursePrefs = ctx.getSharedPreferences(
+                    PREFS_COURSE_DATA, Context.MODE_PRIVATE | Context.MODE_MULTI_PROCESS);
+            String beanJson = coursePrefs.getString("weekCourseBean", null);
+            if (beanJson == null || beanJson.isEmpty()) {
+                sendClearClockAlarms(ctx);
+                return;
+            }
+            SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            Intent schedIntent = new Intent(ACTION_SCHEDULE_CLOCK_ALARMS);
+            schedIntent.setPackage(DESKCLOCK_PKG);
+            // 原始课程数据（deskclock 侧自行解析）
+            schedIntent.putExtra("bean_json", beanJson);
+            // 上午配置
+            if (sWakeupMorningEnabled) {
+                schedIntent.putExtra("morning_enabled",      true);
+                schedIntent.putExtra("morning_last_sec",     prefs.getInt(KEY_WAKEUP_MORNING_LAST_SEC, DEFAULT_WAKEUP_MORNING_LAST_SEC));
+                schedIntent.putExtra("morning_rules_json",   prefs.getString(KEY_WAKEUP_MORNING_RULES_JSON, DEFAULT_WAKEUP_MORNING_RULES_JSON));
+            }
+            // 下午配置
+            if (sWakeupAfternoonEnabled) {
+                schedIntent.putExtra("afternoon_enabled",    true);
+                schedIntent.putExtra("afternoon_first_sec",  prefs.getInt(KEY_WAKEUP_AFTERNOON_FIRST_SEC, DEFAULT_WAKEUP_AFTERNOON_FIRST_SEC));
+                schedIntent.putExtra("afternoon_rules_json", prefs.getString(KEY_WAKEUP_AFTERNOON_RULES_JSON, DEFAULT_WAKEUP_AFTERNOON_RULES_JSON));
+            }
+            ctx.sendBroadcast(schedIntent);
+            XposedBridge.log(TAG + ": 叫醒配置已转发给 deskclock");
+        } catch (Throwable e) {
+            XposedBridge.log(TAG + ": scheduleTodayWakeupAlarms 失败 → " + e.getMessage());
+        }
+    }
+
+    /** 向 deskclock 进程发广播，仅清除之前创建的叫醒闹钟 */
+    private void sendClearClockAlarms(Context ctx) {
+        Intent i = new Intent(ACTION_SCHEDULE_CLOCK_ALARMS);
+        i.setPackage(DESKCLOCK_PKG);
+        i.putExtra("clear_only", true);
+        ctx.sendBroadcast(i);
+    }
+
+    /**
      * 同时扫描并 cancel 小爱自身已发出的同频道通知（非我方注入的），
      * 防止通知栏出现旧旧的重复条目。
      */

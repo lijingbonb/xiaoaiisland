@@ -126,6 +126,7 @@ public class MainActivity extends AppCompatActivity {
         initTimeoutCard();
         initReminderCard();
         initMuteCard();
+        initWakeupCard();
         initHideIconSwitch();
         initAboutSection(); // 初始化关于页面的版本信息
         setupTabs();
@@ -768,6 +769,210 @@ public class MainActivity extends AppCompatActivity {
         try {
             int v = Integer.parseInt(et.getText() != null ? et.getText().toString().trim() : "0");
             return Math.max(0, Math.min(60, v));
+        } catch (NumberFormatException e) { return 0; }
+    }
+
+    private void initWakeupCard() {
+        SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+
+        com.google.android.material.switchmaterial.SwitchMaterial swMorning = findViewById(R.id.sw_wakeup_morning);
+        View llMorning = findViewById(R.id.ll_wakeup_morning_content);
+        android.widget.EditText etLastSec = findViewById(R.id.et_wakeup_morning_last_sec);
+        android.widget.LinearLayout llMorningRules = findViewById(R.id.ll_wakeup_morning_rules);
+        com.google.android.material.switchmaterial.SwitchMaterial swAfternoon = findViewById(R.id.sw_wakeup_afternoon);
+        View llAfternoon = findViewById(R.id.ll_wakeup_afternoon_content);
+        android.widget.EditText etFirstSec = findViewById(R.id.et_wakeup_afternoon_first_sec);
+        android.widget.LinearLayout llAfternoonRules = findViewById(R.id.ll_wakeup_afternoon_rules);
+        android.widget.TextView tvHint = findViewById(R.id.tv_wakeup_hint);
+
+        // 加载已保存的规则行
+        loadRuleRows(llMorningRules, sp.getString("wakeup_morning_rules_json",
+                "[{\"sec\":1,\"hour\":7,\"minute\":0}]"));
+        loadRuleRows(llAfternoonRules, sp.getString("wakeup_afternoon_rules_json",
+                "[{\"sec\":5,\"hour\":12,\"minute\":0}]"));
+
+        swMorning.setChecked(sp.getBoolean("wakeup_morning_enabled", false));
+        llMorning.setVisibility(swMorning.isChecked() ? View.VISIBLE : View.GONE);
+        etLastSec.setText(String.valueOf(sp.getInt("wakeup_morning_last_sec", 4)));
+
+        swAfternoon.setChecked(sp.getBoolean("wakeup_afternoon_enabled", false));
+        llAfternoon.setVisibility(swAfternoon.isChecked() ? View.VISIBLE : View.GONE);
+        etFirstSec.setText(String.valueOf(sp.getInt("wakeup_afternoon_first_sec", 5)));
+
+        swMorning.setOnCheckedChangeListener((btn, checked) -> {
+            llMorning.setVisibility(checked ? View.VISIBLE : View.GONE);
+            sp.edit().putBoolean("wakeup_morning_enabled", checked).apply();
+            Intent sync = new Intent("com.xiaoai.islandnotify.ACTION_SYNC_PREFS");
+            sync.setPackage("com.miui.voiceassist");
+            sync.putExtra("wakeup_morning_enabled", checked);
+            sendBroadcast(sync);
+        });
+
+        swAfternoon.setOnCheckedChangeListener((btn, checked) -> {
+            llAfternoon.setVisibility(checked ? View.VISIBLE : View.GONE);
+            sp.edit().putBoolean("wakeup_afternoon_enabled", checked).apply();
+            Intent sync = new Intent("com.xiaoai.islandnotify.ACTION_SYNC_PREFS");
+            sync.setPackage("com.miui.voiceassist");
+            sync.putExtra("wakeup_afternoon_enabled", checked);
+            sendBroadcast(sync);
+        });
+
+        findViewById(R.id.btn_add_morning_rule).setOnClickListener(v -> addRuleRow(llMorningRules, 1, 7, 0));
+        findViewById(R.id.btn_add_afternoon_rule).setOnClickListener(v -> addRuleRow(llAfternoonRules, 5, 12, 0));
+
+        findViewById(R.id.btn_save_wakeup).setOnClickListener(v -> {
+            int lastSec  = parseRuleInt(etLastSec,  4); if (lastSec  < 1) lastSec  = 1;
+            int firstSec = parseRuleInt(etFirstSec, 5); if (firstSec < 1) firstSec = 1;
+            etLastSec.setText(String.valueOf(lastSec));
+            etFirstSec.setText(String.valueOf(firstSec));
+
+            String morningRulesJson   = collectRulesJson(llMorningRules);
+            String afternoonRulesJson = collectRulesJson(llAfternoonRules);
+
+            sp.edit()
+              .putInt("wakeup_morning_last_sec",         lastSec)
+              .putInt("wakeup_afternoon_first_sec",      firstSec)
+              .putString("wakeup_morning_rules_json",    morningRulesJson)
+              .putString("wakeup_afternoon_rules_json",  afternoonRulesJson)
+              .apply();
+
+            Intent sync = new Intent("com.xiaoai.islandnotify.ACTION_SYNC_PREFS");
+            sync.setPackage("com.miui.voiceassist");
+            sync.putExtra("wakeup_morning_last_sec",        lastSec);
+            sync.putExtra("wakeup_afternoon_first_sec",     firstSec);
+            sync.putExtra("wakeup_morning_rules_json",      morningRulesJson);
+            sync.putExtra("wakeup_afternoon_rules_json",    afternoonRulesJson);
+            sendBroadcast(sync);
+
+            tvHint.setText("设置已保存并重新调度叫醒闹钟");
+            tvHint.setVisibility(View.VISIBLE);
+        });
+    }
+
+    /** 从 JSON 字符串加载规则行到容器 */
+    private void loadRuleRows(android.widget.LinearLayout container, String rulesJson) {
+        container.removeAllViews();
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray(rulesJson);
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject obj = arr.getJSONObject(i);
+                addRuleRow(container, obj.getInt("sec"), obj.getInt("hour"), obj.getInt("minute"));
+            }
+        } catch (Exception e) {
+            addRuleRow(container, 1, 7, 0);
+        }
+    }
+
+    /** 动态添加一条规则行：第[sec]节 → [hour]:[minute]  [−] */
+    private void addRuleRow(android.widget.LinearLayout container, int sec, int hour, int minute) {
+        android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+        row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        android.widget.LinearLayout.LayoutParams rowLp = new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowLp.topMargin = (int)(4 * getResources().getDisplayMetrics().density);
+        row.setLayoutParams(rowLp);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        float dp = getResources().getDisplayMetrics().density;
+
+        android.widget.TextView tvSec = new android.widget.TextView(this);
+        tvSec.setText("第");
+        row.addView(tvSec);
+
+        android.widget.EditText etSec = new android.widget.EditText(this);
+        android.widget.LinearLayout.LayoutParams secLp = new android.widget.LinearLayout.LayoutParams(
+                (int)(56 * dp), android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        etSec.setLayoutParams(secLp);
+        etSec.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        etSec.setMaxLines(1);
+        etSec.setText(String.valueOf(sec));
+        etSec.setGravity(android.view.Gravity.CENTER);
+        row.addView(etSec);
+
+        android.widget.TextView tvArrow = new android.widget.TextView(this);
+        tvArrow.setText(" 节 → ");
+        row.addView(tvArrow);
+
+        android.widget.EditText etHour = new android.widget.EditText(this);
+        android.widget.LinearLayout.LayoutParams hourLp = new android.widget.LinearLayout.LayoutParams(
+                (int)(52 * dp), android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        etHour.setLayoutParams(hourLp);
+        etHour.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        etHour.setMaxLines(1);
+        etHour.setText(String.valueOf(hour));
+        etHour.setGravity(android.view.Gravity.CENTER);
+        row.addView(etHour);
+
+        android.widget.TextView tvColon = new android.widget.TextView(this);
+        tvColon.setText(" : ");
+        row.addView(tvColon);
+
+        android.widget.EditText etMin = new android.widget.EditText(this);
+        android.widget.LinearLayout.LayoutParams minLp = new android.widget.LinearLayout.LayoutParams(
+                (int)(52 * dp), android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        etMin.setLayoutParams(minLp);
+        etMin.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        etMin.setMaxLines(1);
+        etMin.setText(String.format(java.util.Locale.getDefault(), "%02d", minute));
+        etMin.setGravity(android.view.Gravity.CENTER);
+        row.addView(etMin);
+
+        android.widget.Button btnDel = new android.widget.Button(this);
+        btnDel.setText("−");
+        android.widget.LinearLayout.LayoutParams delLp = new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        delLp.leftMargin = (int)(8 * dp);
+        btnDel.setLayoutParams(delLp);
+        btnDel.setOnClickListener(delV -> container.removeView(row));
+        row.addView(btnDel);
+
+        container.addView(row);
+    }
+
+    /** 收集容器中所有规则行 → JSON 字符串 */
+    private String collectRulesJson(android.widget.LinearLayout container) {
+        org.json.JSONArray arr = new org.json.JSONArray();
+        for (int i = 0; i < container.getChildCount(); i++) {
+            android.view.View rowView = container.getChildAt(i);
+            if (!(rowView instanceof android.widget.LinearLayout)) continue;
+            android.widget.LinearLayout row = (android.widget.LinearLayout) rowView;
+            // 结构：[tvSec(0)][etSec(1)][tvArrow(2)][etHour(3)][tvColon(4)][etMin(5)][btnDel(6)]
+            try {
+                android.widget.EditText etSec  = (android.widget.EditText) row.getChildAt(1);
+                android.widget.EditText etHour = (android.widget.EditText) row.getChildAt(3);
+                android.widget.EditText etMin  = (android.widget.EditText) row.getChildAt(5);
+                int s = Integer.parseInt(etSec.getText().toString().trim());
+                int h = parseHour(etHour);
+                int m = parseMinute(etMin);
+                org.json.JSONObject obj = new org.json.JSONObject();
+                obj.put("sec", s); obj.put("hour", h); obj.put("minute", m);
+                arr.put(obj);
+            } catch (Exception ignored) {}
+        }
+        return arr.toString();
+    }
+
+    /** 解析 EditText 中的整数，失败时返回 defaultVal */
+    private static int parseRuleInt(android.widget.EditText et, int defaultVal) {
+        try { return Integer.parseInt(et.getText().toString().trim()); }
+        catch (NumberFormatException e) { return defaultVal; }
+    }
+
+    /** 解析小时（0–23） */
+    private static int parseHour(android.widget.EditText et) {
+        try {
+            int v = Integer.parseInt(et.getText() != null ? et.getText().toString().trim() : "0");
+            return Math.max(0, Math.min(23, v));
+        } catch (NumberFormatException e) { return 0; }
+    }
+
+    /** 解析分钟（0–59） */
+    private static int parseMinute(android.widget.EditText et) {
+        try {
+            int v = Integer.parseInt(et.getText() != null ? et.getText().toString().trim() : "0");
+            return Math.max(0, Math.min(59, v));
         } catch (NumberFormatException e) { return 0; }
     }
 
