@@ -169,7 +169,7 @@ public class DeskClockHook implements IXposedHookLoadPackage {
                                 ac.set(java.util.Calendar.SECOND,      0);
                                 ac.set(java.util.Calendar.MILLISECOND, 0);
                                 if (ac.getTimeInMillis() > nowMs) {
-                                    long id = createAlarm(ctx, cl, hour, minute, "课表提醒：" + morningName);
+                                    long id = createAlarm(ctx, cl, hour, minute, "课程提醒：" + morningName);
                                     if (id > 0) createdIds.add(id);
                                 } else {
                                     XposedBridge.log(TAG + ": 上午叫醒时间已过 " + hour + ":" +
@@ -200,7 +200,7 @@ public class DeskClockHook implements IXposedHookLoadPackage {
                                 ac.set(java.util.Calendar.SECOND,      0);
                                 ac.set(java.util.Calendar.MILLISECOND, 0);
                                 if (ac.getTimeInMillis() > nowMs) {
-                                    long id = createAlarm(ctx, cl, hour, minute, "课表提醒：" + afternoonName);
+                                    long id = createAlarm(ctx, cl, hour, minute, "课程提醒：" + afternoonName);
                                     if (id > 0) createdIds.add(id);
                                 } else {
                                     XposedBridge.log(TAG + ": 下午叫醒时间已过 " + hour + ":" +
@@ -266,9 +266,11 @@ public class DeskClockHook implements IXposedHookLoadPackage {
                 return -1;
             }
             addMethod.setAccessible(true);
-            Object result = addMethod.invoke(null, ctx, alarm);
+            addMethod.invoke(null, ctx, alarm);
 
-            long id = extractId(result, alarm);
+            // 不依赖 addAlarm 返回值（MIUI 各版本返回触发时间戳/Uri/Alarm 均有不同）
+            // 直接反查 ContentProvider，取 hour+minutes 匹配且 _id 最大的行（最新插入）
+            long id = findAlarmIdByTime(ctx, cl, hour, minute);
             String timeStr = hour + ":" + String.format(java.util.Locale.getDefault(), "%02d", minute);
             XposedBridge.log(TAG + ": 闹钟已创建 " + timeStr + " id=" + id + " [" + lbl + "]");
             return id;
@@ -300,16 +302,67 @@ public class DeskClockHook implements IXposedHookLoadPackage {
         return null;
     }
 
-    /** 从 addAlarm 返回值或 alarm 对象本身读取 id 字段 */
+    /** 从 addAlarm 返回值或 alarm 对象本身读取数据库行 id */
     private long extractId(Object returnVal, Object alarm) {
-        if (returnVal instanceof Long)    return (Long) returnVal;
-        if (returnVal instanceof Integer) return (long) (Integer) returnVal;
-        // 有些版本返回 Alarm 对象本身（id 已被数据库填充）
-        Object src = (returnVal != null) ? returnVal : alarm;
-        Object idVal = getField(src, "id");
-        if (idVal instanceof Long)    return (Long) idVal;
-        if (idVal instanceof Integer) return (long) (Integer) idVal;
+        // MIUI 部分版本直接返回 Uri（content://…/alarm/7）
+        if (returnVal instanceof Uri) {
+            try { return Long.parseLong(((Uri) returnVal).getLastPathSegment()); }
+            catch (Throwable ignored) {}
+        }
+        // 部分版本返回 Long，需区分真实行 ID（小整数）与时间戳（>10^10）
+        if (returnVal instanceof Long)    { long v = (Long) returnVal;    if (v > 0 && v < 10_000_000_000L) return v; }
+        if (returnVal instanceof Integer) { return (long) (Integer) returnVal; }
+        // 尝试从返回的 Alarm 对象读取 id 字段（需排除时间戳）
+        if (returnVal != null && !(returnVal instanceof Uri)) {
+            Object rv = getField(returnVal, "id");
+            if (rv instanceof Long)    { long v = (Long) rv;    if (v > 0 && v < 10_000_000_000L) return v; }
+            if (rv instanceof Integer) { return (long) (Integer) rv; }
+        }
+        // 最后尝试原始 alarm 对象的 id 字段
+        Object idVal = getField(alarm, "id");
+        if (idVal instanceof Long)    { long v = (Long) idVal;    if (v > 0 && v < 10_000_000_000L) return v; }
+        if (idVal instanceof Integer) { return (long) (Integer) idVal; }
         return -1;
+    }
+
+    /**
+     * 通过 ContentProvider 反查刚创建的闹钟真实行 ID。
+     * 查找所有 hour == h && minutes == m 的行，返回 _id 最大（最新插入）的那条。
+     */
+    private long findAlarmIdByTime(Context ctx, ClassLoader cl, int hour, int minute) {
+        try {
+            Uri base = getAlarmContentUri(cl);
+            android.database.Cursor c = ctx.getContentResolver().query(
+                    base, null, null, null, null);
+            if (c == null) return -1;
+            long maxId = -1;
+            StringBuilder dbgCols = null;
+            try {
+                if (c.getColumnCount() > 0 && !c.moveToFirst()) return -1;
+                // 记录一次列名用于诊断
+                dbgCols = new StringBuilder();
+                for (int ci = 0; ci < c.getColumnCount(); ci++) {
+                    if (ci > 0) dbgCols.append(",");
+                    dbgCols.append(c.getColumnName(ci));
+                }
+                c.moveToFirst();
+                do {
+                    int idxId = c.getColumnIndex("_id");
+                    int idxH  = c.getColumnIndex("hour");
+                    int idxM  = c.getColumnIndex("minutes");
+                    if (idxId < 0 || idxH < 0 || idxM < 0) break; // 列不存在则停止
+                    long rowId = c.getLong(idxId);
+                    int  h     = c.getInt(idxH);
+                    int  m     = c.getInt(idxM);
+                    if (h == hour && m == minute && rowId > maxId) maxId = rowId;
+                } while (c.moveToNext());
+            } finally { c.close(); }
+            if (dbgCols != null) XposedBridge.log(TAG + ": CP columns=[" + dbgCols + "] found _id=" + maxId);
+            return maxId;
+        } catch (Throwable e) {
+            XposedBridge.log(TAG + ": findAlarmIdByTime 失败 → " + e);
+            return -1;
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -317,11 +370,60 @@ public class DeskClockHook implements IXposedHookLoadPackage {
     // ─────────────────────────────────────────────────────────────────────────
 
     private void deletePreviousAlarms(Context ctx, ClassLoader cl) {
+        // 主路径：按标签查询，不依赖 ID 存储是否准确
+        int labelCount = deleteAlarmsByLabel(ctx, cl);
+        // 兜底：SP 记录的 ID（应对标签查询失败的情况）
         List<Long> ids = loadAlarmIds(ctx);
-        if (ids.isEmpty()) return;
         for (long id : ids) deleteAlarmById(ctx, cl, id);
         storeAlarmIds(ctx, new ArrayList<>());
-        XposedBridge.log(TAG + ": 已清除 " + ids.size() + " 个旧叫醒闹钟");
+        XposedBridge.log(TAG + ": 旧叫醒闹钟已清除（标签=" + labelCount + " ID=" + ids.size() + "）");
+    }
+
+    /** 查询所有闹钟、在 Java 侧过滤 label/message 列，删除由本模块创建的闹钟 */
+    private int deleteAlarmsByLabel(Context ctx, ClassLoader cl) {
+        try {
+            Uri base = getAlarmContentUri(cl);
+            // 查询全部列，避免 LIKE 在部分 MIUI 版本上不被 ContentProvider 支持
+            android.database.Cursor c = ctx.getContentResolver().query(
+                    base, null, null, null, null);
+            if (c == null) return 0;
+            List<Long> toDelete = new ArrayList<>();
+            try {
+                while (c.moveToNext()) {
+                    int idxId  = c.getColumnIndex("_id");
+                    if (idxId < 0) continue;
+                    long rowId = c.getLong(idxId);
+                    // 尝试 label 列；MIUI 某些版本用 message
+                    String lbl = "";
+                    int idxLabel = c.getColumnIndex("label");
+                    if (idxLabel >= 0 && !c.isNull(idxLabel)) lbl = c.getString(idxLabel);
+                    if (lbl.isEmpty()) {
+                        int idxMsg = c.getColumnIndex("message");
+                        if (idxMsg >= 0 && !c.isNull(idxMsg)) lbl = c.getString(idxMsg);
+                    }
+                    if (lbl.startsWith("课表提醒：")) toDelete.add(rowId);
+                }
+            } finally { c.close(); }
+            for (long id : toDelete) deleteAlarmById(ctx, cl, id);
+            if (!toDelete.isEmpty())
+                XposedBridge.log(TAG + ": 通过标签删除 " + toDelete.size() + " 个旧闹钟");
+            return toDelete.size();
+        } catch (Throwable e) {
+            XposedBridge.log(TAG + ": deleteAlarmsByLabel 失败 → " + e);
+            return 0;
+        }
+    }
+
+    /** 反射获取 Alarm.CONTENT_URI，失败则返回硬编码 URI */
+    private Uri getAlarmContentUri(ClassLoader cl) {
+        try {
+            Class<?> alarmCls = Class.forName("com.android.deskclock.Alarm", false, cl);
+            java.lang.reflect.Field f = alarmCls.getDeclaredField("CONTENT_URI");
+            f.setAccessible(true);
+            Object val = f.get(null);
+            if (val instanceof Uri) return (Uri) val;
+        } catch (Throwable ignored) {}
+        return Uri.parse("content://com.android.deskclock/alarm");
     }
 
     private void deleteAlarmById(Context ctx, ClassLoader cl, long id) {
@@ -344,20 +446,23 @@ public class DeskClockHook implements IXposedHookLoadPackage {
                     m.invoke(null, ctx, alarm);
                     return; // 成功则直接返回
                 } catch (NoSuchMethodException ignored) {
-                } catch (Throwable e) {
-                    XposedBridge.log(TAG + ": removeAlarm 失败 id=" + id + " → " + e.getMessage());
+                } catch (Throwable ignored) {
+                    // 反射删除失败属于正常降级，不记录错误日志，由下方 ContentProvider 兜底
                 }
             }
         } catch (Throwable e) {
             XposedBridge.log(TAG + ": deleteAlarmById 反射失败，回退 ContentProvider id=" + id);
         }
 
-        // 回退：直接操作 ContentProvider（不依赖 AlarmHelper）
+        // 回退：直接操作 ContentProvider
         try {
-            ctx.getContentResolver().delete(
-                    Uri.parse("content://com.android.deskclock/alarm"),
-                    "_id = ?",
-                    new String[]{String.valueOf(id)});
+            Uri base = getAlarmContentUri(cl);
+            // 优先 path-based URI（更可靠）
+            int rows = ctx.getContentResolver().delete(
+                    android.content.ContentUris.withAppendedId(base, id), null, null);
+            if (rows > 0) return;
+            // 再尝试 WHERE 子句
+            ctx.getContentResolver().delete(base, "_id = ?", new String[]{String.valueOf(id)});
         } catch (Throwable e2) {
             XposedBridge.log(TAG + ": ContentProvider 删除失败 id=" + id + " → " + e2.getMessage());
         }

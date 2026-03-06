@@ -918,12 +918,17 @@ public class MainActivity extends AppCompatActivity {
         etMin.setGravity(android.view.Gravity.CENTER);
         row.addView(etMin);
 
-        android.widget.Button btnDel = new android.widget.Button(this);
-        btnDel.setText("−");
+        com.google.android.material.button.MaterialButton btnDel =
+                new com.google.android.material.button.MaterialButton(this, null,
+                        com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        btnDel.setText("删除");
+        btnDel.setTextSize(12f);
+        btnDel.setStrokeColor(android.content.res.ColorStateList.valueOf(0xFFBA1A1A));
+        btnDel.setTextColor(0xFFBA1A1A);
         android.widget.LinearLayout.LayoutParams delLp = new android.widget.LinearLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-        delLp.leftMargin = (int)(8 * dp);
+                (int)(36 * dp));
+        delLp.setMarginStart((int)(4 * dp));
         btnDel.setLayoutParams(delLp);
         btnDel.setOnClickListener(delV -> container.removeView(row));
         row.addView(btnDel);
