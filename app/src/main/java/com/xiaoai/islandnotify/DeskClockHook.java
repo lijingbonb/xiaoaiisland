@@ -112,8 +112,12 @@ public class DeskClockHook implements IXposedHookLoadPackage {
 
             // 今天是星期几（1=周一…7=周日，与课表字段 day 一致）
             java.util.Calendar cal = java.util.Calendar.getInstance();
-            int calDay   = cal.get(java.util.Calendar.DAY_OF_WEEK);
-            int todayDay = (calDay == java.util.Calendar.SUNDAY) ? 7 : (calDay - 1);
+            int calDay      = cal.get(java.util.Calendar.DAY_OF_WEEK);
+            int calTodayDay = (calDay == java.util.Calendar.SUNDAY) ? 7 : (calDay - 1);
+            // 若 MainHook 已处理节假日/调休，使用传入的覆盖值
+            int todayDay    = intent.getIntExtra("today_day_override",    calTodayDay);
+            int weekOvr     = intent.getIntExtra("current_week_override", -1);
+            if (weekOvr > 0) currentWeek = weekOvr;
 
             boolean morningEnabled   = intent.getBooleanExtra("morning_enabled",   false);
             boolean afternoonEnabled = intent.getBooleanExtra("afternoon_enabled", false);
@@ -427,34 +431,7 @@ public class DeskClockHook implements IXposedHookLoadPackage {
     }
 
     private void deleteAlarmById(Context ctx, ClassLoader cl, long id) {
-        // 优先尝试 AlarmHelper.removeAlarm（反射）
-        try {
-            Class<?> alarmCls = Class.forName("com.android.deskclock.Alarm", false, cl);
-            Object alarm = alarmCls.newInstance();
-            setField(alarm, "id", id);
-
-            String[] helperPaths = {
-                    "com.android.deskclock.util.AlarmHelper",
-                    "com.android.deskclock.AlarmHelper",
-                    "com.android.deskclock.provider.AlarmHelper",
-            };
-            for (String path : helperPaths) {
-                try {
-                    Class<?> helperCls = Class.forName(path, false, cl);
-                    Method m = helperCls.getDeclaredMethod("removeAlarm", Context.class, alarmCls);
-                    m.setAccessible(true);
-                    m.invoke(null, ctx, alarm);
-                    return; // 成功则直接返回
-                } catch (NoSuchMethodException ignored) {
-                } catch (Throwable ignored) {
-                    // 反射删除失败属于正常降级，不记录错误日志，由下方 ContentProvider 兜底
-                }
-            }
-        } catch (Throwable e) {
-            XposedBridge.log(TAG + ": deleteAlarmById 反射失败，回退 ContentProvider id=" + id);
-        }
-
-        // 回退：直接操作 ContentProvider
+        // 直接操作 ContentProvider（反射 removeAlarm 在此设备上无效，CP 可靠）
         try {
             Uri base = getAlarmContentUri(cl);
             // 优先 path-based URI（更可靠）

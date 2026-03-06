@@ -552,12 +552,29 @@ public class MainHook implements IXposedHookLoadPackage {
                                     long crStartMs = computeClassStartMs(crStart);
                                     long crEndMs   = computeClassStartMs(crEnd);
                                     long nowCr     = System.currentTimeMillis();
-                                    if (crStartMs > nowCr)
+                                    if (crStartMs > nowCr) {
+                                        // 还没上课，调度 alarm
                                         MainHook.this.scheduleIslandAlarm(context, newInfo,
                                                 STATE_ELAPSED, ISLAND_UPDATE_CHANNEL, prevTag, prevId, crStartMs);
-                                    if (crEndMs > nowCr)
+                                    } else {
+                                        // 0 间隔连续课程：trigger 触发时已到上课时间，立即刷为"上课中"
+                                        XposedBridge.log(TAG + ": [连续课程] crStartMs 已过，立即刷 STATE_ELAPSED");
+                                        sendIslandUpdate(newInfo, STATE_ELAPSED, context,
+                                                prevSbn.getNotification().getChannelId(),
+                                                prevSbn.getNotification(), crnm,
+                                                prevTag, prevId, crPrefs);
+                                    }
+                                    if (crEndMs > nowCr) {
                                         MainHook.this.scheduleIslandAlarm(context, newInfo,
                                                 STATE_FINISHED, ISLAND_UPDATE_CHANNEL, prevTag, prevId, crEndMs);
+                                    } else {
+                                        // 下课时间也已过（极端情况，补发 STATE_FINISHED）
+                                        XposedBridge.log(TAG + ": [连续课程] crEndMs 已过，立即刷 STATE_FINISHED");
+                                        sendIslandUpdate(newInfo, STATE_FINISHED, context,
+                                                prevSbn.getNotification().getChannelId(),
+                                                prevSbn.getNotification(), crnm,
+                                                prevTag, prevId, crPrefs);
+                                    }
                                     scheduleNotifCancelAlarms(context, crPrefs, prevTag, prevId,
                                             nowCr, crStartMs, crEndMs);
                                     XposedBridge.log(TAG + ": [连续课程] 岛已更新 → " + crName
@@ -1265,6 +1282,17 @@ public class MainHook implements IXposedHookLoadPackage {
             return;
         }
         try {
+            // ── 节假日 / 调休检查（与课前提醒逻辑一致）──
+            java.text.SimpleDateFormat dateFmt =
+                    new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US);
+            String todayDateStr = dateFmt.format(new java.util.Date());
+            if (HolidayManager.isHoliday(ctx, todayDateStr)) {
+                XposedBridge.log(TAG + ": 叫醒：今日 " + todayDateStr + " 为节假日，清除叫醒闹钟");
+                sendClearClockAlarms(ctx);
+                return;
+            }
+            HolidayManager.HolidayEntry workSwap = HolidayManager.getWorkSwap(ctx, todayDateStr);
+
             @SuppressWarnings("deprecation")
             SharedPreferences coursePrefs = ctx.getSharedPreferences(
                     PREFS_COURSE_DATA, Context.MODE_PRIVATE | Context.MODE_MULTI_PROCESS);
@@ -1278,6 +1306,13 @@ public class MainHook implements IXposedHookLoadPackage {
             schedIntent.setPackage(DESKCLOCK_PKG);
             // 原始课程数据（deskclock 侧自行解析）
             schedIntent.putExtra("bean_json", beanJson);
+            // 调休工作日：传入覆盖的 todayDay / currentWeek，供 DeskClockHook 使用
+            if (workSwap != null && workSwap.followWeek > 0 && workSwap.followWeekday > 0) {
+                XposedBridge.log(TAG + ": 叫醒：今日 " + todayDateStr + " 为调休工作日，"
+                        + "按第" + workSwap.followWeek + "周 " + workSwap.followDesc() + " 调度");
+                schedIntent.putExtra("today_day_override",    workSwap.followWeekday);
+                schedIntent.putExtra("current_week_override", workSwap.followWeek);
+            }
             // 上午配置
             if (sWakeupMorningEnabled) {
                 schedIntent.putExtra("morning_enabled",      true);
@@ -1550,8 +1585,12 @@ public class MainHook implements IXposedHookLoadPackage {
             String chId  = safeStr(notif.getChannelId());
             if (startMs > now && (startMs - now) <= 6 * 3600 * 1000L)
                 scheduleIslandAlarm(ctx, info, STATE_ELAPSED,  chId, notifTag, notifId, startMs);
-            if (!info.endTime.isEmpty() && endMs > now && (endMs - now) <= 6 * 3600 * 1000L)
-                scheduleIslandAlarm(ctx, info, STATE_FINISHED, chId, notifTag, notifId, endMs);
+            if (!info.endTime.isEmpty() && endMs > now && (endMs - now) <= 6 * 3600 * 1000L) {
+                // 锚点课程（有连续后续课程）：STATE_FINISHED 延迟 1 秒，确保连续触发 alarm 能先 cancel 它，
+                // 避免"已下课"与"下节倒计时"在相同毫秒竞争导致短暂闪烁。
+                long finishedTrigger = mConsecutiveAnchors.contains(notifId) ? endMs + 1000 : endMs;
+                scheduleIslandAlarm(ctx, info, STATE_FINISHED, chId, notifTag, notifId, finishedTrigger);
+            }
             if (!mConsecutiveAnchors.contains(notifId))
                 scheduleNotifCancelAlarms(ctx, prefs, notifTag, notifId, now, startMs, endMs);
             else

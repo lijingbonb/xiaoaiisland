@@ -38,7 +38,7 @@
         -->
         <meta-data
             android:name="xposedscope"
-            android:value="com.miui.voiceassist" />
+            android:value="com.miui.voiceassist;com.android.deskclock" />
 
         <!-- 模块主界面（MODULE_SETTINGS 供 LSPosed 打开，与桌面图标无关） -->
         <activity
