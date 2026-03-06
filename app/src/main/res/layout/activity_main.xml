@@ -132,7 +132,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
                         android:layout_marginBottom="14dp"
-                        android:text="发送一条模拟课程提醒，验证超级岛效果是否正常。需要移除超级岛白名单。"
+                        android:text="发送一条模拟课程提醒，验证超级岛效果是否正常。如果未发送，请强制停止作用域和模块重试。存在测试通知不发出的情况，但不影响实际通知。"
                         android:textAppearance="?attr/textAppearanceBodySmall"
                         android:textColor="?attr/colorOnSecondaryContainer"
                         android:alpha="0.85" />
@@ -738,7 +738,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
-                        android:text="读取小爱同学课程表，在每节课开始前发送超级岛提醒，并屏蔽小爱自身的课前通知。"
+                        android:text="自定义设置通知发送时机"
                         android:textAppearance="?attr/textAppearanceBodySmall"
                         android:textColor="?attr/colorOnSurfaceVariant"
                         android:layout_marginBottom="14dp" />
@@ -1206,7 +1206,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:layout_marginBottom="12dp"
-                        android:text="根据今日课表在系统时钟创建叫醒闹钟（用后即焚）"
+                        android:text="根据课表在系统时钟创建叫醒闹钟"
                         android:textAppearance="?attr/textAppearanceBodySmall"
                         android:textColor="?attr/colorOnSurfaceVariant" />
 

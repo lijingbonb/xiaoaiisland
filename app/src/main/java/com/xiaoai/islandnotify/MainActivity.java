@@ -159,7 +159,7 @@ public class MainActivity extends AppCompatActivity {
             ImageViewCompat.setImageTintList(icon, ColorStateList.valueOf(onColor));
             title.setText("模块已激活");
             title.setTextColor(onColor);
-            desc.setText("Hook 正常运行，课程通知将自动转换为超级岛");
+            desc.setText("Hook 正常运行，将按设定配置发送超级岛通知");
             desc.setTextColor(onColor);
         } else {
             int bg      = MaterialColors.getColor(this, com.google.android.material.R.attr.colorErrorContainer,   Color.LTGRAY);
