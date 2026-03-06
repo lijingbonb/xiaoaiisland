@@ -1174,6 +1174,18 @@ public class MainHook implements IXposedHookLoadPackage {
         cancelAllMuteAlarms(ctx);           // 先无条件取消旧闹钟，防止关闭静音后残留
         if (!sMuteEnabled && !sUnmuteEnabled && !sDndEnabled && !sUnDndEnabled) return;
         try {
+            // ── 节假日 / 调休检查 ──
+            java.text.SimpleDateFormat dateFmt =
+                    new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US);
+            String todayDateStr = dateFmt.format(new java.util.Date());
+            if (HolidayManager.isHoliday(ctx, todayDateStr)) {
+                XposedBridge.log(TAG + ": 静音/勿扰：今日 " + todayDateStr + " 为节假日，立即还原并跳过调度");
+                if (sMuteEnabled || sUnmuteEnabled) applyMuteState(ctx, false, "节假日");
+                if (sDndEnabled  || sUnDndEnabled)  applyDndState(ctx, false, "节假日");
+                return;
+            }
+            HolidayManager.HolidayEntry workSwap = HolidayManager.getWorkSwap(ctx, todayDateStr);
+
             @SuppressWarnings("deprecation")
             SharedPreferences coursePrefs = ctx.getSharedPreferences(
                     PREFS_COURSE_DATA, Context.MODE_PRIVATE | Context.MODE_MULTI_PROCESS);
@@ -1181,14 +1193,16 @@ public class MainHook implements IXposedHookLoadPackage {
             if (beanJson == null || beanJson.isEmpty()) return;
 
             java.util.Calendar cal = java.util.Calendar.getInstance();
-            int calDay   = cal.get(java.util.Calendar.DAY_OF_WEEK);
-            int todayDay = (calDay == java.util.Calendar.SUNDAY) ? 7 : (calDay - 1);
+            int calDay      = cal.get(java.util.Calendar.DAY_OF_WEEK);
+            int calTodayDay = (calDay == java.util.Calendar.SUNDAY) ? 7 : (calDay - 1);
+            int todayDay    = (workSwap != null && workSwap.followWeekday > 0) ? workSwap.followWeekday : calTodayDay;
 
             JSONObject root    = new JSONObject(beanJson);
             JSONObject data    = root.getJSONObject("data");
             JSONObject setting = data.getJSONObject("setting");
             // 直接使用服务端 presentWeek（已处理开学延期、调课周等特殊情况）
-            final int currentWeek = setting.optInt("presentWeek", 0);
+            int baseWeek = setting.optInt("presentWeek", 0);
+            final int currentWeek = (workSwap != null && workSwap.followWeek > 0) ? workSwap.followWeek : baseWeek;
             JSONArray sectionTimes = new JSONArray(setting.getString("sectionTimes"));
             JSONArray courses      = data.getJSONArray("courses");
 
