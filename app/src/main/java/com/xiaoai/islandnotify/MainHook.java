@@ -320,8 +320,8 @@ public class MainHook implements IXposedHookLoadPackage {
                             boolean reminderSettingChanged = intent.hasExtra(KEY_REMINDER_MINUTES);
                             
                             if (reminderSettingChanged || muteSettingChanged) {
-                                // 偏好变化触发重新调度，顺便触发主动更新保证数据最新
-                                safeReschedule(context, "island_sync_prefs", true);
+                                // 偏好变化仅触发本地重新调度，不触发消耗资源的主动网络更新
+                                safeReschedule(context, "island_sync_prefs", false);
                             }
 
                             // 叫醒闹钟设置变化时重新调度
@@ -656,7 +656,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 scheduleTodayWakeupAlarms(appCtx);
                 // 启动 CourseData 监听
                 registerCourseDataListener(appCtx);
-                // 执行启动时主动更新与重调度
+                // 启动时执行主动更新与重调度，确保进程重启后数据也是最新的
                 safeReschedule(appCtx, "island_startup", true);
                 // 初始化课表内容哈希，确保 FileObserver 首次触发时能正确跳过未实质变动的写入。
                 try {
@@ -853,18 +853,18 @@ public class MainHook implements IXposedHookLoadPackage {
                 long triggerMs    = startMs - reminderMs;
                 boolean isConsecutive = false;
 
-                // 若上一门课与本节的课间 < 提醒分钟数，则视为连续课程
+                // 若上一门课与本节的课间 <= 提醒分钟数，则视为连续课程
                 if (si > 0) {
                     long prevEndMs = todaySlots.get(si - 1)[1];
                     long breakMs   = startMs - prevEndMs;
-                    if (breakMs >= 0 && breakMs < reminderMs) {
+                    if (breakMs >= 0 && breakMs <= reminderMs) {
                         // 连续：在上节课下课时触发本节提醒
                         triggerMs     = prevEndMs;
                         isConsecutive = true;
                         // 上一课有连续后续，标记为锚点：injectIslandParams 跳过其 cancel alarm
                         if (prevLoopAlarmId != -1) mConsecutiveAnchors.add(prevLoopAlarmId);
                         XposedBridge.log(TAG + ": [连续课程] " + courseName
-                                + " 课间=" + (breakMs / 60_000) + "min < 提醒"
+                                + " 课间=" + (breakMs / 60_000) + "min <= 提醒"
                                 + reminderMinutes + "min，将在上节下课时触发");
                     }
                 }
