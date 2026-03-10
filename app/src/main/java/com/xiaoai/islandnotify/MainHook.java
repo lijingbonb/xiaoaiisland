@@ -1620,7 +1620,20 @@ public class MainHook implements IXposedHookLoadPackage {
         try {
             if (notif.extras == null) notif.extras = new Bundle();
             SharedPreferences prefs = loadPrefs(ctx);
-            notif.extras.putString(KEY_FOCUS_PARAM, buildIslandJson(info, STATE_COUNTDOWN, prefs));
+            
+            long startMs = computeClassStartMs(info.startTime);
+            long endMs   = computeClassStartMs(info.endTime);
+            long now     = System.currentTimeMillis();
+
+            // 动态计算通知状态：倒计时(0)、上课中(1)、已下课(2)
+            int state = STATE_COUNTDOWN;
+            if (now >= endMs) {
+                state = STATE_FINISHED;
+            } else if (now >= startMs) {
+                state = STATE_ELAPSED;
+            }
+
+            notif.extras.putString(KEY_FOCUS_PARAM, buildIslandJson(info, state, prefs));
             mNotifCourseOwner.put(notifId, info.courseName);
             try {
                 Intent tableIntent = Intent.parseUri(COURSE_TABLE_INTENT, Intent.URI_INTENT_SCHEME);
@@ -1629,15 +1642,13 @@ public class MainHook implements IXposedHookLoadPackage {
             } catch (Exception e) {
                 XposedBridge.log(TAG + ": 课表 intent 解析失败 → " + e.getMessage());
             }
-            long startMs = computeClassStartMs(info.startTime);
-            long endMs   = computeClassStartMs(info.endTime);
-            long now     = System.currentTimeMillis();
+
             String chId  = safeStr(notif.getChannelId());
             if (startMs > now && (startMs - now) <= 6 * 3600 * 1000L)
                 scheduleIslandAlarm(ctx, info, STATE_ELAPSED,  chId, notifTag, notifId, startMs);
             if (!info.endTime.isEmpty() && endMs > now && (endMs - now) <= 6 * 3600 * 1000L) {
                 // 锚点课程（有连续后续课程）：STATE_FINISHED 延迟 1 秒，确保连续触发 alarm 能先 cancel 它，
-                // 避免"已下课"与"下节倒计时"在相同毫秒竞争导致短暂闪烁。
+                // 避免"已下课"与"下节倒计时"在相同毫秒 competition 导致短暂闪烁。
                 long finishedTrigger = mConsecutiveAnchors.contains(notifId) ? endMs + 1000 : endMs;
                 scheduleIslandAlarm(ctx, info, STATE_FINISHED, chId, notifTag, notifId, finishedTrigger);
             }
@@ -1645,7 +1656,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 scheduleNotifCancelAlarms(ctx, prefs, notifTag, notifId, now, startMs, endMs);
             else
                 XposedBridge.log(TAG + ": [锚点课程] id=" + notifId + " 跳过 cancel alarm");
-            XposedBridge.log(TAG + ": applyIslandParams 完成 → " + info.courseName + " id=" + notifId);
+            XposedBridge.log(TAG + ": applyIslandParams 完成(state=" + state + ") → " + info.courseName + " id=" + notifId);
         } catch (Exception e) {
             XposedBridge.log(TAG + ": applyIslandParams 失败 → " + e.getMessage());
         }
