@@ -728,7 +728,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         com.google.android.material.button.MaterialButtonToggleGroup toggleMode = findViewById(R.id.toggle_island_button_mode);
-        int savedMode = sp.getInt("island_button_mode", 2); // 0=Mute, 1=DND, 2=Both
+        int savedMode = sp.getInt("island_button_mode", 0); // 0=Mute, 1=DND, 2=Both
         if (savedMode == 0) toggleMode.check(R.id.btn_mode_mute);
         else if (savedMode == 1) toggleMode.check(R.id.btn_mode_dnd);
         else toggleMode.check(R.id.btn_mode_both);

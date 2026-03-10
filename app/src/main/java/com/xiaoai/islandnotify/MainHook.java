@@ -665,7 +665,7 @@ public class MainHook implements IXposedHookLoadPackage {
                             sUnDndEnabled  = dp.getBoolean(KEY_UNDND_ENABLED,  false);
                             sWakeupMorningEnabled   = dp.getBoolean(KEY_WAKEUP_MORNING_ENABLED,   false);
                             sWakeupAfternoonEnabled = dp.getBoolean(KEY_WAKEUP_AFTERNOON_ENABLED, false);
-                            sIslandButtonMode = dp.getInt("island_button_mode", 2);
+                            sIslandButtonMode = dp.getInt("island_button_mode", 0);
                             
                             safeReschedule(context, "island_reschedule_daily", true);
                         } else if (ACTION_NOTIF_CANCEL.equals(intent.getAction())) {

@@ -1185,6 +1185,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
                         app:singleSelection="true"
+                        app:checkedButton="@id/btn_mode_mute"
                         app:selectionRequired="true">
 
                         <com.google.android.material.button.MaterialButton
