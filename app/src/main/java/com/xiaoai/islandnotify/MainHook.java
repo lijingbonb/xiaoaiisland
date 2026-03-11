@@ -589,47 +589,58 @@ public class MainHook implements IXposedHookLoadPackage {
                                             .setSmallIcon(prevSbn.getNotification().getSmallIcon())
                                             .setContentTitle("[" + crName + "]快到了，提前准备一下吧")
                                             .setContentText(crStart + " - " + crEnd + "  " + crRoom)
+                                            .setOnlyAlertOnce(false) // 强制发声/震动/弹出
                                             .build();
                                     if (jumpNotif.extras == null) jumpNotif.extras = new android.os.Bundle();
                                     jumpNotif.extras.putString("xiaoai.test.course_name", crName);
                                     jumpNotif.extras.putString("xiaoai.test.start_time",  crStart);
                                     jumpNotif.extras.putString("xiaoai.test.end_time",    crEnd);
                                     jumpNotif.extras.putString("xiaoai.test.classroom",   crRoom);
-                                    applyIslandParams(context, jumpNotif, newInfo, prevId, prevTag);
-                                    if (prevTag != null) crnm.notify(prevTag, prevId, jumpNotif);
-                                    else                 crnm.notify(prevId, jumpNotif);
+
+                                    // 必须更换 ID 才能让系统认为这是一个全新的重要通知，从而触发下推和灵动岛展开
+                                    int newId = Math.abs((crName + crStart + crEnd + crRoom).hashCode());
+                                    applyIslandParams(context, jumpNotif, newInfo, newId, prevTag);
+                                    
+                                    // 取消旧的通知，发送新的
+                                    if (prevTag != null) {
+                                        crnm.cancel(prevTag, prevId);
+                                        crnm.notify(prevTag, newId, jumpNotif);
+                                    } else {
+                                        crnm.cancel(prevId);
+                                        crnm.notify(newId, jumpNotif);
+                                    }
                                     // 为新课程调度 STATE_ELAPSED / STATE_FINISHED
-                                    // reqCode 复用 prevId，FLAG_UPDATE_CURRENT 会自动覆盖旧课程的同类 alarm
+                                    // reqCode 使用 newId
                                     long crStartMs = computeClassStartMs(crStart);
                                     long crEndMs   = computeClassStartMs(crEnd);
                                     long nowCr     = System.currentTimeMillis();
                                     if (crStartMs > nowCr) {
                                         // 还没上课，调度 alarm
                                         MainHook.this.scheduleIslandAlarm(context, newInfo,
-                                                STATE_ELAPSED, ISLAND_UPDATE_CHANNEL, prevTag, prevId, crStartMs);
+                                                STATE_ELAPSED, CR_CH, prevTag, newId, crStartMs);
                                     } else {
                                         // 0 间隔连续课程：trigger 触发时已到上课时间，立即刷为"上课中"
                                         XposedBridge.log(TAG + ": [连续课程] crStartMs 已过，立即刷 STATE_ELAPSED");
                                         sendIslandUpdate(newInfo, STATE_ELAPSED, context,
-                                                prevSbn.getNotification().getChannelId(),
-                                                prevSbn.getNotification(), crnm,
-                                                prevTag, prevId, crPrefs);
+                                                CR_CH,
+                                                jumpNotif, crnm,
+                                                prevTag, newId, crPrefs);
                                     }
                                     if (crEndMs > nowCr) {
                                         MainHook.this.scheduleIslandAlarm(context, newInfo,
-                                                STATE_FINISHED, ISLAND_UPDATE_CHANNEL, prevTag, prevId, crEndMs);
+                                                STATE_FINISHED, CR_CH, prevTag, newId, crEndMs);
                                     } else {
                                         // 下课时间也已过（极端情况，补发 STATE_FINISHED）
                                         XposedBridge.log(TAG + ": [连续课程] crEndMs 已过，立即刷 STATE_FINISHED");
                                         sendIslandUpdate(newInfo, STATE_FINISHED, context,
-                                                prevSbn.getNotification().getChannelId(),
-                                                prevSbn.getNotification(), crnm,
-                                                prevTag, prevId, crPrefs);
+                                                CR_CH,
+                                                jumpNotif, crnm,
+                                                prevTag, newId, crPrefs);
                                     }
-                                    scheduleNotifCancelAlarms(context, crPrefs, prevTag, prevId,
+                                    scheduleNotifCancelAlarms(context, crPrefs, prevTag, newId,
                                             nowCr, crStartMs, crEndMs);
                                     XposedBridge.log(TAG + ": [连续课程] 岛已更新 → " + crName
-                                            + " id=" + prevId);
+                                            + " oldId=" + prevId + " newId=" + newId);
                                     return; // 不再发新通知
                                 }
                                 // 未找到现有岛，降级到正常发送路径
