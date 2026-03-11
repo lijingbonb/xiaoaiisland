@@ -602,7 +602,6 @@ public class MainHook implements IXposedHookLoadPackage {
                             CourseInfo crInfo = new CourseInfo(crName, crStart, crEnd, crRoom);
                             applyIslandParams(context, crNotif, crInfo, crId, null);
                             crnm.notify(crId, crNotif);
-                            markCourseRemindedToday(context, crId);
                             XposedBridge.log(TAG + ": 课前提醒通知已发送 → " + crName + " @" + crStart);
                         } else if (ACTION_DO_MUTE.equals(intent.getAction())) {
                             applyMuteState(context, true, intent.getStringExtra("course_name"));
@@ -1404,11 +1403,7 @@ public class MainHook implements IXposedHookLoadPackage {
                     ctx.getSystemService(android.app.NotificationManager.class);
             if (nm == null) return;
             // 取消小爱自己已发出的旧提醒通知（所有我方注入前的原生通知）
-            boolean isCurrentlyActive = false;
             for (android.service.notification.StatusBarNotification sbn : nm.getActiveNotifications()) {
-                if (sbn.getId() == notifId) {
-                    isCurrentlyActive = true;
-                }
                 android.app.Notification n = sbn.getNotification();
                 String ch = safeStr(n.getChannelId());
                 if ((ch.equals("COURSE_SCHEDULER_REMINDER_sound") || ch.equals(CR_CH))
@@ -1417,32 +1412,17 @@ public class MainHook implements IXposedHookLoadPackage {
                     XposedBridge.log(TAG + ": 已 cancel 小爱旧提醒通知 id=" + sbn.getId());
                 }
             }
-
-            boolean hasReminded = isCourseRemindedToday(ctx, notifId);
-            if (hasReminded && !isCurrentlyActive) {
-                // 用户已经划掉了这条通知，不要在后台刷新时让它诈尸
-                XposedBridge.log(TAG + ": [补发拦截] 通知已提醒且被用户划掉，跳过诈尸 id=" + notifId);
-                return;
-            }
-
             if (nm.getNotificationChannel(CR_CH) == null) {
                 android.app.NotificationChannel ch = new android.app.NotificationChannel(
                         CR_CH, "课程提醒", android.app.NotificationManager.IMPORTANCE_HIGH);
                 ch.enableVibration(true);
                 nm.createNotificationChannel(ch);
             }
-
-            android.app.Notification.Builder builder = new android.app.Notification.Builder(ctx, CR_CH)
+            android.app.Notification notif = new android.app.Notification.Builder(ctx, CR_CH)
                     .setSmallIcon(android.R.drawable.ic_dialog_info)
                     .setContentTitle("[" + info.courseName + "]快到了，提前准备一下吧")
-                    .setContentText(info.startTime + " - " + info.endTime + "  " + info.classroom);
-                    
-            if (hasReminded && isCurrentlyActive) {
-                // 仅静默更新现有通知，不重复响铃震动
-                builder.setOnlyAlertOnce(true);
-            }
-            
-            android.app.Notification notif = builder.build();
+                    .setContentText(info.startTime + " - " + info.endTime + "  " + info.classroom)
+                    .build();
             if (notif.extras == null) notif.extras = new android.os.Bundle();
             // 保留 title/text，防止 MIUI 静默丢弃内容为空的通知
             notif.extras.putString("xiaoai.test.course_name", info.courseName);
@@ -1451,66 +1431,10 @@ public class MainHook implements IXposedHookLoadPackage {
             notif.extras.putString("xiaoai.test.classroom",   info.classroom);
             applyIslandParams(ctx, notif, info, notifId, null);
             nm.notify(notifId, notif);
-            
-            if (!hasReminded) {
-                markCourseRemindedToday(ctx, notifId);
-            }
-            
-            XposedBridge.log(TAG + ": [立即] 课前提醒通知已发送/更新 (silenced=" + (hasReminded && isCurrentlyActive) + ") " + info.courseName
+            XposedBridge.log(TAG + ": [立即] 课前提醒通知已发送 " + info.courseName
                     + " @" + info.startTime + " id=" + notifId);
         } catch (Exception e) {
             XposedBridge.log(TAG + ": sendCourseReminderNow 失败 → " + e.getMessage());
-        }
-    }
-
-    /**
-     * 判断某节课今日是否已经发出过提醒
-     */
-    private boolean isCourseRemindedToday(Context ctx, int notifId) {
-        try {
-            SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-            String todayDate = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date());
-            String savedDate = prefs.getString("reminded_date", "");
-            if (!todayDate.equals(savedDate)) {
-                return false; // 不是同一天，肯定没提醒过
-            }
-            String remindedIds = prefs.getString("reminded_ids", "");
-            for (String idStr : remindedIds.split(",")) {
-                if (idStr.equals(String.valueOf(notifId))) {
-                    return true;
-                }
-            }
-        } catch (Exception e) {
-            XposedBridge.log(TAG + ": isCourseRemindedToday 报错 → " + e.getMessage());
-        }
-        return false;
-    }
-
-    /**
-     * 记录某节课今日已提醒
-     */
-    private void markCourseRemindedToday(Context ctx, int notifId) {
-        try {
-            SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-            String todayDate = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date());
-            String savedDate = prefs.getString("reminded_date", "");
-            String remindedIds = prefs.getString("reminded_ids", "");
-            
-            if (!todayDate.equals(savedDate)) {
-                // 新的一天，覆盖旧数据
-                prefs.edit()
-                     .putString("reminded_date", todayDate)
-                     .putString("reminded_ids", String.valueOf(notifId))
-                     .apply();
-            } else {
-                // 同一天，追加 ID
-                if (!isCourseRemindedToday(ctx, notifId)) {
-                    String newIds = remindedIds.isEmpty() ? String.valueOf(notifId) : (remindedIds + "," + notifId);
-                    prefs.edit().putString("reminded_ids", newIds).apply();
-                }
-            }
-        } catch (Exception e) {
-            XposedBridge.log(TAG + ": markCourseRemindedToday 报错 → " + e.getMessage());
         }
     }
 
