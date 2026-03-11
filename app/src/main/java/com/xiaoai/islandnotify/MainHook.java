@@ -806,9 +806,7 @@ public class MainHook implements IXposedHookLoadPackage {
         
         // 立即执行一次（使用现有数据，即刻反馈）
         scheduleTodayCourseReminders(context, null, false);
-        if (sMuteEnabled || sUnmuteEnabled || sDndEnabled || sUnDndEnabled) {
-            scheduleTodayMuteAlarms(context, false);
-        }
+        scheduleTodayMuteAlarms(context, false);
         scheduleTodayWakeupAlarms(context);
 
         // 5秒后再次执行（等待主动更新写盘成功）
@@ -816,9 +814,7 @@ public class MainHook implements IXposedHookLoadPackage {
         // 避免与第一次执行重复导致岛重新弹出和多余状态切换。
         getRescheduleHandler().postDelayed(() -> {
             scheduleTodayCourseReminders(context, null, true);
-            if (sMuteEnabled || sUnmuteEnabled || sDndEnabled || sUnDndEnabled) {
-                scheduleTodayMuteAlarms(context, true);
-            }
+            scheduleTodayMuteAlarms(context, true);
             scheduleTodayWakeupAlarms(context);
             // 若是跨日重调，链式调度下一个午夜
             if ("island_reschedule_daily".equals(from)) {
@@ -870,6 +866,7 @@ public class MainHook implements IXposedHookLoadPackage {
             cancelAllScheduledAlarms(ctx);
             mScheduledAlarmIds.clear();
             java.util.Set<Integer> validAlarmIds = new java.util.HashSet<>();
+
 
             // ── 2b. 节假日 / 调休 检查 ─────────────────────────────────────────
             java.text.SimpleDateFormat holidayFmt =
@@ -1120,7 +1117,6 @@ public class MainHook implements IXposedHookLoadPackage {
                 Intent dummy = createServiceIntent(ACTION_COURSE_REMINDER);
                 PendingIntent pi = PendingIntent.getService(ctx, id, dummy,
                         PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE);
-                if (pi != null) { am.cancel(pi); pi.cancel(); }
             }
             XposedBridge.log(TAG + ": 已取消 " + idsToCancel.size() + " 个课前提醒闹钟");
         } catch (Exception e) {
@@ -1143,7 +1139,14 @@ public class MainHook implements IXposedHookLoadPackage {
             int count = 0;
             for (android.service.notification.StatusBarNotification sbn : nm.getActiveNotifications()) {
                 android.app.Notification n = sbn.getNotification();
-                if (n.extras != null && n.extras.containsKey("xiaoai.test.course_name")) {
+                String ch = safeStr(n.getChannelId());
+                boolean isOurs = (n.extras != null && n.extras.containsKey(KEY_FOCUS_PARAM))
+                        || (n.extras != null && n.extras.containsKey("xiaoai.test.course_name"))
+                        || "xiaoai_course_reminder_alert".equals(ch)
+                        || ISLAND_UPDATE_CHANNEL.equals(ch)
+                        || ch.contains("COURSE_SCHEDULER_REMINDER");
+                        
+                if (isOurs) {
                     int id = sbn.getId();
                     if (!validIds.contains(id)) {
                         nm.cancel(sbn.getTag(), id);
@@ -1175,7 +1178,6 @@ public class MainHook implements IXposedHookLoadPackage {
                     Intent dummy = createServiceIntent(action);
                     PendingIntent pi = PendingIntent.getService(ctx, reqCode, dummy,
                             PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE);
-                    if (pi != null) { am.cancel(pi); pi.cancel(); }
                 }
             }
             XposedBridge.log(TAG + ": 已取消 " + idsToCancel.size() + " 个静音闹钟");
@@ -1742,10 +1744,7 @@ public class MainHook implements IXposedHookLoadPackage {
                     } catch (Throwable ignored) {}
                     XposedBridge.log(TAG + ": CourseData.xml 已变化，重新调度课前提醒");
                     scheduleTodayCourseReminders(ctx, bj);
-                    if (sMuteEnabled || sUnmuteEnabled || sDndEnabled || sUnDndEnabled) {
-                        XposedBridge.log(TAG + ": CourseData.xml 已变化，重新调度静音/勿扰闹钟");
-                        scheduleTodayMuteAlarms(ctx);
-                    }
+                    scheduleTodayMuteAlarms(ctx);
                 }, mRescheduleToken, RESCHEDULE_DEBOUNCE_MS);
             }
         };
