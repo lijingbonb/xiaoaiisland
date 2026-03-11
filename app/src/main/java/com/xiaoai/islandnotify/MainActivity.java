@@ -2,8 +2,11 @@ package com.xiaoai.islandnotify;
 
 import android.app.AlertDialog;
 import android.app.DatePickerDialog;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -128,6 +131,7 @@ public class MainActivity extends AppCompatActivity {
         initAboutSection(); // 初始化关于页面的版本信息
         setupTabs();
         initHolidayTab();
+        initSyncWithHost();
     }
 
     @Override
@@ -173,6 +177,57 @@ public class MainActivity extends AppCompatActivity {
 
     /** SharedPreferences 名称（与 MainHook 保持一致） */
     static final String PREFS_NAME = "island_custom";
+
+    private static final String ACTION_QUERY_PREFS = "com.xiaoai.islandnotify.ACTION_QUERY_PREFS";
+    private static final String ACTION_REPLY_PREFS = "com.xiaoai.islandnotify.ACTION_REPLY_PREFS";
+
+    private void initSyncWithHost() {
+        IntentFilter filter = new IntentFilter(ACTION_REPLY_PREFS);
+        BroadcastReceiver receiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (ACTION_REPLY_PREFS.equals(intent.getAction())) {
+                    SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                    SharedPreferences.Editor ed = sp.edit();
+                    Bundle extras = intent.getExtras();
+                    if (extras != null) {
+                        for (String key : extras.keySet()) {
+                            Object v = extras.get(key);
+                            if (v instanceof String)  ed.putString(key, (String)  v);
+                            else if (v instanceof Integer) ed.putInt   (key, (Integer) v);
+                            else if (v instanceof Boolean) ed.putBoolean(key, (Boolean) v);
+                            else if (v instanceof Long)    ed.putLong   (key, (Long)    v);
+                            else if (v instanceof Float)   ed.putFloat  (key, (Float)   v);
+                        }
+                        ed.apply();
+                        runOnUiThread(() -> {
+                            // 重新初始化所有卡片以反映最新 SP 值
+                            initCustomCard();
+                            initTimeoutCard();
+                            initReminderCard();
+                            initMuteCard();
+                            initWakeupCard();
+                            Toast.makeText(MainActivity.this, "已从宿主同步最新配置", Toast.LENGTH_SHORT).show();
+                        });
+                    }
+                }
+            }
+        };
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(receiver, filter);
+        }
+
+        // 延迟 1 秒发起查询，确保 UI 已就绪
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            Intent query = new Intent(ACTION_QUERY_PREFS);
+            query.setPackage("com.miui.voiceassist");
+            sendBroadcast(query);
+            Log.d("IslandNotify", "已向宿主发起配置查询");
+        }, 1000);
+    }
 
     private void initCustomCard() {
         SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);

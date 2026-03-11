@@ -75,6 +75,10 @@ public class MainHook implements IXposedHookLoadPackage {
 
     /** 同步偏好设置到目标进程的广播 Action */
     private static final String ACTION_SYNC_PREFS = "com.xiaoai.islandnotify.ACTION_SYNC_PREFS";
+    /** 模块查询偏好设置的广播 Action */
+    private static final String ACTION_QUERY_PREFS = "com.xiaoai.islandnotify.ACTION_QUERY_PREFS";
+    /** 宿主回传偏好设置的广播 Action */
+    private static final String ACTION_REPLY_PREFS = "com.xiaoai.islandnotify.ACTION_REPLY_PREFS";
     /** AlarmManager 闹钟触发岛状态更新的广播 Action */
     private static final String ACTION_ISLAND_UPDATE = "com.xiaoai.islandnotify.ACTION_ISLAND_UPDATE";
     /** 触发目标应用发送测试通知的广播 Action */
@@ -239,6 +243,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 filter.addAction(ACTION_MANUAL_UNMUTE);
                 filter.addAction(ACTION_RESCHEDULE_DAILY);
                 filter.addAction(ACTION_NOTIF_CANCEL);
+                filter.addAction(ACTION_QUERY_PREFS);
                 BroadcastReceiver receiver = new BroadcastReceiver() {
                     @Override
                     public void onReceive(Context context, Intent intent) {
@@ -390,6 +395,8 @@ public class MainHook implements IXposedHookLoadPackage {
                                 XposedBridge.log(TAG + ": SYNC_PREFS log failure -> " + t.getMessage());
                             }
                             XposedBridge.log(TAG + ": 偏好设置已同步到目标进程");
+                        } else if (ACTION_QUERY_PREFS.equals(intent.getAction())) {
+                            replyWithCurrentPrefs(context);
                         } else if (ACTION_ISLAND_UPDATE.equals(intent.getAction())) {
                             String courseName = safeStr(intent.getStringExtra("course_name"));
                             String startTime  = safeStr(intent.getStringExtra("start_time"));
@@ -1293,6 +1300,31 @@ public class MainHook implements IXposedHookLoadPackage {
         boolean ok = MiuiSettingsInvoker.applyDnd(ctx, enable);
         XposedBridge.log(TAG + ": [" + modeTip + "] MiuiSettingsInvoker " + (ok ? "成功" : "失败 ← " + courseName));
     }
+
+    /** 将宿主进程当前的偏好设置全量回传给模块 App，解决重装后 UI 不一致问题。 */
+    private void replyWithCurrentPrefs(Context ctx) {
+        try {
+            SharedPreferences sp = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            Intent reply = new Intent(ACTION_REPLY_PREFS);
+            reply.setPackage(MODULE_PKG);
+            java.util.Map<String, ?> all = sp.getAll();
+            if (all != null) {
+                for (java.util.Map.Entry<String, ?> entry : all.entrySet()) {
+                    Object v = entry.getValue();
+                    if (v instanceof String)  reply.putExtra(entry.getKey(), (String)  v);
+                    else if (v instanceof Integer) reply.putExtra(entry.getKey(), (Integer) v);
+                    else if (v instanceof Boolean) reply.putExtra(entry.getKey(), (Boolean) v);
+                    else if (v instanceof Long)    reply.putExtra(entry.getKey(), (Long)    v);
+                    else if (v instanceof Float)   reply.putExtra(entry.getKey(), (Float)   v);
+                }
+            }
+            ctx.sendBroadcast(reply);
+            XposedBridge.log(TAG + ": 已回传全量偏好设置到模块 App");
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": replyWithCurrentPrefs 失败 -> " + t.getMessage());
+        }
+    }
+
     /**
      * 独立读取 CourseData 并调度今日静音/取消静音闹钟。
      * 完全独立于自定义提醒开关，两者可单独启用。
