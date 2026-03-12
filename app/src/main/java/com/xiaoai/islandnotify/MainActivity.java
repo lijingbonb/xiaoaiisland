@@ -8,6 +8,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.os.Bundle;
@@ -15,41 +20,24 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
-import android.widget.DatePicker;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
-import android.content.res.ColorStateList;
-import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.graphics.Color;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.util.Log;
-import android.view.View;
-import android.widget.EditText;
-import android.widget.ImageView;
-import android.widget.TextView;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.widget.ImageViewCompat;
 
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.color.DynamicColors;
 import com.google.android.material.color.MaterialColors;
-import com.google.android.material.button.MaterialButtonToggleGroup;
-import com.google.android.material.button.MaterialButton;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.google.android.material.textfield.TextInputLayout;
-import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.tabs.TabLayout;
 
 import java.io.BufferedReader;
@@ -72,6 +60,7 @@ public class MainActivity extends AppCompatActivity {
     private MaterialButton btnSaveTimeout;
     private boolean customDirty  = false;
     private boolean timeoutDirty = false;
+    private boolean mCustomCardBound = false;
 
     // 假期/调休 Tab 相关成员
     private int           mCurrentHolidayYear;
@@ -79,6 +68,37 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout  mLlWorkswapList;
     private TextView      mTvHolidayEmpty;
     private TextView      mTvWorkswapEmpty;
+
+    private static final String[] CUSTOM_SUFFIXES = {"_pre", "_active", "_post"};
+    private static final String[] DEFAULT_TPL_A = {
+            "{\u6559\u5ba4}", "{\u8bfe\u540d}", "{\u8bfe\u540d}"
+    };
+    private static final String[] DEFAULT_TPL_B = {
+            "{\u5f00\u59cb}\u4e0a\u8bfe",
+            "{\u7ed3\u675f}\u4e0b\u8bfe",
+            "\u5df2\u7ecf\u4e0b\u8bfe"
+    };
+    /*
+    private static final String[] DEFAULT_TPL_TICKER = {
+            "{鏁欏}锝渰寮€濮媫涓婅",
+            "{璇惧悕}锝渰缁撴潫}涓嬭",
+            "{璇惧悕}锝滃凡缁忎笅璇?"
+    };
+    */
+    private static final String[] DEFAULT_TPL_TICKER = {
+            "{\u6559\u5ba4}\uFF5C{\u5f00\u59cb}\u4e0a\u8bfe",
+            "{\u8bfe\u540d}\uFF5C{\u7ed3\u675f}\u4e0b\u8bfe",
+            "{\u8bfe\u540d}\uFF5C\u5df2\u7ecf\u4e0b\u8bfe"
+    };
+    private static final int[] CUSTOM_IDS_A = {
+            R.id.et_tpl_a_pre, R.id.et_tpl_a_active, R.id.et_tpl_a_post
+    };
+    private static final int[] CUSTOM_IDS_B = {
+            R.id.et_tpl_b_pre, R.id.et_tpl_b_active, R.id.et_tpl_b_post
+    };
+    private static final int[] CUSTOM_IDS_TICKER = {
+            R.id.et_tpl_ticker_pre, R.id.et_tpl_ticker_active, R.id.et_tpl_ticker_post
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -221,15 +241,8 @@ public class MainActivity extends AppCompatActivity {
                         getSharedPreferences("island_app_state", Context.MODE_PRIVATE)
                                 .edit().putBoolean("config_synced_from_host", true).apply();
 
-                        runOnUiThread(() -> {
+                        runOnUiThread(MainActivity.this::recreate);
                             // 重新初始化所有卡片以反映最新 SP 值
-                            initCustomCard();
-                            initTimeoutCard();
-                            initReminderCard();
-                            initMuteCard();
-                            initWakeupCard();
-                            initHolidayTab();
-                        });
                     }
                 }
             }
@@ -251,18 +264,22 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void initCustomCard() {
+        if (mCustomCardBound) {
+            refreshCustomCardFromPrefs();
+            return;
+        }
         SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
 
         // 三个阶段 SP 后缀：_pre=上课前  _active=上课中  _post=下课后
         final String[] SUFFIXES = {"_pre", "_active", "_post"};
         // 各阶段 A/B/ticker 的默认值
-        final String[] DEFAULT_A      = {"{教室}",             "{课名}",         "{课名}"};
-        final String[] DEFAULT_B      = {"{开始}上课",         "{结束}下课",     "已经下课"};
-        final String[] DEFAULT_TICKER = {"{教室}｜{开始}上课", "{课名}｜{结束}下课", "{课名}｜已经下课"};
+        final String[] DEFAULT_A = DEFAULT_TPL_A;
+        final String[] DEFAULT_B = DEFAULT_TPL_B;
+        final String[] DEFAULT_TICKER = DEFAULT_TPL_TICKER;
         // 各阶段输入框 View ID
-        final int[] IDS_A      = {R.id.et_tpl_a_pre,      R.id.et_tpl_a_active,      R.id.et_tpl_a_post};
-        final int[] IDS_B      = {R.id.et_tpl_b_pre,      R.id.et_tpl_b_active,      R.id.et_tpl_b_post};
-        final int[] IDS_TICKER = {R.id.et_tpl_ticker_pre,  R.id.et_tpl_ticker_active,  R.id.et_tpl_ticker_post};
+        final int[] IDS_A = CUSTOM_IDS_A;
+        final int[] IDS_B = CUSTOM_IDS_B;
+        final int[] IDS_TICKER = CUSTOM_IDS_TICKER;
 
         SwitchMaterial swIconA = findViewById(R.id.sw_icon_a);
         TextView tvHint        = findViewById(R.id.tv_save_hint);
@@ -330,8 +347,25 @@ public class MainActivity extends AppCompatActivity {
             updateCustomDirtyIndicator();
         });
 
+        mCustomCardBound = true;
+
         // helper: perform actual save (used by confirmation)
         
+    }
+
+    private void refreshCustomCardFromPrefs() {
+        SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        for (int i = 0; i < 3; i++) {
+            ((EditText) findViewById(CUSTOM_IDS_A[i])).setText(
+                    sp.getString("tpl_a" + CUSTOM_SUFFIXES[i], DEFAULT_TPL_A[i]));
+            ((EditText) findViewById(CUSTOM_IDS_B[i])).setText(
+                    sp.getString("tpl_b" + CUSTOM_SUFFIXES[i], DEFAULT_TPL_B[i]));
+            ((EditText) findViewById(CUSTOM_IDS_TICKER[i])).setText(
+                    sp.getString("tpl_ticker" + CUSTOM_SUFFIXES[i], DEFAULT_TPL_TICKER[i]));
+        }
+        ((SwitchMaterial) findViewById(R.id.sw_icon_a)).setChecked(sp.getBoolean("icon_a", true));
+        customDirty = false;
+        updateCustomDirtyIndicator();
     }
 
     private void doSaveCustom(SharedPreferences sp) {
