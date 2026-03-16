@@ -14,8 +14,20 @@ import android.os.Bundle;
 import android.net.Uri;
 import android.service.notification.StatusBarNotification;
 
+import com.xzakota.hyper.notification.common.model.TimerInfo;
+import com.xzakota.hyper.notification.focus.FocusNotification;
+import com.xzakota.hyper.notification.focus.model.ActionInfo;
+import com.xzakota.hyper.notification.focus.model.BaseInfo;
+import com.xzakota.hyper.notification.focus.model.HintInfo;
+import com.xzakota.hyper.notification.focus.model.PicInfo;
+import com.xzakota.hyper.notification.island.model.BigIslandArea;
+import com.xzakota.hyper.notification.island.model.ImageTextInfo;
+import com.xzakota.hyper.notification.island.model.ShareData;
+import com.xzakota.hyper.notification.island.model.SmallIslandArea;
+import com.xzakota.hyper.notification.island.model.TextInfo;
+import com.xzakota.hyper.notification.island.template.IslandTemplate;
+
 import org.json.JSONArray;
-import org.json.JSONException;
 import org.json.JSONObject;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
@@ -1908,7 +1920,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 state = STATE_ELAPSED;
             }
 
-            notif.extras.putString(KEY_FOCUS_PARAM, buildIslandJson(info, state, prefs));
+            notif.extras.putAll(buildIslandExtras(info, state, prefs));
             mNotifCourseOwner.put(notifId, info.courseName);
             try {
                 Intent tableIntent = Intent.parseUri(COURSE_TABLE_INTENT, Intent.URI_INTENT_SCHEME);
@@ -2060,7 +2072,6 @@ public class MainHook implements IXposedHookLoadPackage {
                 uch.enableVibration(false); // 渠道无震
                 nm.createNotificationChannel(uch);
             }
-            String json = buildIslandJson(info, state, prefs);
             Notification n = new Notification.Builder(ctx, ISLAND_UPDATE_CHANNEL)
                     .setSmallIcon(src.getSmallIcon())
                     .setContentTitle(info.courseName)
@@ -2070,7 +2081,8 @@ public class MainHook implements IXposedHookLoadPackage {
                     .setAutoCancel(true)
                     .setOnlyAlertOnce(true)   // 双重保险
                     .build();
-            n.extras.putString(KEY_FOCUS_PARAM, json);
+            if (n.extras == null) n.extras = new Bundle();
+            n.extras.putAll(buildIslandExtras(info, state, prefs));
             n.contentIntent = src.contentIntent;
             if (tag != null) nm.notify(tag, id, n);
             else             nm.notify(id, n);
@@ -2086,177 +2098,157 @@ public class MainHook implements IXposedHookLoadPackage {
      *   STATE_ELAPSED  ：上课中正计时，上课静音按钮
      *   STATE_FINISHED ：下课后正计时，解除静音按钮
      */
-    private String buildIslandJson(CourseInfo info, int state,
-            android.content.SharedPreferences prefs) throws JSONException {
-        long startMs = computeClassStartMs(info.startTime);
-        long endMs   = computeClassStartMs(info.endTime);
-        long now     = System.currentTimeMillis();
-        boolean isFinished = state == STATE_FINISHED;
-        boolean isActive   = state != STATE_COUNTDOWN; // STATE_ELAPSED 或 STATE_FINISHED
+    private Bundle buildIslandExtras(CourseInfo info, int state, SharedPreferences prefs) {
+        try {
+            long startMs = computeClassStartMs(info.startTime);
+            long endMs = computeClassStartMs(info.endTime);
+            long now = System.currentTimeMillis();
+            boolean isFinished = state == STATE_FINISHED;
+            boolean isActive = state != STATE_COUNTDOWN;
 
-        // ── baseInfo ──────────────────────────────────────────────
-        JSONObject baseInfo = new JSONObject();
-        baseInfo.put("type",  2);
-        baseInfo.put("title", info.courseName);
-        if (isActive) baseInfo.put("showDivider", true);
-        if (!info.startTime.isEmpty()) baseInfo.put("content",    info.startTime);
-        if (!info.endTime.isEmpty())   baseInfo.put("subContent", "| " + info.endTime);
+            boolean showMute = sIslandButtonMode == 0 || sIslandButtonMode == 2;
+            boolean showDnd = sIslandButtonMode == 1 || sIslandButtonMode == 2;
 
-        // ── picInfo（展开态识别图形组件，始终存在）────────────────────────
-        JSONObject notifPicInfo = new JSONObject();
-        notifPicInfo.put("type", 1); // 1 = appIcon
+            String muteAction = isFinished ? ACTION_MANUAL_UNMUTE : ACTION_MANUAL_MUTE;
+            String actionTitle;
+            if (showMute && showDnd) {
+                actionTitle = isFinished ? "解除静默" : "上课静默";
+            } else if (showDnd) {
+                actionTitle = isFinished ? "解除勿扰" : "上课勿扰";
+            } else {
+                actionTitle = isFinished ? "解除静音" : "上课静音";
+            }
 
-        // ── actionInfo ────────────────────────────────────────────
-        // 发给 voiceassist 自身进程内的广播接收器（同进程，无跨包权限问题）
-        // 按钮模式：0=仅静音, 1=仅勿扰, 2=两者
-        boolean showMute = sIslandButtonMode == 0 || sIslandButtonMode == 2;
-        boolean showDnd  = sIslandButtonMode == 1 || sIslandButtonMode == 2;
-        
-        String muteAction = isFinished ? ACTION_MANUAL_UNMUTE : ACTION_MANUAL_MUTE;
-        String actionTitle;
-        if (showMute && showDnd) {
-            actionTitle = isFinished ? "解除静默" : "上课静默";
-        } else if (showDnd) {
-            actionTitle = isFinished ? "解除勿扰" : "上课勿扰";
-        } else {
-            actionTitle = isFinished ? "解除静音" : "上课静音";
+            long timerMs;
+            int timerType;
+            String hintContent;
+            if (isFinished) {
+                timerMs = endMs;
+                timerType = 1;
+                hintContent = "已经下课";
+            } else if (isActive) {
+                timerMs = startMs;
+                timerType = 1;
+                hintContent = "已经上课";
+            } else {
+                timerMs = startMs;
+                timerType = (startMs > now) ? -1 : 1;
+                hintContent = (startMs > now) ? "即将上课" : "已经上课";
+            }
+
+            String stageSuffix = (state == STATE_COUNTDOWN) ? "_pre"
+                    : (state == STATE_ELAPSED) ? "_active" : "_post";
+            int stageIdx = (state == STATE_COUNTDOWN) ? 0 : (state == STATE_ELAPSED) ? 1 : 2;
+            final boolean showIconA = (prefs == null || prefs.getBoolean("icon_a", true));
+
+            String aFallback = resolveTemplate(DEFAULT_TPLS[stageIdx][0], info, info.courseName);
+            String aTitle = resolveTemplate(getStagedPref(prefs, "tpl_a", stageSuffix), info, aFallback);
+            String bFallback = resolveTemplate(DEFAULT_TPLS[stageIdx][1], info,
+                    info.classroom.isEmpty() ? "\u2014" : info.classroom);
+            String bTitle = resolveTemplate(getStagedPref(prefs, "tpl_b", stageSuffix), info, bFallback);
+
+            String timeRange = info.startTime + (info.endTime.isEmpty() ? "" : "-" + info.endTime);
+            String phase = (state == STATE_COUNTDOWN) ? "pre"
+                    : (state == STATE_ELAPSED) ? "active" : "post";
+            int islandToVal = (prefs != null) ? prefs.getInt("to_island_val_" + phase, -1) : -1;
+            String islandToUnit = (prefs != null) ? safeStr(prefs.getString("to_island_unit_" + phase, "m")) : "m";
+            int islandTimeoutSec = -1;
+            if (islandToVal > 0) {
+                islandTimeoutSec = "m".equals(islandToUnit) ? islandToVal * 60 : islandToVal;
+            }
+            final int finalIslandTimeoutSec = islandTimeoutSec;
+
+            String tickerText = resolveTemplate(
+                    getStagedPref(prefs, "tpl_ticker", stageSuffix),
+                    info, buildTickerText(info));
+
+            return FocusNotification.buildV3(template -> {
+                template.setBusiness("course_schedule");
+                template.setUpdatable(true);
+                template.setTicker(tickerText);
+                template.setAodTitle(tickerText);
+                template.setEnableFloat(isActive);
+                if (isActive) template.setIslandFirstFloat(true);
+
+                BaseInfo baseInfo = new BaseInfo();
+                baseInfo.setType(2);
+                baseInfo.setTitle(info.courseName);
+                if (isActive) baseInfo.setShowDivider(true);
+                if (!info.startTime.isEmpty()) baseInfo.setContent(info.startTime);
+                if (!info.endTime.isEmpty()) baseInfo.setSubContent("| " + info.endTime);
+                template.setBaseInfo(baseInfo);
+
+                PicInfo picInfo = new PicInfo();
+                picInfo.setType(1);
+                template.setPicInfo(picInfo);
+
+                ActionInfo actionInfo = new ActionInfo();
+                actionInfo.setActionIntentType(2);
+                actionInfo.setActionIntent(
+                        "intent:#Intent;action=" + muteAction
+                                + ";package=" + TARGET_PACKAGE
+                                + ";launchFlags=0x10000000;end");
+                actionInfo.setActionTitle(actionTitle);
+
+                HintInfo hintInfo = new HintInfo();
+                hintInfo.setType(2);
+                hintInfo.setContent(hintContent);
+                hintInfo.setSubContent("地点");
+                hintInfo.setSubTitle(info.classroom.isEmpty() ? "\u2014" : info.classroom);
+                hintInfo.setActionInfo(actionInfo);
+                if (timerMs > 0) {
+                    TimerInfo timerInfo = new TimerInfo();
+                    timerInfo.setTimerType(timerType);
+                    timerInfo.setTimerWhen(timerMs);
+                    timerInfo.setTimerSystemCurrent(now);
+                    hintInfo.setTimerInfo(timerInfo);
+                } else {
+                    hintInfo.setTitle(hintContent);
+                }
+                template.setHintInfo(hintInfo);
+
+                TextInfo aTextInfo = new TextInfo();
+                aTextInfo.setTitle(aTitle);
+                ImageTextInfo imageTextInfoLeft = new ImageTextInfo();
+                imageTextInfoLeft.setType(1);
+                imageTextInfoLeft.setTextInfo(aTextInfo);
+                if (showIconA) {
+                    com.xzakota.hyper.notification.island.model.PicInfo islandPicInfo =
+                            new com.xzakota.hyper.notification.island.model.PicInfo();
+                    islandPicInfo.setType(1);
+                    imageTextInfoLeft.setPicInfo(islandPicInfo);
+                }
+
+                TextInfo bTextInfo = new TextInfo();
+                bTextInfo.setTitle(bTitle);
+                BigIslandArea bigIslandArea = new BigIslandArea();
+                bigIslandArea.setImageTextInfoLeft(imageTextInfoLeft);
+                bigIslandArea.setTextInfo(bTextInfo);
+
+                SmallIslandArea smallIslandArea = new SmallIslandArea();
+
+                ShareData shareData = new ShareData();
+                shareData.setPic(PIC_KEY_SHARE);
+                shareData.setTitle(info.courseName);
+                shareData.setContent(info.classroom.isEmpty() ? "" : info.classroom);
+                shareData.setShareContent(info.courseName
+                        + (info.classroom.isEmpty() ? "" : " " + info.classroom)
+                        + (timeRange.isEmpty() ? "" : " " + timeRange));
+
+                IslandTemplate islandTemplate = new IslandTemplate();
+                islandTemplate.setIslandProperty(1);
+                islandTemplate.setBigIslandArea(bigIslandArea);
+                islandTemplate.setSmallIslandArea(smallIslandArea);
+                islandTemplate.setShareData(shareData);
+                if (finalIslandTimeoutSec > 0) islandTemplate.setIslandTimeout(finalIslandTimeoutSec);
+                template.setIsland(islandTemplate);
+            });
+        } catch (Throwable e) {
+            XposedBridge.log(TAG + ": buildIslandExtras 失败 -> " + e.getMessage());
+            return new Bundle();
         }
-        JSONObject actionInfo = new JSONObject();
-        actionInfo.put("actionIntentType", 2);
-        actionInfo.put("actionIntent",
-                "intent:#Intent;action=" + muteAction
-                + ";package=" + TARGET_PACKAGE
-                + ";launchFlags=0x10000000;end");
-        actionInfo.put("actionTitle", actionTitle);
-
-        // ── hintInfo ──────────────────────────────────────────────
-        long   timerMs;
-        int    timerType;
-        String hintContent;
-        if (isFinished) {
-            timerMs     = endMs;
-            timerType   = 1;
-            hintContent = "已经下课";
-        } else if (isActive) {
-            timerMs     = startMs;
-            timerType   = 1;
-            hintContent = "已经上课";
-        } else {
-            // STATE_COUNTDOWN：倒计时或已过时
-            timerMs     = startMs;
-            timerType   = (startMs > now) ? -1 : 1;
-            hintContent = (startMs > now) ? "即将上课" : "已经上课";
-        }
-        JSONObject hintInfo = new JSONObject();
-        hintInfo.put("type",       2);
-        hintInfo.put("content",    hintContent);
-        hintInfo.put("subContent", "地点");
-        hintInfo.put("subTitle",   info.classroom.isEmpty() ? "—" : info.classroom);
-        hintInfo.put("actionInfo", actionInfo);
-        if (timerMs > 0) {
-            JSONObject timerInfo = new JSONObject();
-            timerInfo.put("timerType",          timerType);
-            timerInfo.put("timerWhen",          timerMs);
-            timerInfo.put("timerSystemCurrent", now);
-            hintInfo.put("timerInfo", timerInfo);
-        } else {
-            hintInfo.put("title", hintContent);
-        }
-
-        // ── bigIslandArea ─────────────────────────────────────────
-        // 按上课状态选择对应阶段模板后缀
-        String stageSuffix = (state == STATE_COUNTDOWN) ? "_pre"
-                           : (state == STATE_ELAPSED)   ? "_active" : "_post";
-        final boolean showIconA = (prefs == null || prefs.getBoolean("icon_a", true));
-        JSONObject aTextInfo = new JSONObject();
-        String aFallback = resolveTemplate(DEFAULT_TPLS[
-                (state == STATE_COUNTDOWN) ? 0 : (state == STATE_ELAPSED) ? 1 : 2][0], info, info.courseName);
-        aTextInfo.put("title", resolveTemplate(
-                getStagedPref(prefs, "tpl_a", stageSuffix), info, aFallback));
-        JSONObject imageTextInfoLeft = new JSONObject();
-        imageTextInfoLeft.put("type", 1);
-        if (showIconA) {
-            // 显示图标：picInfo.type=1 = appIcon（取应用桌面图标）
-            JSONObject aPicInfo = new JSONObject();
-            aPicInfo.put("type", 1);
-            imageTextInfoLeft.put("picInfo", aPicInfo);
-        }
-        // 隐藏图标时不传 picInfo，文档："图标或正文大字二选一"，有 textInfo.title 即合规
-        imageTextInfoLeft.put("textInfo", aTextInfo);
-        JSONObject bTextInfo = new JSONObject();
-        String bFallback = resolveTemplate(DEFAULT_TPLS[
-                (state == STATE_COUNTDOWN) ? 0 : (state == STATE_ELAPSED) ? 1 : 2][1], info, info.classroom.isEmpty() ? "\u2014" : info.classroom);
-        bTextInfo.put("title", resolveTemplate(
-                getStagedPref(prefs, "tpl_b", stageSuffix), info, bFallback));
-        JSONObject bigIslandArea = new JSONObject();
-        bigIslandArea.put("imageTextInfoLeft", imageTextInfoLeft);
-        bigIslandArea.put("textInfo",          bTextInfo);
-
-        // ── smallIslandArea（小岛/息屏图标）────────────────────────────────────────
-        // 文档说明：小岛图标有三级 fallback（开发者上传 → A区左侧图标 → 应用图标），
-        // 系统始终显示图标，无法通过不传字段来隐藏。
-        // 因此不传 smallIslandArea.picInfo，让系统自动 fallback 到 A区图标或应用图标。
-        // icon_a 关闭时 A区无 picInfo，小岛最终 fallback 到应用图标（始终有图标）。
-        JSONObject smallIslandArea = new JSONObject();
-
-        // ── shareData ─────────────────────────────────────────────
-        String timeRange = info.startTime + (info.endTime.isEmpty() ? "" : "-" + info.endTime);
-        JSONObject shareData = new JSONObject();
-        shareData.put("pic",          PIC_KEY_SHARE);
-        shareData.put("title",        info.courseName);
-        shareData.put("content",      info.classroom.isEmpty() ? "" : info.classroom);
-        shareData.put("shareContent", info.courseName
-                + (info.classroom.isEmpty() ? "" : " " + info.classroom)
-                + (timeRange.isEmpty() ? "" : " " + timeRange));
-
-        // ── 岛消失超时（按阶段读取对应值）──────────
-        // 根据当前 state 选择阶段后缀："pre" / "active" / "post"
-        String phase = (state == STATE_COUNTDOWN) ? "pre"
-                 : (state == STATE_ELAPSED)   ? "active" : "post";
-        int islandToVal  = (prefs != null) ? prefs.getInt   ("to_island_val_"  + phase, -1) : -1;
-        String islandToUnit = (prefs != null) ? safeStr(prefs.getString("to_island_unit_" + phase, "m")) : "m";
-
-        JSONObject paramIsland = new JSONObject();
-        paramIsland.put("islandProperty",  1);
-        paramIsland.put("bigIslandArea",   bigIslandArea);
-        paramIsland.put("smallIslandArea", smallIslandArea);
-        paramIsland.put("shareData",       shareData);
-        if (islandToVal > 0) {
-            long islandToSecs = "m".equals(islandToUnit) ? (long) islandToVal * 60 : islandToVal;
-            paramIsland.put("islandTimeout", islandToSecs);
-            XposedBridge.log(TAG + ": islandTimeout(" + phase + ")=" + islandToSecs + "s");
-        }
-
-        // ── paramV2 ───────────────────────────────────────────────
-        String tickerText = resolveTemplate(
-                getStagedPref(prefs, "tpl_ticker", stageSuffix),
-                info, buildTickerText(info));
-        JSONObject paramV2 = new JSONObject();
-        paramV2.put("protocol",    1);
-        paramV2.put("business",    "course_schedule");
-        paramV2.put("updatable",   true);
-        paramV2.put("colorScheme", 0); // 0 = 自动适配，状态栏自动反色
-        paramV2.put("ticker",      tickerText);
-        paramV2.put("aodTitle",    tickerText);
-        if (isActive) {
-            paramV2.put("islandFirstFloat", true);
-            paramV2.put("enableFloat",      true);
-        } else {
-            paramV2.put("enableFloat", false);
-        }
-        paramV2.put("baseInfo",     baseInfo);
-        paramV2.put("picInfo",      notifPicInfo);
-        paramV2.put("hintInfo",     hintInfo);
-        paramV2.put("param_island", paramIsland);
-        // 注意：param_v2.timeout 字段在实测中无效，通知消失改由 scheduleNotifCancelAlarms
-        // 在 injectIslandParams 时通过 AlarmManager + nm.cancel() 实现。
-
-        JSONObject root = new JSONObject();
-        root.put("param_v2", paramV2);
-        return root.toString();
     }
 
-    /** 状态栏 / 息屏文案兜底（getStagedPref 已优先返回 DEFAULT_TPLS，此方法为最后保底） */
     private String buildTickerText(CourseInfo info) {
         return (info.startTime.isEmpty() ? info.courseName : info.startTime + "上课");
     }

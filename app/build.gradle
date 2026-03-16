@@ -102,7 +102,7 @@ if (isReleaseBuild && releaseVersion) {
 
 android {
     namespace 'com.xiaoai.islandnotify'
-    compileSdk 35
+    compileSdk 36
     
     // 添加构建配置来解决output-metadata.json问题
     buildFeatures {
@@ -113,7 +113,7 @@ android {
         applicationId "com.xiaoai.islandnotify"
         // 小米超级岛(OS3)最低需要MIUI14+，Android 12+
         minSdk 31
-        targetSdk 35
+        targetSdk 36
         versionCode vCode
         versionName vName  // 使用纯数字版本号
     }
@@ -211,6 +211,7 @@ afterEvaluate {
 dependencies {
     // XposedBridge API，仅编译时依赖，运行时由 LSPosed 框架注入
     compileOnly fileTree(dir: 'libs', include: ['*.jar'])
+    implementation 'com.xzakota.hyper.notification:focus-api:1.4'
 
     // UI：Material Design 3 + AppCompat
     implementation 'androidx.appcompat:appcompat:1.7.0'
