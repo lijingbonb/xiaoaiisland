@@ -30,13 +30,13 @@ import com.xzakota.hyper.notification.island.template.IslandTemplate;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import de.robv.android.xposed.IXposedHookLoadPackage;
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
-import de.robv.android.xposed.callbacks.XC_LoadPackage;
+import com.xiaoai.islandnotify.modernhook.IXposedHookLoadPackage;
+import com.xiaoai.islandnotify.modernhook.XC_MethodHook;
+import com.xiaoai.islandnotify.modernhook.XposedBridge;
+import com.xiaoai.islandnotify.modernhook.XposedHelpers;
+import com.xiaoai.islandnotify.modernhook.callbacks.XC_LoadPackage;
 
-import static de.robv.android.xposed.XposedHelpers.findAndHookMethod;
+import static com.xiaoai.islandnotify.modernhook.XposedHelpers.findAndHookMethod;
 
 /**
  * LSPosed 主 Hook 类
@@ -2310,8 +2310,8 @@ public class MainHook implements IXposedHookLoadPackage {
         }
         // 回退：XSharedPreferences（首次吏未同步时）
         try {
-            de.robv.android.xposed.XSharedPreferences prefs =
-                    new de.robv.android.xposed.XSharedPreferences(MODULE_PKG, PREFS_NAME);
+            com.xiaoai.islandnotify.modernhook.XSharedPreferences prefs =
+                    new com.xiaoai.islandnotify.modernhook.XSharedPreferences(MODULE_PKG, PREFS_NAME);
             prefs.reload();
             XposedBridge.log(TAG + ": XSharedPreferences 加载，条目数=" + prefs.getAll().size());
             return prefs;

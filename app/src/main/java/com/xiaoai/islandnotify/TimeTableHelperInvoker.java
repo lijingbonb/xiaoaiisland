@@ -5,7 +5,7 @@ import android.content.SharedPreferences;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Enumeration;
-import de.robv.android.xposed.XposedBridge;
+import com.xiaoai.islandnotify.modernhook.XposedBridge;
 
 /**
  * 动态定位并调用小爱同学内部的 TimeTableHelper.downCourseInfoData。

@@ -61,9 +61,11 @@
 
 ### 依赖准备
 
-将 XposedBridge API jar（`api-82.jar`）放到 `app/libs/` 目录（不提交到 Git）。
+项目已迁移到 `libxposed` API 101：
 
-可从 [LSPosed/lsposed releases](https://github.com/LSPosed/LSPosed/releases) 提取，或使用 rovo89 的 [XposedBridge](https://github.com/rovo89/XposedBridge/releases)。
+- `compileOnly("io.github.libxposed:api:101.0.0")`
+
+无需再手动放置 `api-82.jar`。
 
 ### 构建命令
 

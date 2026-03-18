@@ -13,12 +13,12 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
-import de.robv.android.xposed.IXposedHookLoadPackage;
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.callbacks.XC_LoadPackage;
+import com.xiaoai.islandnotify.modernhook.IXposedHookLoadPackage;
+import com.xiaoai.islandnotify.modernhook.XC_MethodHook;
+import com.xiaoai.islandnotify.modernhook.XposedBridge;
+import com.xiaoai.islandnotify.modernhook.callbacks.XC_LoadPackage;
 
-import static de.robv.android.xposed.XposedHelpers.findAndHookMethod;
+import static com.xiaoai.islandnotify.modernhook.XposedHelpers.findAndHookMethod;
 
 /**
  * Hook 原生时钟应用（com.android.deskclock），

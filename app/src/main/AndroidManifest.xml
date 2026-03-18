@@ -11,29 +11,6 @@
         android:allowBackup="false"
         android:theme="@style/Theme.XiaoaiIsland">
 
-        <!-- 声明这是一个 Xposed/LSPosed 模块 -->
-        <meta-data
-            android:name="xposedmodule"
-            android:value="true" />
-
-        <!-- 模块描述 -->
-        <meta-data
-            android:name="xposeddescription"
-            android:value="将小爱同学课程表提醒通知转为小米超级岛通知" />
-
-        <!-- 最低 Xposed API 版本 -->
-        <meta-data
-            android:name="xposedminversion"
-            android:value="82" />
-
-        <!--
-            LSPosed 作用域声明（仅注入目标包名进程）
-            也可在 LSPosed 管理器中手动勾选作用域
-        -->
-        <meta-data
-            android:name="xposedscope"
-            android:value="com.miui.voiceassist;com.android.deskclock" />
-
         <!-- 模块主界面（MODULE_SETTINGS 供 LSPosed 打开，与桌面图标无关） -->
         <activity
             android:name=".MainActivity"

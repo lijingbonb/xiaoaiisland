@@ -165,7 +165,8 @@ public class MainActivity extends AppCompatActivity {
      * 根据模块是否激活，设置状态卡片的颜色、图标和文字。
      */
     private void updateModuleStatus() {
-        boolean active = isModuleActive();
+        boolean active = getSharedPreferences("island_app_state", Context.MODE_PRIVATE)
+                .getBoolean("host_reply_seen", false);
 
         MaterialCardView card = findViewById(R.id.card_status);
         ImageView icon = findViewById(R.id.iv_status);
@@ -202,15 +203,24 @@ public class MainActivity extends AppCompatActivity {
     private static final String ACTION_REPLY_PREFS = "com.xiaoai.islandnotify.ACTION_REPLY_PREFS";
 
     private void initSyncWithHost() {
-        // 使用独立的“APP内部状态”SP，不与配置 SP 混用，确保重装后重置且不被同步到宿主
         SharedPreferences appState = getSharedPreferences("island_app_state", Context.MODE_PRIVATE);
-        if (appState.getBoolean("config_synced_from_host", false)) return;
+        appState.edit().putBoolean("host_reply_seen", false).apply();
+        updateModuleStatus();
+        final boolean shouldImportConfig = !appState.getBoolean("config_synced_from_host", false);
 
         IntentFilter filter = new IntentFilter(ACTION_REPLY_PREFS);
         BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 if (ACTION_REPLY_PREFS.equals(intent.getAction())) {
+                    SharedPreferences appState = getSharedPreferences("island_app_state", Context.MODE_PRIVATE);
+                    appState.edit().putBoolean("host_reply_seen", true).apply();
+                    runOnUiThread(MainActivity.this::updateModuleStatus);
+
+                    if (!shouldImportConfig) {
+                        return;
+                    }
+
                     SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
                     SharedPreferences.Editor ed = sp.edit();
                     Bundle extras = intent.getExtras();
@@ -237,12 +247,8 @@ public class MainActivity extends AppCompatActivity {
                         }
                         ed.apply();
                         if (hasHoliday) hEd.apply();
-                        // 标记已同步，下次启动不再广播
-                        getSharedPreferences("island_app_state", Context.MODE_PRIVATE)
-                                .edit().putBoolean("config_synced_from_host", true).apply();
-
+                        appState.edit().putBoolean("config_synced_from_host", true).apply();
                         runOnUiThread(MainActivity.this::recreate);
-                            // 重新初始化所有卡片以反映最新 SP 值
                     }
                 }
             }
@@ -1885,10 +1891,8 @@ public class MainActivity extends AppCompatActivity {
     // ─────────────────────────────────────────────────────────────
 
     /**
-     * 此方法默认返回 false。
-     * 当模块在 LSPosed 中激活并注入本进程后，
-     * MainHook#hookSelfStatus 会将此方法的返回值替换为 true，
-     * 从而让界面正确显示「模块已激活」状态。
+     * 旧版 API 82 时代用于自 Hook 检测激活状态。
+     * modern API 101 不再 Hook 模块自己的 App 进程，状态改由宿主回包判断。
      */
     public static boolean isModuleActive() {
         return false;

@@ -8,7 +8,7 @@ import java.lang.reflect.Method;
 import java.util.Enumeration;
 import java.util.Map;
 
-import de.robv.android.xposed.XposedBridge;
+import com.xiaoai.islandnotify.modernhook.XposedBridge;
 
 /**
  * 动态定位并调用小爱同学（com.xiaomi.voiceassistant）内部的 SettingsUtil 工具类。

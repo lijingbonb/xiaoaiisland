@@ -2,5 +2,8 @@
 -keep class com.xiaoai.islandnotify.** { *; }
 -keepclassmembers class com.xiaoai.islandnotify.** { *; }
 
-# 保留 Xposed API
--keep class de.robv.android.xposed.** { *; }
+# 保留 modern Xposed API 与兼容桥
+-keep class io.github.libxposed.** { *; }
+-keep class com.xiaoai.islandnotify.modernhook.** { *; }
+-keep class com.xiaoai.islandnotify.ModuleEntry { *; }
+-adaptresourcefilecontents META-INF/xposed/java_init.list
