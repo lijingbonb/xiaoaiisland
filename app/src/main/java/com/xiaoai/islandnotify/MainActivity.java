@@ -202,6 +202,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** SharedPreferences 名称（与 MainHook 保持一致） */
     static final String PREFS_NAME = "island_custom";
+    private static final String KEY_REPOST_ENABLED = "repost_enabled";
 
     private static final String ACTION_QUERY_PREFS = "com.xiaoai.islandnotify.ACTION_QUERY_PREFS";
     private static final String ACTION_REPLY_PREFS = "com.xiaoai.islandnotify.ACTION_REPLY_PREFS";
@@ -832,6 +833,7 @@ public class MainActivity extends AppCompatActivity {
         SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
 
         SwitchMaterial swMute        = findViewById(R.id.sw_mute_enabled);
+        SwitchMaterial swRepost      = findViewById(R.id.sw_repost_enabled);
         View           llMute        = findViewById(R.id.ll_mute_content);
         EditText       etMuteBefore  = findViewById(R.id.et_mute_mins_before);
         SwitchMaterial swUnmute      = findViewById(R.id.sw_unmute_enabled);
@@ -846,6 +848,8 @@ public class MainActivity extends AppCompatActivity {
         TextView       tvMuteHint    = findViewById(R.id.tv_mute_hint);
 
         // 加载已保存状态
+        swRepost.setChecked(sp.getBoolean(KEY_REPOST_ENABLED, true));
+
         swMute.setChecked(sp.getBoolean("mute_enabled", false));
         llMute.setVisibility(swMute.isChecked() ? View.VISIBLE : View.GONE);
         etMuteBefore.setText(String.valueOf(sp.getInt("mute_mins_before", 0)));
@@ -861,6 +865,15 @@ public class MainActivity extends AppCompatActivity {
         swUnDnd.setChecked(sp.getBoolean("undnd_enabled", false));
         llUnDnd.setVisibility(swUnDnd.isChecked() ? View.VISIBLE : View.GONE);
         etUnDndAfter.setText(String.valueOf(sp.getInt("undnd_mins_after", 0)));
+
+        // 全局补发开关
+        swRepost.setOnCheckedChangeListener((btn, checked) -> {
+            sp.edit().putBoolean(KEY_REPOST_ENABLED, checked).apply();
+            Intent sync = new Intent("com.xiaoai.islandnotify.ACTION_SYNC_PREFS");
+            sync.setPackage("com.miui.voiceassist");
+            sync.putExtra(KEY_REPOST_ENABLED, checked);
+            sendBroadcast(sync);
+        });
 
         // 静音开关
         swMute.setOnCheckedChangeListener((btn, checked) -> {

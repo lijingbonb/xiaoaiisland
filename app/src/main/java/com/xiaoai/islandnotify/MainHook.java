@@ -135,6 +135,7 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final String KEY_DND_MINS_BEFORE       = "dnd_mins_before";    // 上课前多少分钟开启勿扰
     private static final String KEY_UNDND_ENABLED         = "undnd_enabled";      // 下课自动关闭勿扰
     private static final String KEY_UNDND_MINS_AFTER      = "undnd_mins_after";   // 下课后多少分钟关闭勿扰
+    private static final String KEY_REPOST_ENABLED         = "repost_enabled";     // 全局补发开关（通知/静音/勿扰）
     private static final int    DEFAULT_MUTE_MINS_BEFORE  = 0;
     private static final int    DEFAULT_UNMUTE_MINS_AFTER = 0;
     private static final int    DEFAULT_DND_MINS_BEFORE   = 0;
@@ -162,6 +163,8 @@ public class MainHook implements IXposedHookLoadPackage {
     /** 自动叫醒功能开关 */
     private static volatile boolean sWakeupMorningEnabled   = false;
     private static volatile boolean sWakeupAfternoonEnabled = false;
+    /** 全局补发开关：控制通知补发与课中即时静音/勿扰 */
+    private static volatile boolean sRepostEnabled = true;
     /** 超级岛按钮功能模式：0=仅静音, 1=仅勿扰, 2=两者 */
     private static volatile int sIslandButtonMode = 2;
     /** 已调度的静音/取消静音 alarm reqCode 集合，用于批量取消 */
@@ -338,6 +341,8 @@ public class MainHook implements IXposedHookLoadPackage {
                                 ed.putInt(KEY_WAKEUP_AFTERNOON_FIRST_SEC, intent.getIntExtra(KEY_WAKEUP_AFTERNOON_FIRST_SEC, DEFAULT_WAKEUP_AFTERNOON_FIRST_SEC));
                             if (intent.hasExtra(KEY_WAKEUP_AFTERNOON_RULES_JSON))
                                 ed.putString(KEY_WAKEUP_AFTERNOON_RULES_JSON, intent.getStringExtra(KEY_WAKEUP_AFTERNOON_RULES_JSON));
+                            if (intent.hasExtra(KEY_REPOST_ENABLED))
+                                ed.putBoolean(KEY_REPOST_ENABLED, intent.getBooleanExtra(KEY_REPOST_ENABLED, true));
                             if (intent.hasExtra("island_button_mode")) {
                                 ed.putInt("island_button_mode", intent.getIntExtra("island_button_mode", 2));
                             }
@@ -367,6 +372,8 @@ public class MainHook implements IXposedHookLoadPackage {
                                 sWakeupMorningEnabled   = intent.getBooleanExtra(KEY_WAKEUP_MORNING_ENABLED, false);
                             if (intent.hasExtra(KEY_WAKEUP_AFTERNOON_ENABLED))
                                 sWakeupAfternoonEnabled = intent.getBooleanExtra(KEY_WAKEUP_AFTERNOON_ENABLED, false);
+                            if (intent.hasExtra(KEY_REPOST_ENABLED))
+                                sRepostEnabled = intent.getBooleanExtra(KEY_REPOST_ENABLED, true);
                             if (intent.hasExtra("island_button_mode"))
                                 sIslandButtonMode = intent.getIntExtra("island_button_mode", 2);
                             // 提醒分钟数或静音参数变化时重新调度
@@ -717,6 +724,7 @@ public class MainHook implements IXposedHookLoadPackage {
                             sUnDndEnabled  = dp.getBoolean(KEY_UNDND_ENABLED,  false);
                             sWakeupMorningEnabled   = dp.getBoolean(KEY_WAKEUP_MORNING_ENABLED,   false);
                             sWakeupAfternoonEnabled = dp.getBoolean(KEY_WAKEUP_AFTERNOON_ENABLED, false);
+                            sRepostEnabled = dp.getBoolean(KEY_REPOST_ENABLED, true);
                             sIslandButtonMode = dp.getInt("island_button_mode", 0);
                             
                             safeReschedule(context, "island_reschedule_daily", true);
@@ -751,6 +759,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 sUnDndEnabled           = initPrefs.getBoolean(KEY_UNDND_ENABLED,             false);
                 sWakeupMorningEnabled   = initPrefs.getBoolean(KEY_WAKEUP_MORNING_ENABLED,    false);
                 sWakeupAfternoonEnabled = initPrefs.getBoolean(KEY_WAKEUP_AFTERNOON_ENABLED,  false);
+                sRepostEnabled          = initPrefs.getBoolean(KEY_REPOST_ENABLED,             true);
                 sIslandButtonMode       = initPrefs.getInt    ("island_button_mode",           0);
                 // 加载持久化的闹钟 ID
                 mScheduledAlarmIds.addAll(loadScheduledIds(appCtx, "scheduled_alarm_ids"));
@@ -1048,7 +1057,7 @@ public class MainHook implements IXposedHookLoadPackage {
 
                 if (triggerMs <= nowMs) {
                     // 在提醒窗口内或课程进行中（含进程重启场景）→ 立即补发通知
-                    if (nowMs < endMs && !skipRepost) {
+                    if (nowMs < endMs && !skipRepost && sRepostEnabled) {
                         // 检查通知栏是否已有同 ID 通知，避免重复补发导致岛重新弹出
                         android.app.NotificationManager repostNm =
                                 ctx.getSystemService(android.app.NotificationManager.class);
@@ -1531,7 +1540,7 @@ public class MainHook implements IXposedHookLoadPackage {
 
                 if (sMuteEnabled) {
                     long muteTriggerMs = startMs - (long) muteMinsBefore * 60_000L;
-                    if (muteTriggerMs <= nowMs && nowMs < endMs && !skipImmediate) {
+                    if (muteTriggerMs <= nowMs && nowMs < endMs && !skipImmediate && sRepostEnabled) {
                         // 已在课中且静音时刻已过 → 仅在未静音时立即静音
                         AudioManager audioMgr = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
                         if (audioMgr != null && audioMgr.getRingerMode() != AudioManager.RINGER_MODE_SILENT) {
@@ -1553,7 +1562,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 }
                 if (sDndEnabled) {
                     long dndTriggerMs = startMs - (long) dndMinsBefore * 60_000L;
-                    if (dndTriggerMs <= nowMs && nowMs < endMs && !skipImmediate) {
+                    if (dndTriggerMs <= nowMs && nowMs < endMs && !skipImmediate && sRepostEnabled) {
                         // 已在课中 → 仅在勿扰未开启时才设置
                         android.app.NotificationManager dndNm =
                                 ctx.getSystemService(android.app.NotificationManager.class);
