@@ -136,6 +136,8 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final String KEY_UNDND_ENABLED         = "undnd_enabled";      // 下课自动关闭勿扰
     private static final String KEY_UNDND_MINS_AFTER      = "undnd_mins_after";   // 下课后多少分钟关闭勿扰
     private static final String KEY_REPOST_ENABLED         = "repost_enabled";     // 全局补发开关（通知/静音/勿扰）
+    /** 上次执行“跨日重调”的日期标记（year*1000 + dayOfYear） */
+    private static final String KEY_LAST_DAILY_RESCHEDULE_DAY = "last_daily_reschedule_day";
     private static final int    DEFAULT_MUTE_MINS_BEFORE  = 0;
     private static final int    DEFAULT_UNMUTE_MINS_AFTER = 0;
     private static final int    DEFAULT_DND_MINS_BEFORE   = 0;
@@ -726,7 +728,7 @@ public class MainHook implements IXposedHookLoadPackage {
                             sWakeupAfternoonEnabled = dp.getBoolean(KEY_WAKEUP_AFTERNOON_ENABLED, false);
                             sRepostEnabled = dp.getBoolean(KEY_REPOST_ENABLED, true);
                             sIslandButtonMode = dp.getInt("island_button_mode", 0);
-                            
+                            markDailyRescheduleRun(context);
                             safeReschedule(context, "island_reschedule_daily", true);
                         } else if (ACTION_NOTIF_CANCEL.equals(intent.getAction())) {
                             // AlarmClock 触发通知定时取消
@@ -767,8 +769,11 @@ public class MainHook implements IXposedHookLoadPackage {
                 scheduleTodayWakeupAlarms(appCtx);
                 // 启动 CourseData 监听
                 registerCourseDataListener(appCtx);
-                // 启动时执行主动更新与重调度，确保进程重启后数据也是最新的
-                safeReschedule(appCtx, "island_startup", true);
+                // 启动时先检查是否错过了 00:01 跨日重调（例如关机跨日）；若错过则补触发一次主动更新
+                boolean recovered = tryRecoverMissedDailyReschedule(appCtx);
+                if (!recovered) {
+                    safeReschedule(appCtx, "island_startup", false);
+                }
                 // 初始化课表内容哈希，确保 FileObserver 首次触发时能正确跳过未实质变动的写入。
                 try {
                     @SuppressWarnings("deprecation")
@@ -879,6 +884,56 @@ public class MainHook implements IXposedHookLoadPackage {
                 scheduleMidnightReschedule(context);
             }
         }, 5000);
+    }
+
+    /** 将“跨日重调已执行”持久化为今天，供启动时漏触发补偿判断。 */
+    private void markDailyRescheduleRun(Context context) {
+        try {
+            int today = getTodayDayMarker();
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .putInt(KEY_LAST_DAILY_RESCHEDULE_DAY, today)
+                    .apply();
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * 若 00:01 跨日重调因关机/宿主未运行而漏触发，则在宿主启动时补触发一次。
+     * 返回 true 表示已执行补偿重调（含主动更新），false 表示无需补偿。
+     */
+    private boolean tryRecoverMissedDailyReschedule(Context context) {
+        try {
+            SharedPreferences sp = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            int today = getTodayDayMarker();
+            int last  = sp.getInt(KEY_LAST_DAILY_RESCHEDULE_DAY, -1);
+            if (last < 0) {
+                sp.edit().putInt(KEY_LAST_DAILY_RESCHEDULE_DAY, today).apply();
+                return false;
+            }
+            if (last == today) {
+                return false;
+            }
+            if (last > today) {
+                // 用户手动回拨日期或时区变化，重置标记但不触发主动更新
+                sp.edit().putInt(KEY_LAST_DAILY_RESCHEDULE_DAY, today).apply();
+                return false;
+            }
+            XposedBridge.log(TAG + ": 检测到错过跨日重调，执行补偿（last=" + last + ", today=" + today + ")");
+            sp.edit().putInt(KEY_LAST_DAILY_RESCHEDULE_DAY, today).apply();
+            safeReschedule(context, "island_reschedule_daily", true);
+            return true;
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": 漏触发补偿检查失败 -> " + t.getMessage());
+            return false;
+        }
+    }
+
+    /** 生成“今天”标记值：year*1000 + dayOfYear，跨年可比较且无需字符串解析。 */
+    private int getTodayDayMarker() {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        int year = cal.get(java.util.Calendar.YEAR);
+        int dayOfYear = cal.get(java.util.Calendar.DAY_OF_YEAR);
+        return year * 1000 + dayOfYear;
     }
 
     /**
