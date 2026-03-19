@@ -1242,16 +1242,27 @@ public class MainActivity extends AppCompatActivity {
         sv.addView(tv, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Debug")
                 .setView(sv)
                 .setNeutralButton("刷新", (d, w) -> {
-                    requestRuntimeDebugRefresh();
-                    tv.setText(buildDebugInfoText());
+                    // 占位，真实刷新逻辑在 show() 后覆写点击事件，避免自动 dismiss
                 })
                 .setPositiveButton("复制", (d, w) -> copyDebugInfo(tv.getText() == null ? "" : tv.getText().toString()))
                 .setNegativeButton("关闭", null)
-                .show();
+                .create();
+
+        dialog.show();
+        android.widget.Button btnRefresh = dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
+        if (btnRefresh != null) {
+            btnRefresh.setOnClickListener(v -> {
+                requestRuntimeDebugRefresh();
+                tv.setText(buildDebugInfoText());
+                Handler h2 = new Handler(Looper.getMainLooper());
+                h2.postDelayed(() -> tv.setText(buildDebugInfoText()), 500);
+                h2.postDelayed(() -> tv.setText(buildDebugInfoText()), 1200);
+            });
+        }
 
         // 打开时先触发一次运行态刷新，再异步回填，避免首次打开看到空缓存。
         requestRuntimeDebugRefresh();
