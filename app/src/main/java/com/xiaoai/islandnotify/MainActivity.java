@@ -2,16 +2,12 @@ package com.xiaoai.islandnotify;
 
 import android.app.AlertDialog;
 import android.app.DatePickerDialog;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
-import android.os.Handler;
-import android.os.Looper;
 import android.util.Log;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -82,7 +78,6 @@ public class MainActivity extends AppCompatActivity {
     private volatile XposedService mXposedService;
     private volatile SharedPreferences mRemotePrefs;
     private volatile SharedPreferences mRemoteHolidayPrefs;
-    private volatile SharedPreferences mRemoteDebugPrefs;
     private SharedPreferences.OnSharedPreferenceChangeListener mLocalPrefMirrorListener;
     private SharedPreferences.OnSharedPreferenceChangeListener mLocalHolidayMirrorListener;
     private volatile boolean mScopeRequested = false;
@@ -218,7 +213,6 @@ public class MainActivity extends AppCompatActivity {
                 mXposedService = null;
                 mRemotePrefs = null;
                 mRemoteHolidayPrefs = null;
-                mRemoteDebugPrefs = null;
                 mScopeRequested = false;
                 mFrameworkActive = false;
                 mFrameworkDesc = "";
@@ -231,8 +225,6 @@ public class MainActivity extends AppCompatActivity {
         try {
             SharedPreferences remote = service.getRemotePreferences(PREFS_NAME);
             mRemotePrefs = remote;
-            SharedPreferences remoteDebug = service.getRemotePreferences(PREFS_DEBUG_NAME);
-            mRemoteDebugPrefs = remoteDebug;
 
             SharedPreferences local = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
             migrateLegacyConfigOnce(remote);
@@ -313,8 +305,6 @@ public class MainActivity extends AppCompatActivity {
         try {
             SharedPreferences remote = service.getRemotePreferences(PREFS_NAME);
             mRemotePrefs = remote;
-            SharedPreferences remoteDebug = service.getRemotePreferences(PREFS_DEBUG_NAME);
-            mRemoteDebugPrefs = remoteDebug;
 
             SharedPreferences local = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
             migrateLegacyConfigOnce(remote);
@@ -613,7 +603,6 @@ public class MainActivity extends AppCompatActivity {
 
     /** SharedPreferences 名称（与 MainHook 保持一致） */
     static final String PREFS_NAME = "island_custom";
-    static final String PREFS_DEBUG_NAME = "island_debug";
     private static final String KEY_REPOST_ENABLED = "repost_enabled";
 
     private void initCustomCard() {
@@ -1448,238 +1437,6 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        View debugRow = findViewById(R.id.row_debug);
-        if (debugRow != null) {
-            debugRow.setOnClickListener(v -> showDebugDialog());
-        }
-    }
-
-    private void showDebugDialog() {
-        TextView tv = new TextView(this);
-        int p = dpToPx(16);
-        tv.setPadding(p, p, p, p);
-        tv.setTextIsSelectable(true);
-        tv.setText(buildDebugInfoText());
-        tv.setTypeface(android.graphics.Typeface.MONOSPACE);
-        tv.setTextSize(12f);
-        tv.setVerticalScrollBarEnabled(true);
-
-        androidx.core.widget.NestedScrollView sv = new androidx.core.widget.NestedScrollView(this);
-        sv.addView(tv, new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("Debug")
-                .setView(sv)
-                .setNeutralButton("刷新", (d, w) -> {
-                    // 占位，真实刷新逻辑在 show() 后覆写点击事件，避免自动 dismiss
-                })
-                .setPositiveButton("复制", (d, w) -> copyDebugInfo(tv.getText() == null ? "" : tv.getText().toString()))
-                .setNegativeButton("关闭", null)
-                .create();
-
-        dialog.show();
-        android.widget.Button btnRefresh = dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
-        if (btnRefresh != null) {
-            btnRefresh.setOnClickListener(v -> {
-                requestRuntimeDebugRefresh();
-                tv.setText(buildDebugInfoText());
-                Handler h2 = new Handler(Looper.getMainLooper());
-                h2.postDelayed(() -> tv.setText(buildDebugInfoText()), 500);
-                h2.postDelayed(() -> tv.setText(buildDebugInfoText()), 1200);
-            });
-        }
-
-        // 打开时先触发一次运行态刷新，再异步回填，避免首次打开看到空缓存。
-        requestRuntimeDebugRefresh();
-        Handler h = new Handler(Looper.getMainLooper());
-        h.postDelayed(() -> tv.setText(buildDebugInfoText()), 500);
-        h.postDelayed(() -> tv.setText(buildDebugInfoText()), 1200);
-    }
-
-    private void requestRuntimeDebugRefresh() {
-        try {
-            Intent i = new Intent(ACTION_RESCHEDULE_DAILY);
-            i.setPackage(TARGET_VOICEASSIST);
-            sendBroadcast(i);
-        } catch (Throwable ignored) {}
-    }
-
-    private void copyDebugInfo(String content) {
-        try {
-            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            if (cm != null) {
-                cm.setPrimaryClip(ClipData.newPlainText("IslandNotify Debug", content));
-                Toast.makeText(this, "Debug 信息已复制", Toast.LENGTH_SHORT).show();
-            }
-        } catch (Throwable t) {
-            Toast.makeText(this, "复制失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private String buildDebugInfoText() {
-        SharedPreferences local = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        SharedPreferences runtime = getSharedPreferences(PREFS_RUNTIME_NAME, Context.MODE_PRIVATE);
-        SharedPreferences remote = mRemotePrefs;
-        SharedPreferences localDebug = getSharedPreferences(PREFS_DEBUG_NAME, Context.MODE_PRIVATE);
-        SharedPreferences remoteDebug = mRemoteDebugPrefs;
-        SharedPreferences debug = pickDebugPrefs(localDebug, remoteDebug);
-        String debugSource = (debug == remoteDebug) ? "remote_debug" : "local_debug";
-        SharedPreferences holidayLocal = getSharedPreferences(HolidayManager.PREFS_HOLIDAY, Context.MODE_PRIVATE);
-        SharedPreferences holidayRemote = mRemoteHolidayPrefs;
-        Set<String> scope = new HashSet<>();
-        try {
-            if (mXposedService != null) {
-                scope.addAll(mXposedService.getScope());
-            }
-        } catch (Throwable ignored) {}
-
-        int year = Calendar.getInstance().get(Calendar.YEAR);
-        String holidayListJson = holidayLocal.getString("list_" + year, "");
-
-        StringBuilder sb = new StringBuilder(1280);
-        sb.append("生成时间：").append(new Date()).append('\n');
-        sb.append('\n');
-
-        sb.append("【模块状态】").append('\n');
-        sb.append("模块版本：").append(getAppVersionName()).append('\n');
-        sb.append("框架已连接：").append(boolCn(mFrameworkActive)).append('\n');
-        sb.append("Service 已绑定：").append(boolCn(mXposedService != null)).append('\n');
-        sb.append("框架信息：").append(mFrameworkDesc == null ? "" : mFrameworkDesc.replace('\n', ' ')).append('\n');
-        sb.append('\n');
-
-        sb.append("【宿主与作用域】").append('\n');
-        sb.append("超级小爱版本：").append(getTargetVersion(TARGET_VOICEASSIST)).append('\n');
-        sb.append("时钟版本：").append(getTargetVersion(TARGET_DESKCLOCK)).append('\n');
-        sb.append("已授权作用域(超级小爱)：").append(boolCn(scope.contains(TARGET_VOICEASSIST))).append('\n');
-        sb.append("已授权作用域(时钟)：").append(boolCn(scope.contains(TARGET_DESKCLOCK))).append('\n');
-        sb.append('\n');
-
-        sb.append("【配置同步】").append('\n');
-        sb.append("本地配置条目数：").append(local.getAll().size()).append('\n');
-        sb.append("远程配置条目数：").append(remote != null ? remote.getAll().size() : -1).append('\n');
-        sb.append("运行态数据源：").append(debugSource).append('\n');
-        sb.append("运行态字段命中：").append(countDebugSignals(debug)).append('\n');
-        sb.append("本地 Debug 条目数：").append(localDebug.getAll().size()).append('\n');
-        sb.append("远程 Debug 条目数：").append(remoteDebug != null ? remoteDebug.getAll().size() : -1).append('\n');
-        sb.append("本地节假日条目数：").append(holidayLocal.getAll().size()).append('\n');
-        sb.append("远程节假日条目数：").append(holidayRemote != null ? holidayRemote.getAll().size() : -1).append('\n');
-        sb.append('\n');
-
-        sb.append("【功能开关】").append('\n');
-        sb.append("提醒提前分钟：").append(local.getInt("reminder_minutes_before", 15)).append('\n');
-        sb.append("上课静音：").append(boolCn(local.getBoolean("mute_enabled", false)))
-                .append("（提前 ").append(local.getInt("mute_mins_before", 0)).append(" 分钟）").append('\n');
-        sb.append("下课恢复铃声：").append(boolCn(local.getBoolean("unmute_enabled", false)))
-                .append("（延后 ").append(local.getInt("unmute_mins_after", 0)).append(" 分钟）").append('\n');
-        sb.append("上课勿扰：").append(boolCn(local.getBoolean("dnd_enabled", false)))
-                .append("（提前 ").append(local.getInt("dnd_mins_before", 0)).append(" 分钟）").append('\n');
-        sb.append("下课关闭勿扰：").append(boolCn(local.getBoolean("undnd_enabled", false)))
-                .append("（延后 ").append(local.getInt("undnd_mins_after", 0)).append(" 分钟）").append('\n');
-        sb.append("补发机制：").append(boolCn(local.getBoolean("repost_enabled", true))).append('\n');
-        sb.append("岛按钮模式：").append(islandButtonModeText(local.getInt("island_button_mode", 0))).append('\n');
-        sb.append("上午叫醒：").append(boolCn(local.getBoolean("wakeup_morning_enabled", false))).append('\n');
-        sb.append("下午叫醒：").append(boolCn(local.getBoolean("wakeup_afternoon_enabled", false))).append('\n');
-        sb.append("岛超时配置：").append(formatTimeoutSummary(local, "island")).append('\n');
-        sb.append("通知超时配置：").append(formatTimeoutSummary(local, "notif")).append('\n');
-        sb.append('\n');
-
-        sb.append("【调度状态】").append('\n');
-        sb.append("课程总周数：").append(runtime.getInt("course_total_week", 0)).append('\n');
-        sb.append("上次跨日重调标记：").append(runtime.getInt("last_daily_reschedule_day", -1)).append('\n');
-        sb.append("今日标记：").append(getTodayMarker()).append('\n');
-        sb.append("本年节假日条目数：").append(countHolidayEntries(holidayListJson)).append('\n');
-        sb.append('\n');
-
-        String courseStatus = debug.getString("debug_course_status", "");
-        String wakeupStatus = debug.getString("debug_wakeup_status", "");
-        sb.append("【运行态诊断】").append('\n');
-        sb.append("CourseData 检查：").append(courseStatus.isEmpty() ? "暂无记录" : courseStatus).append('\n');
-        sb.append("最近课程调度：").append(formatDebugTime(debug.getLong("debug_course_last_ms", 0))).append('\n');
-        sb.append("课程数据哈希：").append(debug.getInt("debug_course_hash", 0)).append('\n');
-        sb.append("当前周次/总周数：")
-                .append(debug.getInt("debug_course_present_week", 0)).append("/")
-                .append(debug.getInt("debug_course_total_week", 0)).append('\n');
-        sb.append("课程总数/今日有效：")
-                .append(debug.getInt("debug_course_total_count", 0)).append("/")
-                .append(debug.getInt("debug_course_today_count", 0)).append('\n');
-        sb.append("课程调度错误：").append(nonEmptyOrDash(debug.getString("debug_course_error", ""))).append('\n');
-        sb.append("自动叫醒检查：").append(wakeupStatus.isEmpty() ? "暂无记录" : wakeupStatus).append('\n');
-        sb.append("最近叫醒调度：").append(formatDebugTime(debug.getLong("debug_wakeup_last_ms", 0))).append('\n');
-        sb.append("最近清空闹钟：").append(formatDebugTime(debug.getLong("debug_wakeup_clear_ms", 0))).append('\n');
-        sb.append("叫醒调度错误：").append(nonEmptyOrDash(debug.getString("debug_wakeup_error", ""))).append('\n');
-        sb.append("自动静音/勿扰检查：")
-                .append(nonEmptyOrDash(debug.getString("debug_mute_status", "暂无记录"))).append('\n');
-        sb.append("最近静音/勿扰调度：").append(formatDebugTime(debug.getLong("debug_mute_last_ms", 0))).append('\n');
-        sb.append("静音/勿扰调度数：").append(debug.getInt("debug_mute_count", 0)).append('\n');
-        sb.append("静音/勿扰调度错误：").append(nonEmptyOrDash(debug.getString("debug_mute_error", ""))).append('\n');
-        return sb.toString();
-    }
-
-    private String boolCn(boolean value) {
-        return value ? "是" : "否";
-    }
-
-    private String islandButtonModeText(int mode) {
-        if (mode == 1) return "仅勿扰 (1)";
-        if (mode == 2) return "静音+勿扰 (2)";
-        return "仅静音 (0)";
-    }
-
-    private String notifTriggerText(String phase) {
-        if ("active".equals(phase)) return "上课后";
-        if ("post".equals(phase)) return "下课后";
-        return "通知后";
-    }
-
-    private SharedPreferences pickDebugPrefs(SharedPreferences local, SharedPreferences remote) {
-        if (remote == null) return local;
-        int remoteScore = countDebugSignals(remote);
-        int localScore = countDebugSignals(local);
-        return remoteScore >= localScore ? remote : local;
-    }
-
-    private int countDebugSignals(SharedPreferences sp) {
-        if (sp == null) return 0;
-        int score = 0;
-        if (sp.getLong("debug_course_last_ms", 0) > 0) score++;
-        if (!sp.getString("debug_course_status", "").isEmpty()) score++;
-        if (sp.getLong("debug_wakeup_last_ms", 0) > 0) score++;
-        if (!sp.getString("debug_wakeup_status", "").isEmpty()) score++;
-        if (sp.getLong("debug_mute_last_ms", 0) > 0) score++;
-        if (!sp.getString("debug_mute_status", "").isEmpty()) score++;
-        return score;
-    }
-
-    private String formatTimeoutSummary(SharedPreferences sp, String prefix) {
-        if ("notif".equals(prefix)) {
-            String phase = sp.getString(KEY_NOTIF_DISMISS_TRIGGER, "pre");
-            int val = sp.getInt("to_notif_val_" + phase, -1);
-            if (val < 0) return "系统默认";
-            String unit = sp.getString("to_notif_unit_" + phase, "m");
-            String unitText = "s".equals(unit) ? "秒" : "分钟";
-            return notifTriggerText(phase) + " " + val + unitText;
-        }
-        String[] phases = {"pre", "active", "post"};
-        for (String phase : phases) {
-            int val = sp.getInt("to_" + prefix + "_val_" + phase, -1);
-            if (val >= 0) {
-                String unit = sp.getString("to_" + prefix + "_unit_" + phase, "m");
-                String unitText = "s".equals(unit) ? "秒" : "分钟";
-                return notifTriggerText(phase) + " " + val + unitText;
-            }
-        }
-        return "系统默认";
-    }
-
-    private String formatDebugTime(long ts) {
-        if (ts <= 0) return "暂无";
-        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
-        return sdf.format(new Date(ts));
-    }
-
-    private String nonEmptyOrDash(String value) {
-        return (value == null || value.isEmpty()) ? "-" : value;
     }
 
     private String getTargetVersion(String pkg) {

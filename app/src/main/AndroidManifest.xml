@@ -45,12 +45,6 @@
                 <action android:name="com.xiaoai.islandnotify.ACTION_UPDATE_TOTAL_WEEK" />
             </intent-filter>
         </receiver>
-        <receiver android:name=".DebugSyncReceiver" android:exported="true">
-            <intent-filter>
-                <action android:name="com.xiaoai.islandnotify.ACTION_DEBUG_SYNC" />
-            </intent-filter>
-        </receiver>
-
     </application>
 
 </manifest>
