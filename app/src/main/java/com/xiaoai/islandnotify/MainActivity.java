@@ -2,11 +2,9 @@ package com.xiaoai.islandnotify;
 
 import android.app.AlertDialog;
 import android.app.DatePickerDialog;
-import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -48,7 +46,10 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * 模块主界面
@@ -73,6 +74,10 @@ public class MainActivity extends AppCompatActivity {
     private TextView      mTvWorkswapEmpty;
     private volatile boolean mFrameworkActive = false;
     private volatile String mFrameworkDesc = "";
+    private volatile XposedService mXposedService;
+    private volatile SharedPreferences mRemotePrefs;
+    private SharedPreferences.OnSharedPreferenceChangeListener mLocalPrefMirrorListener;
+    private volatile boolean mScopeRequested = false;
 
     private static final String[] CUSTOM_SUFFIXES = {"_pre", "_active", "_post"};
     private static final String[] DEFAULT_TPL_A = {
@@ -157,7 +162,6 @@ public class MainActivity extends AppCompatActivity {
         initAboutSection(); // 初始化关于页面的版本信息
         setupTabs();
         initHolidayTab();
-        initSyncWithHost();
     }
 
     @Override
@@ -165,23 +169,140 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
     }
 
+    @Override
+    protected void onDestroy() {
+        SharedPreferences local = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        if (mLocalPrefMirrorListener != null) {
+            local.unregisterOnSharedPreferenceChangeListener(mLocalPrefMirrorListener);
+            mLocalPrefMirrorListener = null;
+        }
+        super.onDestroy();
+    }
+
     private void initFrameworkServiceStatus() {
         XposedServiceHelper.registerListener(new XposedServiceHelper.OnServiceListener() {
             @Override
             public void onServiceBind(XposedService service) {
+                mXposedService = service;
                 mFrameworkActive = true;
                 mFrameworkDesc = "Framework: " + service.getFrameworkName()
-                        + "  API: " + service.getApiVersion();
+                        + "\nAPI: " + service.getApiVersion()
+                        + "  Version: " + service.getFrameworkVersionCode();
+                initRemotePrefsBridge(service);
+                requestMissingScopeIfNeeded(service);
                 runOnUiThread(MainActivity.this::updateModuleStatus);
             }
 
             @Override
             public void onServiceDied(XposedService service) {
+                mXposedService = null;
+                mRemotePrefs = null;
                 mFrameworkActive = false;
                 mFrameworkDesc = "";
                 runOnUiThread(MainActivity.this::updateModuleStatus);
             }
         });
+    }
+
+    private void initRemotePrefsBridge(XposedService service) {
+        try {
+            SharedPreferences remote = service.getRemotePreferences(PREFS_NAME);
+            mRemotePrefs = remote;
+
+            SharedPreferences local = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            if (remote.getAll().isEmpty() && !local.getAll().isEmpty()) {
+                copyAllToTarget(remote, local.getAll());
+                Log.d("IslandNotify", "已将本地偏好迁移到 remote prefs");
+            }
+
+            if (mLocalPrefMirrorListener == null) {
+                mLocalPrefMirrorListener = (sp, changedKey) -> {
+                    SharedPreferences rp = mRemotePrefs;
+                    if (rp == null || changedKey == null) return;
+                    copyKeysToTarget(rp, sp, changedKey);
+                };
+                local.registerOnSharedPreferenceChangeListener(mLocalPrefMirrorListener);
+            }
+        } catch (Throwable t) {
+            Log.w("IslandNotify", "initRemotePrefsBridge failed: " + t.getMessage());
+        }
+    }
+
+    private void requestMissingScopeIfNeeded(XposedService service) {
+        if (mScopeRequested) return;
+        try {
+            List<String> required = new ArrayList<>();
+            Set<String> current = new HashSet<>(service.getScope());
+            if (!current.contains("com.miui.voiceassist")) required.add("com.miui.voiceassist");
+            if (!current.contains("com.android.deskclock")) required.add("com.android.deskclock");
+            if (required.isEmpty()) {
+                mScopeRequested = true;
+                return;
+            }
+            service.requestScope(required, new XposedService.OnScopeEventListener() {
+                @Override
+                public void onScopeRequestApproved(List<String> approved) {
+                    mScopeRequested = true;
+                    runOnUiThread(() ->
+                            Toast.makeText(MainActivity.this,
+                                    "作用域已授权: " + approved, Toast.LENGTH_SHORT).show());
+                }
+
+                @Override
+                public void onScopeRequestFailed(String message) {
+                    runOnUiThread(() ->
+                            Toast.makeText(MainActivity.this,
+                                    "作用域请求失败: " + message, Toast.LENGTH_SHORT).show());
+                }
+            });
+        } catch (Throwable t) {
+            Log.w("IslandNotify", "requestMissingScopeIfNeeded failed: " + t.getMessage());
+        }
+    }
+
+    private void copyKeysToTarget(SharedPreferences target, SharedPreferences source, String... keys) {
+        if (target == null || source == null || keys == null || keys.length == 0) return;
+        SharedPreferences.Editor ed = target.edit();
+        for (String key : keys) {
+            if (key == null) continue;
+            if (!source.contains(key)) {
+                ed.remove(key);
+                continue;
+            }
+            Object value = source.getAll().get(key);
+            putTyped(ed, key, value);
+        }
+        ed.apply();
+    }
+
+    private void copyAllToTarget(SharedPreferences target, Map<String, ?> allValues) {
+        if (target == null || allValues == null) return;
+        SharedPreferences.Editor ed = target.edit();
+        for (Map.Entry<String, ?> e : allValues.entrySet()) {
+            putTyped(ed, e.getKey(), e.getValue());
+        }
+        ed.apply();
+    }
+
+    private void putTyped(SharedPreferences.Editor ed, String key, Object value) {
+        if (ed == null || key == null) return;
+        if (value == null) {
+            ed.remove(key);
+        } else if (value instanceof String) {
+            ed.putString(key, (String) value);
+        } else if (value instanceof Integer) {
+            ed.putInt(key, (Integer) value);
+        } else if (value instanceof Boolean) {
+            ed.putBoolean(key, (Boolean) value);
+        } else if (value instanceof Long) {
+            ed.putLong(key, (Long) value);
+        } else if (value instanceof Float) {
+            ed.putFloat(key, (Float) value);
+        } else if (value instanceof Set) {
+            @SuppressWarnings("unchecked")
+            Set<String> valueSet = (Set<String>) value;
+            ed.putStringSet(key, valueSet);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -223,70 +344,6 @@ public class MainActivity extends AppCompatActivity {
     /** SharedPreferences 名称（与 MainHook 保持一致） */
     static final String PREFS_NAME = "island_custom";
     private static final String KEY_REPOST_ENABLED = "repost_enabled";
-
-    private static final String ACTION_QUERY_PREFS = "com.xiaoai.islandnotify.ACTION_QUERY_PREFS";
-    private static final String ACTION_REPLY_PREFS = "com.xiaoai.islandnotify.ACTION_REPLY_PREFS";
-    private static final String HOST_VOICEASSIST = "com.miui.voiceassist";
-
-    private void initSyncWithHost() {
-        SharedPreferences appState = getSharedPreferences("island_app_state", Context.MODE_PRIVATE);
-        final boolean shouldImportConfig = !appState.getBoolean("config_synced_from_host", false);
-
-        IntentFilter filter = new IntentFilter(ACTION_REPLY_PREFS);
-        BroadcastReceiver receiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                if (ACTION_REPLY_PREFS.equals(intent.getAction())) {
-                    if (!shouldImportConfig) {
-                        return;
-                    }
-
-                    SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-                    SharedPreferences.Editor ed = sp.edit();
-                    Bundle extras = intent.getExtras();
-                    if (extras != null) {
-                        SharedPreferences hsp = getSharedPreferences(HolidayManager.PREFS_HOLIDAY, Context.MODE_PRIVATE);
-                        SharedPreferences.Editor hEd = hsp.edit();
-                        boolean hasHoliday = false;
-
-                        for (String key : extras.keySet()) {
-                            Object v = extras.get(key);
-                            if (key.startsWith(HolidayManager.EXTRA_LIST_PREFIX)) {
-                                if (v instanceof String) {
-                                    String yr = key.substring(HolidayManager.EXTRA_LIST_PREFIX.length());
-                                    hEd.putString("list_" + yr, (String) v);
-                                    hasHoliday = true;
-                                }
-                            } else {
-                                if (v instanceof String)  ed.putString(key, (String)  v);
-                                else if (v instanceof Integer) ed.putInt   (key, (Integer) v);
-                                else if (v instanceof Boolean) ed.putBoolean(key, (Boolean) v);
-                                else if (v instanceof Long)    ed.putLong   (key, (Long)    v);
-                                else if (v instanceof Float)   ed.putFloat  (key, (Float)   v);
-                            }
-                        }
-                        ed.apply();
-                        if (hasHoliday) hEd.apply();
-                        appState.edit().putBoolean("config_synced_from_host", true).apply();
-                        runOnUiThread(MainActivity.this::recreate);
-                    }
-                }
-            }
-        };
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
-        } else {
-            registerReceiver(receiver, filter);
-        }
-
-
-        Intent query = new Intent(ACTION_QUERY_PREFS);
-        query.setPackage(HOST_VOICEASSIST);
-        sendBroadcast(query);
-        Log.d("IslandNotify", "已向宿主发起激活探测与配置查询");
-    }
-
 
     private void initCustomCard() {
         if (mCustomCardBound) {
