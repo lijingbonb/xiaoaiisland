@@ -2,8 +2,8 @@ name: Release Build & Publish
 
 on:
   push:
-    tags:
-      - "*-*"
+    branches:
+      - "**"
   workflow_dispatch:
 
 permissions:
@@ -25,6 +25,9 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: gradle
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
 
       - name: Prepare signing files
         shell: bash
@@ -60,41 +63,24 @@ jobs:
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
           echo "expected_tag=${VERSION_NAME}-${VERSION_CODE}" >> "$GITHUB_OUTPUT"
 
-      - name: Validate tag format
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Auto create tag
+        id: autotag
         shell: bash
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          EXPECTED="${{ steps.version.outputs.expected_tag }}"
-          if [ "$TAG" != "$EXPECTED" ]; then
-            echo "Tag mismatch. expected: $EXPECTED, actual: $TAG"
-            exit 1
-          fi
-
-      - name: Auto create tag (workflow_dispatch)
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
-        run: |
-          TAG="${{ steps.version.outputs.expected_tag }}"
+          BASE_TAG="${{ steps.version.outputs.expected_tag }}"
+          TAG="$BASE_TAG"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch --tags
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag already exists: $TAG"
-            exit 1
+            TAG="${BASE_TAG}-r${GITHUB_RUN_NUMBER}"
           fi
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            TAG="${BASE_TAG}-r${GITHUB_RUN_NUMBER}-a${GITHUB_RUN_ATTEMPT}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           git tag "$TAG"
           git push origin "$TAG"
-
-      - name: Resolve release tag
-        id: reltag
-        shell: bash
-        run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${{ steps.version.outputs.expected_tag }}" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Read commit message
         id: commit
@@ -116,7 +102,7 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ steps.reltag.outputs.tag }}
-          tag_name: ${{ steps.reltag.outputs.tag }}
+          name: ${{ steps.autotag.outputs.tag }}
+          tag_name: ${{ steps.autotag.outputs.tag }}
           body: ${{ steps.commit.outputs.message }}
           files: build/release/*.apk
