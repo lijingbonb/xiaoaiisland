@@ -64,20 +64,49 @@ jobs:
         id: version
         shell: bash
         run: |
-          META_FILE="build/release/output-metadata.json"
-          if [ ! -f "$META_FILE" ]; then
-            echo "output-metadata.json not found: $META_FILE"
-            exit 1
-          fi
-          VERSION_NAME=$(grep -oP '"versionName":"\K[^"]+' "$META_FILE" | head -n1)
-          VERSION_CODE=$(grep -oP '"versionCode":\K[0-9]+' "$META_FILE" | head -n1)
-          if [ -z "$VERSION_NAME" ] || [ -z "$VERSION_CODE" ]; then
-            echo "failed to parse versionName/versionCode from $META_FILE"
-            exit 1
-          fi
-          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
-          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
-          echo "expected_tag=${VERSION_NAME}-${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          candidates = [
+              Path("build/release/output-metadata.json"),
+              Path("app/build/outputs/apk/release/output-metadata.json"),
+          ]
+          if not any(p.exists() for p in candidates):
+              candidates = list(Path(".").rglob("output-metadata.json"))
+
+          target = None
+          for p in candidates:
+              s = str(p).lower().replace("\\", "/")
+              if "release" in s and ("build/release" in s or "outputs/apk/release" in s):
+                  target = p
+                  break
+          if target is None:
+              for p in candidates:
+                  s = str(p).lower().replace("\\", "/")
+                  if "release" in s:
+                      target = p
+                      break
+          if target is None:
+              raise SystemExit("output-metadata.json not found for release")
+
+          data = json.loads(target.read_text(encoding="utf-8"))
+          vc = data.get("versionCode")
+          vn = data.get("versionName")
+          if (vc is None or vn is None) and isinstance(data.get("elements"), list) and data["elements"]:
+              elem = data["elements"][0]
+              vc = elem.get("versionCode", vc)
+              vn = elem.get("versionName", vn)
+          if vc is None or vn is None:
+              raise SystemExit(f"failed to parse versionName/versionCode from {target}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"version_name={vn}\n")
+              f.write(f"version_code={vc}\n")
+              f.write(f"expected_tag={vn}-{vc}\n")
+          print(f"using metadata: {target}")
+          PY
 
       - name: Commit version.properties back to repo
         if: github.ref_type == 'branch'
@@ -120,7 +149,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-apk
-          path: build/release/*.apk
+          path: |
+            build/release/*.apk
+            app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -129,4 +160,6 @@ jobs:
           name: ${{ steps.autotag.outputs.tag }}
           tag_name: ${{ steps.autotag.outputs.tag }}
           body: ${{ steps.commit.outputs.message }}
-          files: build/release/*.apk
+          files: |
+            build/release/*.apk
+            app/build/outputs/apk/release/*.apk
