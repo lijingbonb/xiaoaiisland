@@ -169,7 +169,7 @@ android {
             applicationVariants.all { variant ->
                 if (variant.buildType.name == 'release') {
                     variant.outputs.all {
-                        def appName = "课程表超级岛"
+                        def appName = "courseisland"
                         def versionName = variant.versionName
                         outputFileName = "${appName}_${versionName}.apk"
                     }
@@ -183,7 +183,7 @@ android {
             applicationVariants.all { variant ->
                 if (variant.buildType.name == 'debug') {
                     variant.outputs.all {
-                        def appName = "课程表超级岛"
+                        def appName = "courseisland"
                         def versionName = variant.versionName
                         outputFileName = "${appName}_${versionName}.apk"
                     }

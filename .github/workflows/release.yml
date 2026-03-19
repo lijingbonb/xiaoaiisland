@@ -1,0 +1,122 @@
+name: Release Build & Publish
+
+on:
+  push:
+    tags:
+      - "*-*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Prepare signing files
+        shell: bash
+        run: |
+          mkdir -p build/config build/signing
+          echo "${{ secrets.SIGNING_KEYSTORE_BASE64 }}" | base64 -d > build/signing/release.jks
+          cat > build/config/signing.properties <<EOF
+          storeFile=${GITHUB_WORKSPACE}/build/signing/release.jks
+          storePassword=${{ secrets.SIGNING_STORE_PASSWORD }}
+          keyAlias=${{ secrets.SIGNING_KEY_ALIAS }}
+          keyPassword=${{ secrets.SIGNING_KEY_PASSWORD }}
+          EOF
+
+      - name: Build release APK
+        run: ./gradlew --no-daemon clean assembleRelease
+
+      - name: Read release version
+        id: version
+        shell: bash
+        run: |
+          META_FILE="build/release/output-metadata.json"
+          if [ ! -f "$META_FILE" ]; then
+            echo "output-metadata.json not found: $META_FILE"
+            exit 1
+          fi
+          VERSION_NAME=$(grep -oP '"versionName":"\K[^"]+' "$META_FILE" | head -n1)
+          VERSION_CODE=$(grep -oP '"versionCode":\K[0-9]+' "$META_FILE" | head -n1)
+          if [ -z "$VERSION_NAME" ] || [ -z "$VERSION_CODE" ]; then
+            echo "failed to parse versionName/versionCode from $META_FILE"
+            exit 1
+          fi
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "expected_tag=${VERSION_NAME}-${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate tag format
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          EXPECTED="${{ steps.version.outputs.expected_tag }}"
+          if [ "$TAG" != "$EXPECTED" ]; then
+            echo "Tag mismatch. expected: $EXPECTED, actual: $TAG"
+            exit 1
+          fi
+
+      - name: Auto create tag (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          TAG="${{ steps.version.outputs.expected_tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch --tags
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag already exists: $TAG"
+            exit 1
+          fi
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Resolve release tag
+        id: reltag
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ steps.version.outputs.expected_tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Read commit message
+        id: commit
+        shell: bash
+        run: |
+          {
+            echo "message<<EOF"
+            git log -1 --pretty=%B
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk
+          path: build/release/*.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.reltag.outputs.tag }}
+          tag_name: ${{ steps.reltag.outputs.tag }}
+          body: ${{ steps.commit.outputs.message }}
+          files: build/release/*.apk
