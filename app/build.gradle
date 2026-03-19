@@ -217,6 +217,7 @@ afterEvaluate {
 dependencies {
     // libxposed API 101
     compileOnly 'io.github.libxposed:api:101.0.0'
+    implementation 'io.github.libxposed:service:101.0.0'
     implementation 'com.xzakota.hyper.notification:focus-api:1.4'
 
     // UI：Material Design 3 + AppCompat

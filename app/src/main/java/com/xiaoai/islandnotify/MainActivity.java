@@ -9,7 +9,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -41,6 +40,9 @@ import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.google.android.material.textfield.TextInputLayout;
 import com.google.android.material.tabs.TabLayout;
 
+import io.github.libxposed.service.XposedService;
+import io.github.libxposed.service.XposedServiceHelper;
+
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -69,6 +71,8 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout  mLlWorkswapList;
     private TextView      mTvHolidayEmpty;
     private TextView      mTvWorkswapEmpty;
+    private volatile boolean mFrameworkActive = false;
+    private volatile String mFrameworkDesc = "";
 
     private static final String[] CUSTOM_SUFFIXES = {"_pre", "_active", "_post"};
     private static final String[] DEFAULT_TPL_A = {
@@ -142,6 +146,7 @@ public class MainActivity extends AppCompatActivity {
             showTestHint("已发送测试通知（倒计时），请下拉通知栏查看超级岛效果");
         });
 
+        initFrameworkServiceStatus();
         updateModuleStatus();
         initCustomCard();
         initTimeoutCard();
@@ -160,16 +165,32 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
     }
 
+    private void initFrameworkServiceStatus() {
+        XposedServiceHelper.registerListener(new XposedServiceHelper.OnServiceListener() {
+            @Override
+            public void onServiceBind(XposedService service) {
+                mFrameworkActive = true;
+                mFrameworkDesc = "Framework: " + service.getFrameworkName()
+                        + "  API: " + service.getApiVersion();
+                runOnUiThread(MainActivity.this::updateModuleStatus);
+            }
+
+            @Override
+            public void onServiceDied(XposedService service) {
+                mFrameworkActive = false;
+                mFrameworkDesc = "";
+                runOnUiThread(MainActivity.this::updateModuleStatus);
+            }
+        });
+    }
+
     // ─────────────────────────────────────────────────────────────
 
     /**
      * 根据模块是否激活，设置状态卡片的颜色、图标和文字。
      */
     private void updateModuleStatus() {
-        SharedPreferences appState = getSharedPreferences("island_app_state", Context.MODE_PRIVATE);
-        boolean voiceAlive = appState.getBoolean("host_alive_voiceassist", false);
-        boolean deskAlive = appState.getBoolean("host_alive_deskclock", false);
-        boolean active = voiceAlive || deskAlive;
+        boolean active = mFrameworkActive;
 
         MaterialCardView card = findViewById(R.id.card_status);
         ImageView icon = findViewById(R.id.iv_status);
@@ -184,8 +205,7 @@ public class MainActivity extends AppCompatActivity {
             ImageViewCompat.setImageTintList(icon, ColorStateList.valueOf(onColor));
             title.setText("模块已激活");
             title.setTextColor(onColor);
-            desc.setText("超级小爱: " + (voiceAlive ? "已注入" : "未注入")
-                    + "  |  时钟: " + (deskAlive ? "已注入" : "未注入"));
+            desc.setText(mFrameworkDesc.isEmpty() ? "LSPosed Service 已连接 (API 101)" : mFrameworkDesc);
             desc.setTextColor(onColor);
         } else {
             int bg      = MaterialColors.getColor(this, com.google.android.material.R.attr.colorErrorContainer,   Color.LTGRAY);
@@ -195,7 +215,7 @@ public class MainActivity extends AppCompatActivity {
             ImageViewCompat.setImageTintList(icon, ColorStateList.valueOf(onColor));
             title.setText("模块未激活");
             title.setTextColor(onColor);
-            desc.setText("请在 LSPosed 管理器中启用，并将作用域设为超级小爱");
+            desc.setText("LSPosed Service 未连接，请检查模块启用与框架状态");
             desc.setTextColor(onColor);
         }
     }
@@ -206,41 +226,17 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String ACTION_QUERY_PREFS = "com.xiaoai.islandnotify.ACTION_QUERY_PREFS";
     private static final String ACTION_REPLY_PREFS = "com.xiaoai.islandnotify.ACTION_REPLY_PREFS";
-    private static final String ACTION_HOST_PING = "com.xiaoai.islandnotify.ACTION_HOST_PING";
-    private static final String ACTION_HOST_PONG = "com.xiaoai.islandnotify.ACTION_HOST_PONG";
-    private static final String EXTRA_HOST_PKG = "host_pkg";
     private static final String HOST_VOICEASSIST = "com.miui.voiceassist";
-    private static final String HOST_DESKCLOCK = "com.android.deskclock";
 
     private void initSyncWithHost() {
         SharedPreferences appState = getSharedPreferences("island_app_state", Context.MODE_PRIVATE);
-        appState.edit()
-                .putBoolean("host_alive_voiceassist", false)
-                .putBoolean("host_alive_deskclock", false)
-                .apply();
-        updateModuleStatus();
         final boolean shouldImportConfig = !appState.getBoolean("config_synced_from_host", false);
 
         IntentFilter filter = new IntentFilter(ACTION_REPLY_PREFS);
-        filter.addAction(ACTION_HOST_PONG);
         BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                if (ACTION_HOST_PONG.equals(intent.getAction())) {
-                    String hostPkg = intent.getStringExtra(EXTRA_HOST_PKG);
-                    SharedPreferences.Editor st = getSharedPreferences("island_app_state",
-                            Context.MODE_PRIVATE).edit();
-                    if (HOST_VOICEASSIST.equals(hostPkg)) st.putBoolean("host_alive_voiceassist", true);
-                    if (HOST_DESKCLOCK.equals(hostPkg)) st.putBoolean("host_alive_deskclock", true);
-                    st.apply();
-                    runOnUiThread(MainActivity.this::updateModuleStatus);
-                    return;
-                }
                 if (ACTION_REPLY_PREFS.equals(intent.getAction())) {
-                    SharedPreferences appState = getSharedPreferences("island_app_state", Context.MODE_PRIVATE);
-                    appState.edit().putBoolean("host_alive_voiceassist", true).apply();
-                    runOnUiThread(MainActivity.this::updateModuleStatus);
-
                     if (!shouldImportConfig) {
                         return;
                     }
@@ -284,10 +280,6 @@ public class MainActivity extends AppCompatActivity {
             registerReceiver(receiver, filter);
         }
 
-        Intent pingVoice = new Intent(ACTION_HOST_PING);
-        pingVoice.setPackage(HOST_VOICEASSIST);
-        sendBroadcast(pingVoice);
-        pingDeskClockHost();
 
         Intent query = new Intent(ACTION_QUERY_PREFS);
         query.setPackage(HOST_VOICEASSIST);
@@ -295,39 +287,6 @@ public class MainActivity extends AppCompatActivity {
         Log.d("IslandNotify", "已向宿主发起激活探测与配置查询");
     }
 
-    /**
-     * 通过轻量 ContentProvider 查询唤醒 deskclock 进程，提升双宿主探测成功率。
-     * 仅做探活预热，不读取任何真实数据。
-     */
-    private void pingDeskClockHost() {
-        tickleDeskClockLikeHost();
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            Intent pingDesk = new Intent(ACTION_HOST_PING);
-            pingDesk.setPackage(HOST_DESKCLOCK);
-            sendBroadcast(pingDesk);
-            Log.d("IslandNotify", "已向 deskclock 发起延迟探测");
-        }, 500);
-    }
-
-    /**
-     * 与 MainHook 中旧逻辑一致：先通过 CP 查询试探拉起 deskclock 进程。
-     */
-    private void tickleDeskClockLikeHost() {
-        android.database.Cursor cursor = null;
-        try {
-            Uri uri = Uri.parse("content://com.android.deskclock/alarm");
-            cursor = getContentResolver().query(uri,
-                    new String[]{"_id"},
-                    null,
-                    null,
-                    "_id LIMIT 1");
-            Log.d("IslandNotify", "[Tickle] deskclock 进程已试探触发");
-        } catch (Throwable t) {
-            Log.d("IslandNotify", "[Tickle] deskclock 试探失败（可忽略）: " + t.getMessage());
-        } finally {
-            if (cursor != null) cursor.close();
-        }
-    }
 
     private void initCustomCard() {
         if (mCustomCardBound) {
