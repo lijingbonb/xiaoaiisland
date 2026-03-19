@@ -2184,7 +2184,7 @@ public class MainHook {
     private void registerRemotePrefsListener(Context ctx) {
         try {
             com.xiaoai.islandnotify.modernhook.XSharedPreferences remote =
-                    new com.xiaoai.islandnotify.modernhook.XSharedPreferences(MODULE_PKG, PREFS_NAME);
+                    new com.xiaoai.islandnotify.modernhook.XSharedPreferences(PREFS_NAME);
             remote.reload();
             if (mRemotePrefsListener != null && mObservedRemotePrefs != null) {
                 mObservedRemotePrefs.unregisterOnSharedPreferenceChangeListener(mRemotePrefsListener);
@@ -2253,31 +2253,11 @@ public class MainHook {
      * 使用 XSharedPreferences 绕过 Android 9+ 的沙箱文件权限限制。
      * createPackageContext+MODE_PRIVATE 在 Android 9+ 会被 SELinux 拦截，无法使用。
      */
-    private SharedPreferences loadPrefs(Context ctx) {
-        // 优先读取目标进程自己的 SP（由广播同步写入，无 SELinux 问题）
-        SharedPreferences local = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        if (local.getAll().size() > 0) {
-            XposedBridge.log(TAG + ": 读取目标进程偷好设置，条目数=" + local.getAll().size());
-            return local;
-        }
-        // 回退：XSharedPreferences（首次吏未同步时）
-        try {
-            com.xiaoai.islandnotify.modernhook.XSharedPreferences prefs =
-                    new com.xiaoai.islandnotify.modernhook.XSharedPreferences(MODULE_PKG, PREFS_NAME);
-            prefs.reload();
-            XposedBridge.log(TAG + ": XSharedPreferences 加载，条目数=" + prefs.getAll().size());
-            return prefs;
-        } catch (Exception e) {
-            XposedBridge.log(TAG + ": loadPrefs 失败 → " + e.getMessage());
-            return null;
-        }
-    }
-
     private SharedPreferences loadConfigPrefsRemoteFirst(Context ctx) {
         SharedPreferences local = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         try {
             com.xiaoai.islandnotify.modernhook.XSharedPreferences remote =
-                    new com.xiaoai.islandnotify.modernhook.XSharedPreferences(MODULE_PKG, PREFS_NAME);
+                    new com.xiaoai.islandnotify.modernhook.XSharedPreferences(PREFS_NAME);
             remote.reload();
             if (!remote.getAll().isEmpty()) return remote;
         } catch (Throwable t) {

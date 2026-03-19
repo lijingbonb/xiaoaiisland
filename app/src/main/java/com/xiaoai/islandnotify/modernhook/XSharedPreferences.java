@@ -11,7 +11,7 @@ public class XSharedPreferences implements SharedPreferences {
     private final String prefFileName;
     private SharedPreferences delegate;
 
-    public XSharedPreferences(String packageName, String prefFileName) {
+    public XSharedPreferences(String prefFileName) {
         this.prefFileName = prefFileName;
         reload();
     }
