@@ -8,7 +8,7 @@ import android.content.SharedPreferences;
 public class DebugSyncReceiver extends BroadcastReceiver {
 
     private static final String ACTION_DEBUG_SYNC = "com.xiaoai.islandnotify.ACTION_DEBUG_SYNC";
-    private static final String PREFS_NAME = "island_custom";
+    private static final String PREFS_NAME = "island_debug";
     private static final String EXTRA_DEBUG_KEY = "debug_key";
     private static final String EXTRA_DEBUG_TYPE = "debug_type";
     private static final String EXTRA_DEBUG_STRING = "debug_string";
@@ -24,6 +24,7 @@ public class DebugSyncReceiver extends BroadcastReceiver {
         if (!ACTION_DEBUG_SYNC.equals(intent.getAction())) return;
         String key = intent.getStringExtra(EXTRA_DEBUG_KEY);
         if (key == null || key.isEmpty()) return;
+        if (!key.startsWith("debug_")) return;
         int type = intent.getIntExtra(EXTRA_DEBUG_TYPE, 0);
         SharedPreferences.Editor ed = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit();
         if (type == DEBUG_TYPE_STRING) {

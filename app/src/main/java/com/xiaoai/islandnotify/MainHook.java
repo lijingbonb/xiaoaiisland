@@ -79,6 +79,8 @@ public class MainHook {
 
     /** SharedPreferences 名称（与 MainActivity 保持一致） */
     private static final String PREFS_NAME = "island_custom";
+    /** 调试运行态单独存储，避免污染配置项 */
+    private static final String PREFS_DEBUG_NAME = "island_debug";
     /** 模块自身包名，用于跨进程读取 SharedPreferences */
     private static final String MODULE_PKG  = "com.xiaoai.islandnotify";
     /** 宿主 -> 模块 App 调试数据回传（remote prefs 只读时兜底） */
@@ -2263,9 +2265,9 @@ public class MainHook {
 
     private SharedPreferences getWritableDebugPrefs(Context ctx) {
         try {
-            return XposedBridge.getRemotePreferences(PREFS_NAME);
+            return XposedBridge.getRemotePreferences(PREFS_DEBUG_NAME);
         } catch (Throwable ignored) {
-            return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            return ctx.getSharedPreferences(PREFS_DEBUG_NAME, Context.MODE_PRIVATE);
         }
     }
 
@@ -2285,7 +2287,7 @@ public class MainHook {
             getWritableDebugPrefs(ctx).edit().putString(key, value == null ? "" : value).apply();
         } catch (Throwable t) {
             try {
-                ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                ctx.getSharedPreferences(PREFS_DEBUG_NAME, Context.MODE_PRIVATE)
                         .edit().putString(key, value == null ? "" : value).apply();
             } catch (Throwable ignored) {}
             sendDebugSyncBroadcast(ctx, key, DEBUG_TYPE_STRING, value == null ? "" : value, 0, 0L);
@@ -2298,7 +2300,7 @@ public class MainHook {
             getWritableDebugPrefs(ctx).edit().putInt(key, value).apply();
         } catch (Throwable t) {
             try {
-                ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                ctx.getSharedPreferences(PREFS_DEBUG_NAME, Context.MODE_PRIVATE)
                         .edit().putInt(key, value).apply();
             } catch (Throwable ignored) {}
             sendDebugSyncBroadcast(ctx, key, DEBUG_TYPE_INT, null, value, 0L);
@@ -2311,7 +2313,7 @@ public class MainHook {
             getWritableDebugPrefs(ctx).edit().putLong(key, value).apply();
         } catch (Throwable t) {
             try {
-                ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                ctx.getSharedPreferences(PREFS_DEBUG_NAME, Context.MODE_PRIVATE)
                         .edit().putLong(key, value).apply();
             } catch (Throwable ignored) {}
             sendDebugSyncBroadcast(ctx, key, DEBUG_TYPE_LONG, null, 0, value);

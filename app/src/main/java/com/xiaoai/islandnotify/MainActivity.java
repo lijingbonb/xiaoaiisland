@@ -82,6 +82,7 @@ public class MainActivity extends AppCompatActivity {
     private volatile XposedService mXposedService;
     private volatile SharedPreferences mRemotePrefs;
     private volatile SharedPreferences mRemoteHolidayPrefs;
+    private volatile SharedPreferences mRemoteDebugPrefs;
     private SharedPreferences.OnSharedPreferenceChangeListener mLocalPrefMirrorListener;
     private SharedPreferences.OnSharedPreferenceChangeListener mLocalHolidayMirrorListener;
     private volatile boolean mScopeRequested = false;
@@ -212,6 +213,8 @@ public class MainActivity extends AppCompatActivity {
                 mXposedService = null;
                 mRemotePrefs = null;
                 mRemoteHolidayPrefs = null;
+                mRemoteDebugPrefs = null;
+                mScopeRequested = false;
                 mFrameworkActive = false;
                 mFrameworkDesc = "";
                 runOnUiThread(MainActivity.this::updateModuleStatus);
@@ -223,6 +226,8 @@ public class MainActivity extends AppCompatActivity {
         try {
             SharedPreferences remote = service.getRemotePreferences(PREFS_NAME);
             mRemotePrefs = remote;
+            SharedPreferences remoteDebug = service.getRemotePreferences(PREFS_DEBUG_NAME);
+            mRemoteDebugPrefs = remoteDebug;
 
             SharedPreferences local = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
             if (remote.getAll().isEmpty() && !local.getAll().isEmpty()) {
@@ -381,6 +386,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** SharedPreferences 名称（与 MainHook 保持一致） */
     static final String PREFS_NAME = "island_custom";
+    static final String PREFS_DEBUG_NAME = "island_debug";
     private static final String KEY_REPOST_ENABLED = "repost_enabled";
 
     private void initCustomCard() {
@@ -462,8 +468,6 @@ public class MainActivity extends AppCompatActivity {
 
         mCustomCardBound = true;
 
-        // helper: perform actual save (used by confirmation)
-        
     }
 
     private void refreshCustomCardFromPrefs() {
@@ -479,32 +483,6 @@ public class MainActivity extends AppCompatActivity {
         ((SwitchMaterial) findViewById(R.id.sw_icon_a)).setChecked(sp.getBoolean("icon_a", true));
         customDirty = false;
         updateCustomDirtyIndicator();
-    }
-
-    private void doSaveCustom(SharedPreferences sp) {
-        SharedPreferences.Editor ed = sp.edit();
-        final String[] SUFFIXES = {"_pre", "_active", "_post"};
-        final int[] IDS_A      = {R.id.et_tpl_a_pre,      R.id.et_tpl_a_active,      R.id.et_tpl_a_post};
-        final int[] IDS_B      = {R.id.et_tpl_b_pre,      R.id.et_tpl_b_active,      R.id.et_tpl_b_post};
-        final int[] IDS_TICKER = {R.id.et_tpl_ticker_pre,  R.id.et_tpl_ticker_active,  R.id.et_tpl_ticker_post};
-        SwitchMaterial swIconA = findViewById(R.id.sw_icon_a);
-
-
-        for (int i = 0; i < 3; i++) {
-            String tplA      = ((EditText) findViewById(IDS_A[i])).getText().toString().trim();
-            String tplB      = ((EditText) findViewById(IDS_B[i])).getText().toString().trim();
-            String tplTicker = ((EditText) findViewById(IDS_TICKER[i])).getText().toString().trim();
-            ed.putString("tpl_a"      + SUFFIXES[i], tplA);
-            ed.putString("tpl_b"      + SUFFIXES[i], tplB);
-            ed.putString("tpl_ticker" + SUFFIXES[i], tplTicker);
-        }
-        boolean iconA = swIconA.isChecked();
-        ed.putBoolean("icon_a", iconA);
-        ed.apply();
-
-        TextView tvHint = findViewById(R.id.tv_save_hint);
-        tvHint.setText("已保存，下次通知生效");
-        tvHint.setVisibility(View.VISIBLE);
     }
 
     /**
@@ -1287,8 +1265,10 @@ public class MainActivity extends AppCompatActivity {
     private String buildDebugInfoText() {
         SharedPreferences local = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         SharedPreferences remote = mRemotePrefs;
-        SharedPreferences debug = pickDebugPrefs(local, remote);
-        String debugSource = (debug == remote) ? "remote" : "local";
+        SharedPreferences localDebug = getSharedPreferences(PREFS_DEBUG_NAME, Context.MODE_PRIVATE);
+        SharedPreferences remoteDebug = mRemoteDebugPrefs;
+        SharedPreferences debug = pickDebugPrefs(localDebug, remoteDebug);
+        String debugSource = (debug == remoteDebug) ? "remote_debug" : "local_debug";
         SharedPreferences holidayLocal = getSharedPreferences(HolidayManager.PREFS_HOLIDAY, Context.MODE_PRIVATE);
         SharedPreferences holidayRemote = mRemoteHolidayPrefs;
         Set<String> scope = new HashSet<>();
@@ -1324,6 +1304,8 @@ public class MainActivity extends AppCompatActivity {
         sb.append("远程配置条目数：").append(remote != null ? remote.getAll().size() : -1).append('\n');
         sb.append("运行态数据源：").append(debugSource).append('\n');
         sb.append("运行态字段命中：").append(countDebugSignals(debug)).append('\n');
+        sb.append("本地 Debug 条目数：").append(localDebug.getAll().size()).append('\n');
+        sb.append("远程 Debug 条目数：").append(remoteDebug != null ? remoteDebug.getAll().size() : -1).append('\n');
         sb.append("本地节假日条目数：").append(holidayLocal.getAll().size()).append('\n');
         sb.append("远程节假日条目数：").append(holidayRemote != null ? holidayRemote.getAll().size() : -1).append('\n');
         sb.append('\n');
@@ -1512,7 +1494,7 @@ public class MainActivity extends AppCompatActivity {
                 cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE));
 
         // 直接从 SP 读取当前静音设置一起带入 intent，避免 voiceassist 读 SP 缓存旧値
-        SharedPreferences sp = getSharedPreferences("island_custom", MODE_PRIVATE);
+        SharedPreferences sp = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         boolean muteEnabled   = sp.getBoolean("mute_enabled",   false);
         int     muteBefore    = sp.getInt("mute_mins_before",    0);
         boolean unmuteEnabled = sp.getBoolean("unmute_enabled", false);
