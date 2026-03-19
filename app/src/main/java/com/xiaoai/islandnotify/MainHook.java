@@ -81,6 +81,16 @@ public class MainHook {
     private static final String PREFS_NAME = "island_custom";
     /** 模块自身包名，用于跨进程读取 SharedPreferences */
     private static final String MODULE_PKG  = "com.xiaoai.islandnotify";
+    /** 宿主 -> 模块 App 调试数据回传（remote prefs 只读时兜底） */
+    private static final String ACTION_DEBUG_SYNC = "com.xiaoai.islandnotify.ACTION_DEBUG_SYNC";
+    private static final String EXTRA_DEBUG_KEY = "debug_key";
+    private static final String EXTRA_DEBUG_TYPE = "debug_type";
+    private static final String EXTRA_DEBUG_STRING = "debug_string";
+    private static final String EXTRA_DEBUG_INT = "debug_int";
+    private static final String EXTRA_DEBUG_LONG = "debug_long";
+    private static final int DEBUG_TYPE_STRING = 1;
+    private static final int DEBUG_TYPE_INT = 2;
+    private static final int DEBUG_TYPE_LONG = 3;
 
     /** AlarmManager 闹钟触发岛状态更新的广播 Action */
     private static final String ACTION_ISLAND_UPDATE = "com.xiaoai.islandnotify.ACTION_ISLAND_UPDATE";
@@ -124,6 +134,23 @@ public class MainHook {
     private static final String KEY_REPOST_ENABLED         = "repost_enabled";     // 全局补发开关（通知/静音/勿扰）
     /** 上次执行“跨日重调”的日期标记（year*1000 + dayOfYear） */
     private static final String KEY_LAST_DAILY_RESCHEDULE_DAY = "last_daily_reschedule_day";
+    // debug: 课程调度与自动叫醒运行态
+    private static final String DBG_COURSE_LAST_MS = "debug_course_last_ms";
+    private static final String DBG_COURSE_STATUS = "debug_course_status";
+    private static final String DBG_COURSE_ERROR = "debug_course_error";
+    private static final String DBG_COURSE_PRESENT_WEEK = "debug_course_present_week";
+    private static final String DBG_COURSE_TOTAL_WEEK = "debug_course_total_week";
+    private static final String DBG_COURSE_TOTAL_COUNT = "debug_course_total_count";
+    private static final String DBG_COURSE_TODAY_COUNT = "debug_course_today_count";
+    private static final String DBG_COURSE_HASH = "debug_course_hash";
+    private static final String DBG_WAKEUP_LAST_MS = "debug_wakeup_last_ms";
+    private static final String DBG_WAKEUP_STATUS = "debug_wakeup_status";
+    private static final String DBG_WAKEUP_ERROR = "debug_wakeup_error";
+    private static final String DBG_WAKEUP_CLEAR_MS = "debug_wakeup_clear_ms";
+    private static final String DBG_MUTE_LAST_MS = "debug_mute_last_ms";
+    private static final String DBG_MUTE_STATUS = "debug_mute_status";
+    private static final String DBG_MUTE_ERROR = "debug_mute_error";
+    private static final String DBG_MUTE_COUNT = "debug_mute_count";
     private static final int    DEFAULT_MUTE_MINS_BEFORE  = 0;
     private static final int    DEFAULT_UNMUTE_MINS_AFTER = 0;
     private static final int    DEFAULT_DND_MINS_BEFORE   = 0;
@@ -584,6 +611,7 @@ public class MainHook {
                 sRepostEnabled          = initPrefs.getBoolean(KEY_REPOST_ENABLED,             true);
                 sIslandButtonMode       = initPrefs.getInt    ("island_button_mode",           0);
                 registerRemotePrefsListener(appCtx);
+                ensureDebugDefaults(appCtx);
                 // 加载持久化的闹钟 ID
                 mScheduledAlarmIds.addAll(loadScheduledIds(appCtx, "scheduled_alarm_ids"));
                 mScheduledMuteIds.addAll(loadScheduledIds(appCtx, "scheduled_mute_ids"));
@@ -771,6 +799,8 @@ public class MainHook {
      */
     private void scheduleTodayCourseReminders(Context ctx, String cachedBeanJson, boolean skipRepost) {
         try {
+            putDebugLong(ctx, DBG_COURSE_LAST_MS, System.currentTimeMillis());
+            putDebugString(ctx, DBG_COURSE_ERROR, "");
             // ── 1. 先读数据，内容哈希去重（必须在 cancel 前），避免相同课表重复写盘触发补发 ──
             final String beanJson;
             if (cachedBeanJson != null) {
@@ -785,6 +815,7 @@ public class MainHook {
                 String raw = coursePrefs.getString("weekCourseBean", null);
                 if (raw == null || raw.isEmpty()) {
                     XposedBridge.log(TAG + ": CourseData 为空，跳过课前提醒调度");
+                    putDebugString(ctx, DBG_COURSE_STATUS, "CourseData 为空");
                     return;
                 }
                 beanJson = raw;
@@ -792,8 +823,10 @@ public class MainHook {
             }
             if (beanJson.isEmpty()) {
                 XposedBridge.log(TAG + ": CourseData 为空，跳过课前提醒调度");
+                putDebugString(ctx, DBG_COURSE_STATUS, "CourseData 为空");
                 return;
             }
+            putDebugInt(ctx, DBG_COURSE_HASH, mLastCourseDataHash);
 
             // ── 2. 取消所有旧闹钟，且计算新课表的所有 valid ID 用于后续精确清理 ──
             // MODE_MULTI_PROCESS 保证从磁盘读取最新值；cancel 在 hash 检查之后，避免提前撤销正在运行的 alarm
@@ -808,6 +841,7 @@ public class MainHook {
             String todayDateStr = holidayFmt.format(new java.util.Date());
             // 节假日：取消旧闹钟后直接返回，不发任何提醒
             if (HolidayManager.isHoliday(ctx, todayDateStr)) {
+                putDebugString(ctx, DBG_COURSE_STATUS, "节假日（已清空闹钟）");
                 XposedBridge.log(TAG + ": 今日 " + todayDateStr + " 为节假日，跳过课前提醒调度");
                 return;
             }
@@ -840,6 +874,9 @@ public class MainHook {
             }
             JSONArray sectionTimes = new JSONArray(setting.getString("sectionTimes"));
             JSONArray courses      = data.getJSONArray("courses");
+            putDebugInt(ctx, DBG_COURSE_PRESENT_WEEK, currentWeek);
+            putDebugInt(ctx, DBG_COURSE_TOTAL_WEEK, totalWeek);
+            putDebugInt(ctx, DBG_COURSE_TOTAL_COUNT, courses.length());
 
             SharedPreferences prefs = getConfigPrefs(ctx);
             SharedPreferences localPrefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
@@ -885,6 +922,7 @@ public class MainHook {
             }
             // 按开始时间升序，确保连续课程检测的方向正确
             todaySlots.sort((a, b) -> Long.compare(a[0], b[0]));
+            putDebugInt(ctx, DBG_COURSE_TODAY_COUNT, todaySlots.size());
 
             // ── 第二遍：逐课计算触发时间，检测连续课程 ──
             mConsecutiveAnchors.clear(); // 每次重新调度前重置锚点集合
@@ -964,9 +1002,13 @@ public class MainHook {
                     + " 条（第 " + currentWeek + " 周，提前 " + reminderMinutes + " 分钟）");
 
             // ── 3. 精确清理：取消那些属于我方但不在新课表 valid 集合中的活跃通知 ──
+            putDebugString(ctx, DBG_COURSE_STATUS, "正常（今日有效课程 " + todaySlots.size()
+                    + "，已调度/补发 " + scheduledCount + "）");
             cancelStaleNotifications(ctx, validAlarmIds);
         } catch (Throwable e) {
             XposedBridge.log(TAG + ": scheduleTodayCourseReminders 失败 → " + e.getMessage());
+            putDebugString(ctx, DBG_COURSE_STATUS, "失败");
+            putDebugString(ctx, DBG_COURSE_ERROR, String.valueOf(e.getMessage()));
         }
     }
 
@@ -1308,14 +1350,23 @@ public class MainHook {
      *                      仅重新调度未来闹钟。
      */
     private void scheduleTodayMuteAlarms(Context ctx, boolean skipImmediate) {
+        putDebugLong(ctx, DBG_MUTE_LAST_MS, System.currentTimeMillis());
+        putDebugString(ctx, DBG_MUTE_ERROR, "");
+        putDebugString(ctx, DBG_MUTE_STATUS, "调度中");
         cancelAllMuteAlarms(ctx);           // 先无条件取消旧闹钟，防止关闭静音后残留
-        if (!sMuteEnabled && !sUnmuteEnabled && !sDndEnabled && !sUnDndEnabled) return;
+        if (!sMuteEnabled && !sUnmuteEnabled && !sDndEnabled && !sUnDndEnabled) {
+            putDebugInt(ctx, DBG_MUTE_COUNT, 0);
+            putDebugString(ctx, DBG_MUTE_STATUS, "未启用（已清空静音/勿扰闹钟）");
+            return;
+        }
         try {
             // ── 节假日 / 调休检查 ──
             java.text.SimpleDateFormat dateFmt =
                     new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US);
             String todayDateStr = dateFmt.format(new java.util.Date());
             if (HolidayManager.isHoliday(ctx, todayDateStr)) {
+                putDebugInt(ctx, DBG_MUTE_COUNT, 0);
+                putDebugString(ctx, DBG_MUTE_STATUS, "节假日（已跳过静音/勿扰调度）");
                 XposedBridge.log(TAG + ": 静音/勿扰：今日 " + todayDateStr + " 为节假日，跳过调度");
                 return;
             }
@@ -1325,7 +1376,11 @@ public class MainHook {
             SharedPreferences coursePrefs = ctx.getSharedPreferences(
                     PREFS_COURSE_DATA, Context.MODE_PRIVATE | Context.MODE_MULTI_PROCESS);
             String beanJson = coursePrefs.getString("weekCourseBean", null);
-            if (beanJson == null || beanJson.isEmpty()) return;
+            if (beanJson == null || beanJson.isEmpty()) {
+                putDebugInt(ctx, DBG_MUTE_COUNT, 0);
+                putDebugString(ctx, DBG_MUTE_STATUS, "CourseData 为空");
+                return;
+            }
 
             java.util.Calendar cal = java.util.Calendar.getInstance();
             int calDay      = cal.get(java.util.Calendar.DAY_OF_WEEK);
@@ -1348,6 +1403,8 @@ public class MainHook {
             int unDndMinsAfter  = prefs.getInt(KEY_UNDND_MINS_AFTER,  DEFAULT_UNDND_MINS_AFTER);
             long nowMs = System.currentTimeMillis();
             int count  = 0;
+            putDebugInt(ctx, DBG_MUTE_COUNT, 0);
+            putDebugString(ctx, DBG_MUTE_STATUS, "正常（未来闹钟新增 0）");
 
 
             for (int i = 0; i < courses.length(); i++) {
@@ -1384,6 +1441,8 @@ public class MainHook {
                     } else if (muteTriggerMs > nowMs) {
                         scheduleMuteAlarm(ctx, courseName, muteTriggerMs, alarmId);
                         count++;
+                        putDebugInt(ctx, DBG_MUTE_COUNT, count);
+                        putDebugString(ctx, DBG_MUTE_STATUS, "正常（未来闹钟新增 " + count + "）");
                     }
                 }
                 if (sUnmuteEnabled) {
@@ -1391,6 +1450,8 @@ public class MainHook {
                     if (unmuteTriggerMs > nowMs) {
                         scheduleUnmuteAlarm(ctx, courseName, unmuteTriggerMs, alarmId);
                         count++;
+                        putDebugInt(ctx, DBG_MUTE_COUNT, count);
+                        putDebugString(ctx, DBG_MUTE_STATUS, "正常（未来闹钟新增 " + count + "）");
                     }
                 }
                 if (sDndEnabled) {
@@ -1408,6 +1469,8 @@ public class MainHook {
                     } else if (dndTriggerMs > nowMs) {
                         scheduleDndOnAlarm(ctx, courseName, dndTriggerMs, alarmId);
                         count++;
+                        putDebugInt(ctx, DBG_MUTE_COUNT, count);
+                        putDebugString(ctx, DBG_MUTE_STATUS, "正常（未来闹钟新增 " + count + "）");
                     }
                 }
                 if (sUnDndEnabled) {
@@ -1415,11 +1478,15 @@ public class MainHook {
                     if (unDndTriggerMs > nowMs) {
                         scheduleDndOffAlarm(ctx, courseName, unDndTriggerMs, alarmId);
                         count++;
+                        putDebugInt(ctx, DBG_MUTE_COUNT, count);
+                        putDebugString(ctx, DBG_MUTE_STATUS, "正常（未来闹钟新增 " + count + "）");
                     }
                 }
             }
             XposedBridge.log(TAG + ": 静音/勿扰闹钟已调度 " + count + " 个");
         } catch (Throwable e) {
+            putDebugString(ctx, DBG_MUTE_STATUS, "调度失败");
+            putDebugString(ctx, DBG_MUTE_ERROR, String.valueOf(e.getMessage()));
             XposedBridge.log(TAG + ": scheduleTodayMuteAlarms 失败 → " + e.getMessage());
         }
     }
@@ -1441,7 +1508,10 @@ public class MainHook {
      * 所有课程解析、判断是否有课、决定时间的逻辑全部由 DeskClockHook 在 deskclock 进程内完成。
      */
     private void scheduleTodayWakeupAlarms(Context ctx) {
+        putDebugLong(ctx, DBG_WAKEUP_LAST_MS, System.currentTimeMillis());
+        putDebugString(ctx, DBG_WAKEUP_ERROR, "");
         if (!sWakeupMorningEnabled && !sWakeupAfternoonEnabled) {
+            putDebugString(ctx, DBG_WAKEUP_STATUS, "未启用（已清空闹钟）");
             sendClearClockAlarms(ctx);
             return;
         }
@@ -1462,6 +1532,7 @@ public class MainHook {
                     PREFS_COURSE_DATA, Context.MODE_PRIVATE | Context.MODE_MULTI_PROCESS);
             String beanJson = coursePrefs.getString("weekCourseBean", null);
             if (beanJson == null || beanJson.isEmpty()) {
+                putDebugString(ctx, DBG_WAKEUP_STATUS, "CourseData 为空（已清空闹钟）");
                 sendClearClockAlarms(ctx);
                 return;
             }
@@ -1499,13 +1570,20 @@ public class MainHook {
                         schedIntent.putExtra("afternoon_rules_json", prefs.getString(KEY_WAKEUP_AFTERNOON_RULES_JSON, DEFAULT_WAKEUP_AFTERNOON_RULES_JSON));
                     }
                     ctx.sendBroadcast(schedIntent);
+                    putDebugString(ctx, DBG_WAKEUP_STATUS,
+                            "已下发时钟调度（上午=" + (sWakeupMorningEnabled ? "开" : "关")
+                                    + "，下午=" + (sWakeupAfternoonEnabled ? "开" : "关") + "）");
                     XposedBridge.log(TAG + ": 叫醒配置已转发给 deskclock (已延迟 1s)");
                 } catch (Throwable e) {
+                    putDebugString(ctx, DBG_WAKEUP_STATUS, "下发失败");
+                    putDebugString(ctx, DBG_WAKEUP_ERROR, String.valueOf(e.getMessage()));
                     XposedBridge.log(TAG + ": postDelayed scheduleWakeup 失败 → " + e.getMessage());
                 }
             }, 1000);
 
         } catch (Throwable e) {
+            putDebugString(ctx, DBG_WAKEUP_STATUS, "调度失败");
+            putDebugString(ctx, DBG_WAKEUP_ERROR, String.valueOf(e.getMessage()));
             XposedBridge.log(TAG + ": scheduleTodayWakeupAlarms 失败 → " + e.getMessage());
         }
     }
@@ -1529,6 +1607,7 @@ public class MainHook {
 
     /** 向 deskclock 进程发广播，仅清除之前创建的叫醒闹钟 */
     private void sendClearClockAlarms(Context ctx) {
+        putDebugLong(ctx, DBG_WAKEUP_CLEAR_MS, System.currentTimeMillis());
         tickleDeskClock(ctx);
         getRescheduleHandler().postDelayed(() -> {
             try {
@@ -2180,6 +2259,82 @@ public class MainHook {
             }
         }
         ed.apply();
+    }
+
+    private SharedPreferences getWritableDebugPrefs(Context ctx) {
+        try {
+            return XposedBridge.getRemotePreferences(PREFS_NAME);
+        } catch (Throwable ignored) {
+            return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        }
+    }
+
+    private void ensureDebugDefaults(Context ctx) {
+        try {
+            SharedPreferences sp = getWritableDebugPrefs(ctx);
+            SharedPreferences.Editor ed = sp.edit();
+            if (!sp.contains(DBG_COURSE_STATUS)) ed.putString(DBG_COURSE_STATUS, "已注入，等待课程调度");
+            if (!sp.contains(DBG_WAKEUP_STATUS)) ed.putString(DBG_WAKEUP_STATUS, "已注入，等待叫醒调度");
+            if (!sp.contains(DBG_MUTE_STATUS)) ed.putString(DBG_MUTE_STATUS, "已注入，等待静音/勿扰调度");
+            ed.apply();
+        } catch (Throwable ignored) {}
+    }
+
+    private void putDebugString(Context ctx, String key, String value) {
+        try {
+            getWritableDebugPrefs(ctx).edit().putString(key, value == null ? "" : value).apply();
+        } catch (Throwable t) {
+            try {
+                ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .edit().putString(key, value == null ? "" : value).apply();
+            } catch (Throwable ignored) {}
+            sendDebugSyncBroadcast(ctx, key, DEBUG_TYPE_STRING, value == null ? "" : value, 0, 0L);
+            XposedBridge.log(TAG + ": debug write(string) failed key=" + key + " -> " + t.getMessage());
+        }
+    }
+
+    private void putDebugInt(Context ctx, String key, int value) {
+        try {
+            getWritableDebugPrefs(ctx).edit().putInt(key, value).apply();
+        } catch (Throwable t) {
+            try {
+                ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .edit().putInt(key, value).apply();
+            } catch (Throwable ignored) {}
+            sendDebugSyncBroadcast(ctx, key, DEBUG_TYPE_INT, null, value, 0L);
+            XposedBridge.log(TAG + ": debug write(int) failed key=" + key + " -> " + t.getMessage());
+        }
+    }
+
+    private void putDebugLong(Context ctx, String key, long value) {
+        try {
+            getWritableDebugPrefs(ctx).edit().putLong(key, value).apply();
+        } catch (Throwable t) {
+            try {
+                ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .edit().putLong(key, value).apply();
+            } catch (Throwable ignored) {}
+            sendDebugSyncBroadcast(ctx, key, DEBUG_TYPE_LONG, null, 0, value);
+            XposedBridge.log(TAG + ": debug write(long) failed key=" + key + " -> " + t.getMessage());
+        }
+    }
+
+    private void sendDebugSyncBroadcast(Context ctx, String key, int type, String sVal, int iVal, long lVal) {
+        if (ctx == null || key == null || key.isEmpty()) return;
+        try {
+            Intent i = new Intent(ACTION_DEBUG_SYNC);
+            i.setPackage(MODULE_PKG);
+            i.putExtra(EXTRA_DEBUG_KEY, key);
+            i.putExtra(EXTRA_DEBUG_TYPE, type);
+            if (type == DEBUG_TYPE_STRING) {
+                i.putExtra(EXTRA_DEBUG_STRING, sVal == null ? "" : sVal);
+            } else if (type == DEBUG_TYPE_INT) {
+                i.putExtra(EXTRA_DEBUG_INT, iVal);
+            } else if (type == DEBUG_TYPE_LONG) {
+                i.putExtra(EXTRA_DEBUG_LONG, lVal);
+            }
+            ctx.sendBroadcast(i);
+        } catch (Throwable ignored) {}
     }
 
     private void registerRemotePrefsListener(Context ctx) {

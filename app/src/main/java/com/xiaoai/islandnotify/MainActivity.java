@@ -2,6 +2,8 @@ package com.xiaoai.islandnotify;
 
 import android.app.AlertDialog;
 import android.app.DatePickerDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -46,8 +48,11 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -111,6 +116,8 @@ public class MainActivity extends AppCompatActivity {
     private static final int[] CUSTOM_IDS_TICKER = {
             R.id.et_tpl_ticker_pre, R.id.et_tpl_ticker_active, R.id.et_tpl_ticker_post
     };
+    private static final String TARGET_VOICEASSIST = "com.miui.voiceassist";
+    private static final String TARGET_DESKCLOCK = "com.android.deskclock";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -543,20 +550,42 @@ public class MainActivity extends AppCompatActivity {
         if (curIslandVal != savedIsVal) return true;
         if (!curIslandUnit.equals(savedIsUnit)) return true;
 
-        // 通知：当前阶段
+        // 通知：仅允许单选一个触发阶段
         MaterialButtonToggleGroup toggleNotifPhase = findViewById(R.id.toggle_notif_phase);
         int checkedNotif = toggleNotifPhase.getCheckedButtonId();
         int idxNotif = (checkedNotif == R.id.btn_notif_phase_active) ? 1
                 : (checkedNotif == R.id.btn_notif_phase_post) ? 2 : 0;
+        SwitchMaterial swNotifDefault  = findViewById(R.id.sw_notif_to_default);
         EditText etNotif = findViewById(R.id.et_notif_to);
         String curNotifStr = etNotif.getText() != null ? etNotif.getText().toString().trim() : "";
         int curNotifVal = curNotifStr.isEmpty() ? -1 : tryParseInt(curNotifStr, -1);
         MaterialButtonToggleGroup toggleNotifUnit = findViewById(R.id.toggle_notif_unit);
         String curNotifUnit = (toggleNotifUnit.getCheckedButtonId() == R.id.btn_notif_s) ? "s" : "m";
-        int savedNoVal = sp.getInt("to_notif_val_" + TO_PHASES[idxNotif], -1);
-        String savedNoUnit = sp.getString("to_notif_unit_" + TO_PHASES[idxNotif], "m");
-        if (curNotifVal != savedNoVal) return true;
-        if (!curNotifUnit.equals(savedNoUnit)) return true;
+        String savedTrigger = sp.getString(KEY_NOTIF_DISMISS_TRIGGER, "pre");
+        int savedTriggerIdx = "active".equals(savedTrigger) ? 1 : ("post".equals(savedTrigger) ? 2 : 0);
+        if (sp.getInt("to_notif_val_" + TO_PHASES[savedTriggerIdx], -1) < 0) {
+            for (int i = 0; i < 3; i++) {
+                if (sp.getInt("to_notif_val_" + TO_PHASES[i], -1) >= 0) {
+                    savedTriggerIdx = i;
+                    break;
+                }
+            }
+        }
+        boolean savedDefault = true;
+        for (int i = 0; i < 3; i++) {
+            if (sp.getInt("to_notif_val_" + TO_PHASES[i], -1) >= 0) {
+                savedDefault = false;
+                break;
+            }
+        }
+        if (swNotifDefault.isChecked() != savedDefault) return true;
+        if (idxNotif != savedTriggerIdx) return true;
+        if (!swNotifDefault.isChecked()) {
+            int savedNoVal = sp.getInt("to_notif_val_" + TO_PHASES[savedTriggerIdx], -1);
+            String savedNoUnit = sp.getString("to_notif_unit_" + TO_PHASES[savedTriggerIdx], "m");
+            if (curNotifVal != savedNoVal) return true;
+            if (!curNotifUnit.equals(savedNoUnit)) return true;
+        }
 
         // 若都一致，则无未保存项
         return false;
@@ -590,6 +619,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** 三阶段 key 后缀（与 MainHook/SP 保持一致） */
     private static final String[] TO_PHASES = {"pre", "active", "post"};
+    private static final String KEY_NOTIF_DISMISS_TRIGGER = "notif_dismiss_trigger";
 
     /**
      * 初始化「消失时间」卡片。
@@ -616,7 +646,19 @@ public class MainActivity extends AppCompatActivity {
             notifVals[i]  = sp.getInt   ("to_notif_val_"  + TO_PHASES[i], -1);
             notifUnits[i] = sp.getString("to_notif_unit_" + TO_PHASES[i], "m");
         }
-        final int[] curNotifPhase = {0};
+        int initialNotifPhase = 0;
+        String savedTrigger = sp.getString(KEY_NOTIF_DISMISS_TRIGGER, "pre");
+        if ("active".equals(savedTrigger)) initialNotifPhase = 1;
+        else if ("post".equals(savedTrigger)) initialNotifPhase = 2;
+        if (notifVals[initialNotifPhase] < 0) {
+            for (int i = 0; i < 3; i++) {
+                if (notifVals[i] >= 0) {
+                    initialNotifPhase = i;
+                    break;
+                }
+            }
+        }
+        final int[] curNotifPhase = {initialNotifPhase};
         // 通知默认为全局开关：当所有阶段均为 -1 时视为默认
         boolean notifAllDefault = true;
         for (int i = 0; i < 3; i++) if (notifVals[i] >= 0) { notifAllDefault = false; break; }
@@ -733,7 +775,9 @@ public class MainActivity extends AppCompatActivity {
             notifUnits[idx] = (toggleNotifUnit.getCheckedButtonId() == R.id.btn_notif_s) ? "s" : "m";
         };
 
-        toggleNotifPhase.check(R.id.btn_notif_phase_pre);
+        toggleNotifPhase.check(curNotifPhase[0] == 1
+                ? R.id.btn_notif_phase_active
+                : (curNotifPhase[0] == 2 ? R.id.btn_notif_phase_post : R.id.btn_notif_phase_pre));
         loadNotifUI.run();
 
         // ── 通知阶段切换 ──────────────────────────────────────────────
@@ -755,10 +799,6 @@ public class MainActivity extends AppCompatActivity {
             saveIslandUI.run();
 
             // 若全局默认被选中，确保所有 notifVals 为 -1
-            if (notifGlobalDefault[0]) {
-                for (int i = 0; i < 3; i++) notifVals[i] = -1;
-            }
-
             SharedPreferences.Editor ed = sp.edit();
 
             // 岛：三阶段键
@@ -768,9 +808,16 @@ public class MainActivity extends AppCompatActivity {
             }
 
             // 通知：三阶段
+            int selectedNotifPhase = curNotifPhase[0];
+            String selectedNotifPhaseKey = TO_PHASES[selectedNotifPhase];
+            ed.putString(KEY_NOTIF_DISMISS_TRIGGER, selectedNotifPhaseKey);
             for (int i = 0; i < 3; i++) {
-                ed.putInt   ("to_notif_val_"  + TO_PHASES[i], notifVals[i]);
+                ed.putInt("to_notif_val_" + TO_PHASES[i], -1);
                 ed.putString("to_notif_unit_" + TO_PHASES[i], notifUnits[i]);
+            }
+            if (!notifGlobalDefault[0] && notifVals[selectedNotifPhase] >= 0) {
+                ed.putInt("to_notif_val_" + selectedNotifPhaseKey, notifVals[selectedNotifPhase]);
+                ed.putString("to_notif_unit_" + selectedNotifPhaseKey, notifUnits[selectedNotifPhase]);
             }
 
             // 删除旧版/遗留键，避免模块内部 SharedPreferences 与目标进程不一致
@@ -779,7 +826,6 @@ public class MainActivity extends AppCompatActivity {
             ed.remove("use_default_behavior");
             ed.remove("notif_dismiss_value");
             ed.remove("notif_dismiss_unit");
-            ed.remove("notif_dismiss_trigger");
             ed.remove("island_dismiss_value");
             ed.remove("island_dismiss_unit");
             ed.remove("island_dismiss_trigger");
@@ -1189,6 +1235,236 @@ public class MainActivity extends AppCompatActivity {
                     startActivity(intent);
                 } catch (Exception ignored) {}
             });
+        }
+
+        View debugRow = findViewById(R.id.row_debug);
+        if (debugRow != null) {
+            debugRow.setOnClickListener(v -> showDebugDialog());
+        }
+    }
+
+    private void showDebugDialog() {
+        String content = buildDebugInfoText();
+        TextView tv = new TextView(this);
+        int p = dpToPx(16);
+        tv.setPadding(p, p, p, p);
+        tv.setTextIsSelectable(true);
+        tv.setText(content);
+        tv.setTypeface(android.graphics.Typeface.MONOSPACE);
+        tv.setTextSize(12f);
+        tv.setVerticalScrollBarEnabled(true);
+
+        androidx.core.widget.NestedScrollView sv = new androidx.core.widget.NestedScrollView(this);
+        sv.addView(tv, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        new AlertDialog.Builder(this)
+                .setTitle("Debug")
+                .setView(sv)
+                .setPositiveButton("复制", (d, w) -> copyDebugInfo(content))
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    private void copyDebugInfo(String content) {
+        try {
+            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(ClipData.newPlainText("IslandNotify Debug", content));
+                Toast.makeText(this, "Debug 信息已复制", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Throwable t) {
+            Toast.makeText(this, "复制失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private String buildDebugInfoText() {
+        SharedPreferences local = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        SharedPreferences remote = mRemotePrefs;
+        SharedPreferences debug = pickDebugPrefs(local, remote);
+        String debugSource = (debug == remote) ? "remote" : "local";
+        SharedPreferences holidayLocal = getSharedPreferences(HolidayManager.PREFS_HOLIDAY, Context.MODE_PRIVATE);
+        SharedPreferences holidayRemote = mRemoteHolidayPrefs;
+        Set<String> scope = new HashSet<>();
+        try {
+            if (mXposedService != null) {
+                scope.addAll(mXposedService.getScope());
+            }
+        } catch (Throwable ignored) {}
+
+        int year = Calendar.getInstance().get(Calendar.YEAR);
+        String holidayListJson = holidayLocal.getString("list_" + year, "");
+
+        StringBuilder sb = new StringBuilder(1280);
+        sb.append("生成时间：").append(new Date()).append('\n');
+        sb.append('\n');
+
+        sb.append("【模块状态】").append('\n');
+        sb.append("模块版本：").append(getAppVersionName()).append('\n');
+        sb.append("框架已连接：").append(boolCn(mFrameworkActive)).append('\n');
+        sb.append("Service 已绑定：").append(boolCn(mXposedService != null)).append('\n');
+        sb.append("框架信息：").append(mFrameworkDesc == null ? "" : mFrameworkDesc.replace('\n', ' ')).append('\n');
+        sb.append('\n');
+
+        sb.append("【宿主与作用域】").append('\n');
+        sb.append("超级小爱版本：").append(getTargetVersion(TARGET_VOICEASSIST)).append('\n');
+        sb.append("时钟版本：").append(getTargetVersion(TARGET_DESKCLOCK)).append('\n');
+        sb.append("已授权作用域(超级小爱)：").append(boolCn(scope.contains(TARGET_VOICEASSIST))).append('\n');
+        sb.append("已授权作用域(时钟)：").append(boolCn(scope.contains(TARGET_DESKCLOCK))).append('\n');
+        sb.append('\n');
+
+        sb.append("【配置同步】").append('\n');
+        sb.append("本地配置条目数：").append(local.getAll().size()).append('\n');
+        sb.append("远程配置条目数：").append(remote != null ? remote.getAll().size() : -1).append('\n');
+        sb.append("运行态数据源：").append(debugSource).append('\n');
+        sb.append("运行态字段命中：").append(countDebugSignals(debug)).append('\n');
+        sb.append("本地节假日条目数：").append(holidayLocal.getAll().size()).append('\n');
+        sb.append("远程节假日条目数：").append(holidayRemote != null ? holidayRemote.getAll().size() : -1).append('\n');
+        sb.append('\n');
+
+        sb.append("【功能开关】").append('\n');
+        sb.append("提醒提前分钟：").append(local.getInt("reminder_minutes_before", 15)).append('\n');
+        sb.append("上课静音：").append(boolCn(local.getBoolean("mute_enabled", false)))
+                .append("（提前 ").append(local.getInt("mute_mins_before", 0)).append(" 分钟）").append('\n');
+        sb.append("下课恢复铃声：").append(boolCn(local.getBoolean("unmute_enabled", false)))
+                .append("（延后 ").append(local.getInt("unmute_mins_after", 0)).append(" 分钟）").append('\n');
+        sb.append("上课勿扰：").append(boolCn(local.getBoolean("dnd_enabled", false)))
+                .append("（提前 ").append(local.getInt("dnd_mins_before", 0)).append(" 分钟）").append('\n');
+        sb.append("下课关闭勿扰：").append(boolCn(local.getBoolean("undnd_enabled", false)))
+                .append("（延后 ").append(local.getInt("undnd_mins_after", 0)).append(" 分钟）").append('\n');
+        sb.append("补发机制：").append(boolCn(local.getBoolean("repost_enabled", true))).append('\n');
+        sb.append("岛按钮模式：").append(islandButtonModeText(local.getInt("island_button_mode", 0))).append('\n');
+        sb.append("上午叫醒：").append(boolCn(local.getBoolean("wakeup_morning_enabled", false))).append('\n');
+        sb.append("下午叫醒：").append(boolCn(local.getBoolean("wakeup_afternoon_enabled", false))).append('\n');
+        sb.append("岛超时配置：").append(formatTimeoutSummary(local, "island")).append('\n');
+        sb.append("通知超时触发：").append(notifTriggerText(local.getString(KEY_NOTIF_DISMISS_TRIGGER, "pre"))).append('\n');
+        sb.append("通知超时配置：").append(formatTimeoutSummary(local, "notif")).append('\n');
+        sb.append('\n');
+
+        sb.append("【调度状态】").append('\n');
+        sb.append("课程总周数：").append(local.getInt("course_total_week", 0)).append('\n');
+        sb.append("上次跨日重调标记：").append(local.getInt("last_daily_reschedule_day", -1)).append('\n');
+        sb.append("今日标记：").append(getTodayMarker()).append('\n');
+        sb.append("本年节假日条目数：").append(countHolidayEntries(holidayListJson)).append('\n');
+        sb.append('\n');
+
+        String courseStatus = debug.getString("debug_course_status", "");
+        String wakeupStatus = debug.getString("debug_wakeup_status", "");
+        sb.append("【运行态诊断】").append('\n');
+        sb.append("CourseData 检查：").append(courseStatus.isEmpty() ? "暂无记录" : courseStatus).append('\n');
+        sb.append("最近课程调度：").append(formatDebugTime(debug.getLong("debug_course_last_ms", 0))).append('\n');
+        sb.append("课程数据哈希：").append(debug.getInt("debug_course_hash", 0)).append('\n');
+        sb.append("当前周次/总周数：")
+                .append(debug.getInt("debug_course_present_week", 0)).append("/")
+                .append(debug.getInt("debug_course_total_week", 0)).append('\n');
+        sb.append("课程总数/今日有效：")
+                .append(debug.getInt("debug_course_total_count", 0)).append("/")
+                .append(debug.getInt("debug_course_today_count", 0)).append('\n');
+        sb.append("课程调度错误：").append(nonEmptyOrDash(debug.getString("debug_course_error", ""))).append('\n');
+        sb.append("自动叫醒检查：").append(wakeupStatus.isEmpty() ? "暂无记录" : wakeupStatus).append('\n');
+        sb.append("最近叫醒调度：").append(formatDebugTime(debug.getLong("debug_wakeup_last_ms", 0))).append('\n');
+        sb.append("最近清空闹钟：").append(formatDebugTime(debug.getLong("debug_wakeup_clear_ms", 0))).append('\n');
+        sb.append("叫醒调度错误：").append(nonEmptyOrDash(debug.getString("debug_wakeup_error", ""))).append('\n');
+        sb.append("自动静音/勿扰检查：")
+                .append(nonEmptyOrDash(debug.getString("debug_mute_status", "暂无记录"))).append('\n');
+        sb.append("最近静音/勿扰调度：").append(formatDebugTime(debug.getLong("debug_mute_last_ms", 0))).append('\n');
+        sb.append("静音/勿扰调度数：").append(debug.getInt("debug_mute_count", 0)).append('\n');
+        sb.append("静音/勿扰调度错误：").append(nonEmptyOrDash(debug.getString("debug_mute_error", ""))).append('\n');
+        return sb.toString();
+    }
+
+    private String boolCn(boolean value) {
+        return value ? "是" : "否";
+    }
+
+    private String islandButtonModeText(int mode) {
+        if (mode == 1) return "仅勿扰 (1)";
+        if (mode == 2) return "静音+勿扰 (2)";
+        return "仅静音 (0)";
+    }
+
+    private String notifTriggerText(String phase) {
+        if ("active".equals(phase)) return "上课后";
+        if ("post".equals(phase)) return "下课后";
+        return "通知后";
+    }
+
+    private SharedPreferences pickDebugPrefs(SharedPreferences local, SharedPreferences remote) {
+        if (remote == null) return local;
+        int remoteScore = countDebugSignals(remote);
+        int localScore = countDebugSignals(local);
+        return remoteScore >= localScore ? remote : local;
+    }
+
+    private int countDebugSignals(SharedPreferences sp) {
+        if (sp == null) return 0;
+        int score = 0;
+        if (sp.getLong("debug_course_last_ms", 0) > 0) score++;
+        if (!sp.getString("debug_course_status", "").isEmpty()) score++;
+        if (sp.getLong("debug_wakeup_last_ms", 0) > 0) score++;
+        if (!sp.getString("debug_wakeup_status", "").isEmpty()) score++;
+        if (sp.getLong("debug_mute_last_ms", 0) > 0) score++;
+        if (!sp.getString("debug_mute_status", "").isEmpty()) score++;
+        return score;
+    }
+
+    private String formatTimeoutSummary(SharedPreferences sp, String prefix) {
+        if ("notif".equals(prefix)) {
+            String phase = sp.getString(KEY_NOTIF_DISMISS_TRIGGER, "pre");
+            int val = sp.getInt("to_notif_val_" + phase, -1);
+            if (val < 0) return "系统默认";
+            String unit = sp.getString("to_notif_unit_" + phase, "m");
+            String unitText = "s".equals(unit) ? "秒" : "分钟";
+            return notifTriggerText(phase) + " " + val + unitText;
+        }
+        String[] phases = {"pre", "active", "post"};
+        for (String phase : phases) {
+            int val = sp.getInt("to_" + prefix + "_val_" + phase, -1);
+            if (val >= 0) {
+                String unit = sp.getString("to_" + prefix + "_unit_" + phase, "m");
+                String unitText = "s".equals(unit) ? "秒" : "分钟";
+                return notifTriggerText(phase) + " " + val + unitText;
+            }
+        }
+        return "系统默认";
+    }
+
+    private String formatDebugTime(long ts) {
+        if (ts <= 0) return "暂无";
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+        return sdf.format(new Date(ts));
+    }
+
+    private String nonEmptyOrDash(String value) {
+        return (value == null || value.isEmpty()) ? "-" : value;
+    }
+
+    private String getTargetVersion(String pkg) {
+        try {
+            android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(pkg, 0);
+            long code = 0L;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                code = info.getLongVersionCode();
+            } else {
+                code = info.versionCode;
+            }
+            return info.versionName + " (" + code + ")";
+        } catch (Throwable t) {
+            return "未安装或不可见";
+        }
+    }
+
+    private int getTodayMarker() {
+        Calendar cal = Calendar.getInstance();
+        return cal.get(Calendar.YEAR) * 1000 + cal.get(Calendar.DAY_OF_YEAR);
+    }
+
+    private int countHolidayEntries(String json) {
+        if (json == null || json.isEmpty()) return 0;
+        try {
+            return new org.json.JSONArray(json).length();
+        } catch (Throwable t) {
+            return -1;
         }
     }
 
