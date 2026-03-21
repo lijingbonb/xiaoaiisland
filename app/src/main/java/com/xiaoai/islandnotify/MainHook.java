@@ -123,6 +123,7 @@ public class MainHook {
     private static final String KEY_UNDND_ENABLED         = "undnd_enabled";      // 下课自动关闭勿扰
     private static final String KEY_UNDND_MINS_AFTER      = "undnd_mins_after";   // 下课后多少分钟关闭勿扰
     private static final String KEY_REPOST_ENABLED         = "repost_enabled";     // 全局补发开关（通知/静音/勿扰）
+    private static final String KEY_ACTIVE_COUNTDOWN_TO_END = "active_countdown_to_end";
     /** 上次执行“跨日重调”的日期标记（year*1000 + dayOfYear） */
     private static final String KEY_LAST_DAILY_RESCHEDULE_DAY = "last_daily_reschedule_day";
     private static final String KEY_COURSE_TOTAL_WEEK = "course_total_week";
@@ -160,6 +161,7 @@ public class MainHook {
     private static volatile boolean sWakeupAfternoonEnabled = false;
     /** 全局补发开关：控制通知补发与课中即时静音/勿扰 */
     private static volatile boolean sRepostEnabled = true;
+    private static volatile boolean sActiveCountdownToEnd = false;
     /** 超级岛按钮功能模式：0=仅静音, 1=仅勿扰, 2=两者 */
     private static volatile int sIslandButtonMode = 2;
     /** 已调度的静音/取消静音 alarm reqCode 集合，用于批量取消 */
@@ -553,6 +555,7 @@ public class MainHook {
                             sWakeupMorningEnabled   = dp.getBoolean(KEY_WAKEUP_MORNING_ENABLED,   false);
                             sWakeupAfternoonEnabled = dp.getBoolean(KEY_WAKEUP_AFTERNOON_ENABLED, false);
                             sRepostEnabled = dp.getBoolean(KEY_REPOST_ENABLED, true);
+                            sActiveCountdownToEnd = dp.getBoolean(KEY_ACTIVE_COUNTDOWN_TO_END, false);
                             sIslandButtonMode = dp.getInt("island_button_mode", 0);
                             markDailyRescheduleRun(context);
                             safeReschedule(context, "island_reschedule_daily", true);
@@ -589,6 +592,7 @@ public class MainHook {
                 sWakeupMorningEnabled   = initPrefs.getBoolean(KEY_WAKEUP_MORNING_ENABLED,    false);
                 sWakeupAfternoonEnabled = initPrefs.getBoolean(KEY_WAKEUP_AFTERNOON_ENABLED,  false);
                 sRepostEnabled          = initPrefs.getBoolean(KEY_REPOST_ENABLED,             true);
+                sActiveCountdownToEnd   = initPrefs.getBoolean(KEY_ACTIVE_COUNTDOWN_TO_END,   false);
                 sIslandButtonMode       = initPrefs.getInt    ("island_button_mode",           0);
                 registerRemotePrefsListener(appCtx);
                 // 加载持久化的闹钟 ID
@@ -1977,9 +1981,15 @@ public class MainHook {
                 timerType = 1;
                 hintContent = "已经下课";
             } else if (isActive) {
-                timerMs = startMs;
-                timerType = 1;
-                hintContent = "已经上课";
+                if (sActiveCountdownToEnd && endMs > 0) {
+                    timerMs = endMs;
+                    timerType = (endMs > now) ? -1 : 1;
+                    hintContent = "距离下课";
+                } else {
+                    timerMs = startMs;
+                    timerType = 1;
+                    hintContent = "已经上课";
+                }
             } else {
                 timerMs = startMs;
                 timerType = (startMs > now) ? -1 : 1;
@@ -2248,6 +2258,7 @@ public class MainHook {
                 || KEY_UNDND_ENABLED.equals(key)
                 || KEY_UNDND_MINS_AFTER.equals(key)
                 || KEY_REPOST_ENABLED.equals(key)
+                || KEY_ACTIVE_COUNTDOWN_TO_END.equals(key)
                 || "island_button_mode".equals(key)
                 || "icon_a".equals(key)
                 || KEY_WAKEUP_MORNING_ENABLED.equals(key)
@@ -2528,6 +2539,7 @@ public class MainHook {
         sWakeupMorningEnabled   = prefs.getBoolean(KEY_WAKEUP_MORNING_ENABLED, false);
         sWakeupAfternoonEnabled = prefs.getBoolean(KEY_WAKEUP_AFTERNOON_ENABLED, false);
         sRepostEnabled          = prefs.getBoolean(KEY_REPOST_ENABLED, true);
+        sActiveCountdownToEnd   = prefs.getBoolean(KEY_ACTIVE_COUNTDOWN_TO_END, false);
         sIslandButtonMode       = prefs.getInt("island_button_mode", 0);
     }
 
@@ -2543,6 +2555,7 @@ public class MainHook {
                 || KEY_UNDND_ENABLED.equals(key)
                 || KEY_UNDND_MINS_AFTER.equals(key)
                 || KEY_REPOST_ENABLED.equals(key)
+                || KEY_ACTIVE_COUNTDOWN_TO_END.equals(key)
                 || "island_button_mode".equals(key)) {
             return true;
         }

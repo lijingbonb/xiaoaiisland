@@ -478,6 +478,7 @@ public class MainActivity extends AppCompatActivity {
                 || "undnd_enabled".equals(key)
                 || "undnd_mins_after".equals(key)
                 || KEY_REPOST_ENABLED.equals(key)
+                || KEY_ACTIVE_COUNTDOWN_TO_END.equals(key)
                 || "island_button_mode".equals(key)
                 || "icon_a".equals(key)
                 || "wakeup_morning_enabled".equals(key)
@@ -604,6 +605,7 @@ public class MainActivity extends AppCompatActivity {
     /** SharedPreferences 名称（与 MainHook 保持一致） */
     static final String PREFS_NAME = "island_custom";
     private static final String KEY_REPOST_ENABLED = "repost_enabled";
+    private static final String KEY_ACTIVE_COUNTDOWN_TO_END = "active_countdown_to_end";
 
     private void initCustomCard() {
         if (mCustomCardBound) {
@@ -624,6 +626,7 @@ public class MainActivity extends AppCompatActivity {
         final int[] IDS_TICKER = CUSTOM_IDS_TICKER;
 
         SwitchMaterial swIconA = findViewById(R.id.sw_icon_a);
+        SwitchMaterial swActiveCountdownToEnd = findViewById(R.id.sw_active_countdown_to_end);
         TextView tvHint        = findViewById(R.id.tv_save_hint);
 
         // 读取已保存配置，无则用默认值
@@ -636,6 +639,7 @@ public class MainActivity extends AppCompatActivity {
                     sp.getString("tpl_ticker" + SUFFIXES[i], DEFAULT_TICKER[i]));
         }
         swIconA.setChecked(sp.getBoolean("icon_a", true));
+        swActiveCountdownToEnd.setChecked(sp.getBoolean(KEY_ACTIVE_COUNTDOWN_TO_END, false));
 
         // 保存按钮引用 & 监控输入变化用于即时指示未保存状态
         btnSaveCustom = findViewById(R.id.btn_save_custom);
@@ -657,6 +661,7 @@ public class MainActivity extends AppCompatActivity {
             });
         }
         swIconA.setOnCheckedChangeListener((b, checked) -> updateCustomDirtyIndicator());
+        swActiveCountdownToEnd.setOnCheckedChangeListener((b, checked) -> updateCustomDirtyIndicator());
 
         findViewById(R.id.btn_save_custom).setOnClickListener(v -> {
 
@@ -673,6 +678,7 @@ public class MainActivity extends AppCompatActivity {
             }
             boolean iconA = swIconA.isChecked();
             ed.putBoolean("icon_a", iconA);
+            ed.putBoolean(KEY_ACTIVE_COUNTDOWN_TO_END, swActiveCountdownToEnd.isChecked());
             ed.apply();
 
             tvHint.setText("已保存，下次通知生效");
@@ -697,6 +703,8 @@ public class MainActivity extends AppCompatActivity {
                     sp.getString("tpl_ticker" + CUSTOM_SUFFIXES[i], DEFAULT_TPL_TICKER[i]));
         }
         ((SwitchMaterial) findViewById(R.id.sw_icon_a)).setChecked(sp.getBoolean("icon_a", true));
+        ((SwitchMaterial) findViewById(R.id.sw_active_countdown_to_end))
+                .setChecked(sp.getBoolean(KEY_ACTIVE_COUNTDOWN_TO_END, false));
         customDirty = false;
         updateCustomDirtyIndicator();
     }
@@ -721,6 +729,8 @@ public class MainActivity extends AppCompatActivity {
         }
         SwitchMaterial swIconA = findViewById(R.id.sw_icon_a);
         if (swIconA.isChecked() != sp.getBoolean("icon_a", true)) return true;
+        SwitchMaterial swActiveCountdownToEnd = findViewById(R.id.sw_active_countdown_to_end);
+        if (swActiveCountdownToEnd.isChecked() != sp.getBoolean(KEY_ACTIVE_COUNTDOWN_TO_END, false)) return true;
         return false;
     }
 

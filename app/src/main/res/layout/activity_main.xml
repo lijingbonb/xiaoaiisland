@@ -412,6 +412,13 @@
                             android:checked="true" />
                     </LinearLayout>
 
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/sw_active_countdown_to_end"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="14dp"
+                        android:text="上课中展开态改为距离下课倒计时" />
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_save_custom"
                         style="@style/Widget.Material3.Button"
