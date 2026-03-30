@@ -2156,46 +2156,6 @@ public class MainHook {
                 .replace("{教室}", info.classroom);
     }
 
-    private void bootstrapRemotePrefsFromHostLocal(Context ctx) {
-        try {
-            SharedPreferences remote = XposedBridge.getRemotePreferences(PREFS_NAME);
-            SharedPreferences remoteHoliday = XposedBridge.getRemotePreferences(HolidayManager.PREFS_HOLIDAY);
-            SharedPreferences hostLocal = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-            SharedPreferences hostRuntime = ctx.getSharedPreferences(PREFS_RUNTIME_NAME, Context.MODE_PRIVATE);
-            SharedPreferences hostHoliday = ctx.getSharedPreferences(HolidayManager.PREFS_HOLIDAY, Context.MODE_PRIVATE);
-
-            migrateLegacyConfigOnce(remote);
-            migrateLegacyConfigOnce(hostLocal);
-            runInitialMigration(remote, hostLocal, "配置");
-            runInitialMigration(remoteHoliday, hostHoliday, "节假日");
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + ": bootstrapRemotePrefsFromHostLocal failed -> " + t.getMessage());
-        }
-    }
-
-    /**
-     * 统一首次迁移规则：
-     * 1) remote 为空且宿主本地非空：宿主本地 -> remote
-     * 2) remote 非空且宿主本地为空：remote -> 宿主本地
-     */
-    private void runInitialMigration(SharedPreferences remote, SharedPreferences hostLocal, String label) {
-        if (remote == null || hostLocal == null) return;
-        java.util.Map<String, ?> remoteAll = remote.getAll();
-        java.util.Map<String, ?> localAll = hostLocal.getAll();
-        boolean remoteEmpty = remoteAll == null || remoteAll.isEmpty();
-        boolean localEmpty = localAll == null || localAll.isEmpty();
-
-        if (remoteEmpty && !localEmpty) {
-            copyAllPrefs(remote, localAll);
-            XposedBridge.log(TAG + ": 首次迁移(" + label + ")：宿主本地 -> remote prefs");
-            return;
-        }
-        if (!remoteEmpty && localEmpty) {
-            copyAllPrefs(hostLocal, remoteAll);
-            XposedBridge.log(TAG + ": 首次迁移(" + label + ")：remote prefs -> 宿主本地");
-        }
-    }
-
     private void bootstrapRemotePrefsUnified(Context ctx) {
         try {
             SharedPreferences remote = XposedBridge.getRemotePreferences(PREFS_NAME);
@@ -2204,11 +2164,11 @@ public class MainHook {
             SharedPreferences hostRuntime = ctx.getSharedPreferences(PREFS_RUNTIME_NAME, Context.MODE_PRIVATE);
             SharedPreferences hostHoliday = ctx.getSharedPreferences(HolidayManager.PREFS_HOLIDAY, Context.MODE_PRIVATE);
 
-            migrateLegacyConfigOnce(remote);
-            migrateLegacyConfigOnce(hostConfig);
-            migrateRuntimeStorageOnce(hostConfig, hostRuntime, remote);
             runInitialMigrationFiltered(remote, hostConfig, "配置", true);
             runInitialMigrationFiltered(remoteHoliday, hostHoliday, "节假日", false);
+            // 先同步 remote -> local，再在本地做规范化与运行态迁移，避免漏迁移远端旧键
+            migrateLegacyConfigOnce(hostConfig);
+            migrateRuntimeStorageOnce(hostConfig, hostRuntime, null);
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": bootstrapRemotePrefsUnified failed -> " + t.getMessage());
         }
@@ -2223,8 +2183,6 @@ public class MainHook {
         boolean localEmpty = localAll == null || localAll.isEmpty();
 
         if (remoteEmpty && !localEmpty) {
-            copyAllPrefsFiltered(remote, localAll, configOnly);
-            XposedBridge.log(TAG + ": 首次迁移(" + label + ")：宿主本地 -> remote prefs");
             return;
         }
         if (!remoteEmpty && localEmpty) {
@@ -2235,6 +2193,7 @@ public class MainHook {
 
     private void copyAllPrefsFiltered(SharedPreferences target, java.util.Map<String, ?> allValues, boolean configOnly) {
         if (target == null || allValues == null) return;
+        if (!isWritablePrefs(target)) return;
         SharedPreferences.Editor ed = target.edit();
         for (java.util.Map.Entry<String, ?> e : allValues.entrySet()) {
             String key = e.getKey();
@@ -2291,7 +2250,7 @@ public class MainHook {
             if (moved) runtimeEd.apply();
             hostConfigEd.apply();
 
-            if (remoteConfig != null) {
+            if (remoteConfig != null && isWritablePrefs(remoteConfig)) {
                 try {
                     SharedPreferences.Editor remoteEd = remoteConfig.edit();
                     remoteEd.remove(KEY_COURSE_TOTAL_WEEK);
@@ -2326,7 +2285,7 @@ public class MainHook {
                 runtimeEd.apply();
                 hostConfigEd.apply();
             }
-            if (remoteConfig != null) {
+            if (remoteConfig != null && isWritablePrefs(remoteConfig)) {
                 SharedPreferences.Editor remoteEd = remoteConfig.edit();
                 java.util.Map<String, ?> remoteAll = remoteConfig.getAll();
                 if (remoteAll != null) {
@@ -2474,14 +2433,14 @@ public class MainHook {
         return changed;
     }
 
-    private void copyAllPrefs(SharedPreferences target, java.util.Map<String, ?> allValues) {
-        if (target == null || allValues == null) return;
-        SharedPreferences.Editor ed = target.edit();
-        for (java.util.Map.Entry<String, ?> e : allValues.entrySet()) {
-            String key = e.getKey();
-            putTyped(ed, key, e.getValue());
+    private boolean isWritablePrefs(SharedPreferences prefs) {
+        if (prefs == null) return false;
+        try {
+            SharedPreferences.Editor ed = prefs.edit();
+            return ed != null;
+        } catch (Throwable t) {
+            return false;
         }
-        ed.apply();
     }
 
     private void putTyped(SharedPreferences.Editor ed, String key, Object value) {
