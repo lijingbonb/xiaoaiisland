@@ -38,13 +38,11 @@ public class SystemUiHook {
     private static final ThreadLocal<Boolean> sReentry = new ThreadLocal<>();
     private static final ThreadLocal<Integer> sIslandBindDepth = new ThreadLocal<>();
     private static final Set<String> sHookedIslandContentClasses = ConcurrentHashMap.newKeySet();
-    private static final Set<String> sDumpedFocusMethods = ConcurrentHashMap.newKeySet();
     private static final Map<TextView, Boolean> sAdaptiveWatchers =
             java.util.Collections.synchronizedMap(new WeakHashMap<TextView, Boolean>());
     private static final Map<Object, String> sFocusContentKeyMap =
             java.util.Collections.synchronizedMap(new WeakHashMap<Object, String>());
     private static final ConcurrentMap<String, CachedTexts> sFullTextByKey = new ConcurrentHashMap<>();
-    private static volatile boolean sLoggedInstalled = false;
 
     public void handleLoadPackage(String packageName, ClassLoader classLoader) {
         if (!TARGET_PACKAGE.equals(packageName)) return;
@@ -52,7 +50,6 @@ public class SystemUiHook {
         hookTextViewSetEllipsize(classLoader);
         hookTextViewSetText(classLoader);
         hookTextViewOnAttached(classLoader);
-        XposedBridge.log(TAG + ": hook installed for " + packageName);
     }
 
     private void hookIslandExpandedView(ClassLoader classLoader) {
@@ -66,7 +63,6 @@ public class SystemUiHook {
                             tuneIslandViewTree(root);
                         }
                     });
-            XposedBridge.log(TAG + ": hook FocusNotificationContent#setIslandExpandedView ok");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": hook setIslandExpandedView failed -> " + t.getMessage());
         }
@@ -81,7 +77,6 @@ public class SystemUiHook {
                             tuneIslandViewTree(root);
                         }
                     });
-            XposedBridge.log(TAG + ": hook FocusNotificationContent#setIslandExpandedViewFake ok");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": hook setIslandExpandedViewFake failed -> " + t.getMessage());
         }
@@ -108,15 +103,8 @@ public class SystemUiHook {
                             cacheFullTextsFromModel(param.args);
                             cacheFullTextsFromIslandParam(param.args);
                             installRuntimeIslandContentHook(param.thisObject);
-                            if (!sLoggedInstalled && param.args != null && param.args.length > 0
-                                    && param.args[0] instanceof Bundle) {
-                                String json = ((Bundle) param.args[0]).getString("island_param", "");
-                                XposedBridge.log(TAG + ": island_param length=" + (json == null ? 0 : json.length()));
-                                sLoggedInstalled = true;
-                            }
                         }
                     });
-            XposedBridge.log(TAG + ": hook DeviceNotificationListenerImpl#handleDeviceNotification ok");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": hook handleDeviceNotification failed -> " + t.getMessage());
         }
@@ -133,8 +121,6 @@ public class SystemUiHook {
                             if (!isActiveRoot(root)) return;
                             tuneIslandViewTree(root);
                             applyCachedTextToGenericRoot(param.thisObject, root);
-                            dumpFocusTextViewsOnce(methodName, root);
-                            XposedBridge.log(TAG + ": FocusNotificationContent#" + methodName + " hit");
                         }
                     });
         } catch (Throwable t) {
@@ -152,21 +138,17 @@ public class SystemUiHook {
                             Object arg = param.args[0];
                             if (!(arg instanceof Map)) return;
                             Map<?, ?> map = (Map<?, ?>) arg;
-                            int hit = 0;
                             for (Map.Entry<?, ?> e : map.entrySet()) {
                                 Object v = e.getValue();
                                 if (v instanceof View) {
                                     View vv = (View) v;
                                     if (isActiveRoot(vv)) {
                                         tuneIslandViewTree(vv);
-                                        hit++;
                                     }
                                 }
                             }
-                            XposedBridge.log(TAG + ": FocusNotificationContent#setFocusNotificationViewMap hit, views=" + hit);
                         }
                     });
-            XposedBridge.log(TAG + ": hook FocusNotificationContent#setFocusNotificationViewMap ok");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": hook setFocusNotificationViewMap failed -> " + t.getMessage());
         }
@@ -187,7 +169,6 @@ public class SystemUiHook {
                             }
                         }
                     });
-            XposedBridge.log(TAG + ": hook FocusNotificationContent#setKey ok");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": hook setKey failed -> " + t.getMessage());
         }
@@ -206,7 +187,6 @@ public class SystemUiHook {
             String clsName = cls.getName();
             if (!sHookedIslandContentClasses.add(clsName)) return;
 
-            int hookCount = 0;
             Class<?> cur = cls;
             while (cur != null) {
                 for (Method m : cur.getDeclaredMethods()) {
@@ -231,11 +211,9 @@ public class SystemUiHook {
                             exitIslandBind();
                         }
                     });
-                    hookCount++;
                 }
                 cur = cur.getSuperclass();
             }
-            XposedBridge.log(TAG + ": runtime content class=" + clsName + ", hookCount=" + hookCount);
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": installRuntimeIslandContentHook failed -> " + t.getMessage());
         }
@@ -362,7 +340,6 @@ public class SystemUiHook {
             String newTicker = root.toString();
             if (!tickerData.equals(newTicker)) {
                 invokeOneArg(dataObj, "setTickerData", String.class, newTicker);
-                XposedBridge.log(TAG + ": tickerData rewritten from cached full text, key=" + key);
             }
         } catch (Throwable ignore) {
         }
@@ -431,9 +408,6 @@ public class SystemUiHook {
                 hit = true;
             }
         }
-        if (hit) {
-            XposedBridge.log(TAG + ": view text replaced from full cache");
-        }
     }
 
     private boolean isLikelyFirstLimitTrim(String current, String full) {
@@ -441,6 +415,15 @@ public class SystemUiHook {
         String cur = current.trim();
         String target = full.trim();
         if (target.equals(cur)) return false;
+        String normalized = cur.replace("...", "").replace("\u2026", "").trim();
+        if (!TextUtils.isEmpty(normalized)) {
+            if (target.startsWith(normalized)) return true;
+            if (normalized.length() >= 4) {
+                String head = normalized.substring(0, Math.min(4, normalized.length()));
+                return target.startsWith(head);
+            }
+            return false;
+        }
         String curNoDots = cur.replace("…", "").replace("...", "");
         if (TextUtils.isEmpty(curNoDots)) return false;
         if (target.startsWith(curNoDots)) return true;
@@ -454,14 +437,9 @@ public class SystemUiHook {
     private void applyCachedTextToGenericRoot(Object focusContentObj, View root) {
         if (root == null) return;
         if (focusContentObj == null) return;
-        CachedTexts cached;
-        if (focusContentObj != null) {
-            String key = sFocusContentKeyMap.get(focusContentObj);
-            if (TextUtils.isEmpty(key)) return;
-            cached = sFullTextByKey.get(key);
-        } else {
-            return;
-        }
+        String key = sFocusContentKeyMap.get(focusContentObj);
+        if (TextUtils.isEmpty(key)) return;
+        CachedTexts cached = sFullTextByKey.get(key);
         if (cached == null) return;
         applyFullTextToTree(root, cached);
     }
@@ -490,55 +468,6 @@ public class SystemUiHook {
         return root.getWidth() > 0 || root.getHeight() > 0;
     }
 
-    private void dumpFocusTextViewsOnce(String methodName, View root) {
-        if (root == null) return;
-        String key = methodName + "@" + root.getClass().getName();
-        if (!sDumpedFocusMethods.add(key)) return;
-        java.util.ArrayList<TextView> all = new java.util.ArrayList<>();
-        collectTextViews(root, all);
-        XposedBridge.log(TAG + ": dump " + key + " textViews=" + all.size());
-        for (int i = 0; i < all.size() && i < 6; i++) {
-            TextView tv = all.get(i);
-            String idName = "";
-            int id = tv.getId();
-            if (id != View.NO_ID) idName = safeIdName(tv, id);
-            String txt = String.valueOf(tv.getText());
-            int len = txt == null ? 0 : txt.length();
-            XposedBridge.log(TAG + ": tv[" + i + "] id=" + idName
-                    + " maxW=" + tv.getMaxWidth()
-                    + " width=" + tv.getWidth()
-                    + " len=" + len
-                    + " ellipsize=" + String.valueOf(tv.getEllipsize()));
-            logAncestorLimits(tv, "tv[" + i + "]");
-        }
-    }
-
-    private void logAncestorLimits(TextView tv, String tag) {
-        if (tv == null) return;
-        View cur = tv;
-        int depth = 0;
-        while (cur != null && depth < 8) {
-            int id = cur.getId();
-            String idName = id == View.NO_ID ? "" : safeIdName(cur, id);
-            ViewGroup.LayoutParams lp = cur.getLayoutParams();
-            int lpW = lp == null ? Integer.MIN_VALUE : lp.width;
-            int lpH = lp == null ? Integer.MIN_VALUE : lp.height;
-            float weight = Float.NaN;
-            if (lp instanceof android.widget.LinearLayout.LayoutParams) {
-                weight = ((android.widget.LinearLayout.LayoutParams) lp).weight;
-            }
-            XposedBridge.log(TAG + ": " + tag + " ancestor[" + depth + "] class="
-                    + cur.getClass().getName()
-                    + " id=" + idName
-                    + " width=" + cur.getWidth()
-                    + " lpW=" + lpW
-                    + " lpH=" + lpH
-                    + " weight=" + weight);
-            ViewParent p = cur.getParent();
-            cur = (p instanceof View) ? (View) p : null;
-            depth++;
-        }
-    }
 
     private TextView findTextViewByIdName(View root, String idName) {
         if (root == null) return null;
