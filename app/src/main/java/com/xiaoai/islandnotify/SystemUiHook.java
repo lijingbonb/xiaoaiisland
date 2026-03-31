@@ -165,6 +165,55 @@ public class SystemUiHook {
     private void hookExactFirstLimitPoints(ClassLoader classLoader) {
         // 仅保留“主要小文本2(subTitle)”相关限制修正，避免影响未展开岛A区域宽度。
         hookFocusSmallSubtitleFirstLimit(classLoader);
+        hookFinalTitleMarqueePoints(classLoader);
+    }
+
+    private void hookFinalTitleMarqueePoints(ClassLoader classLoader) {
+        hookNotifyDataChangedMarquee(classLoader, MODULE_TEXT_BUTTON_VIEW_HOLDER_CLASS);
+        hookNotifyDataChangedMarquee(classLoader, MODULE_TINY_TEXT_BUTTON_VIEW_HOLDER_CLASS);
+        hookNotifyDataChangedMarquee(classLoader, MODULE_TEXT_VIEW_HOLDER_CLASS);
+    }
+
+    private void hookNotifyDataChangedMarquee(ClassLoader classLoader, String className) {
+        try {
+            Class<?> cls = Class.forName(className, false, classLoader);
+            Method m = null;
+            for (Method mm : cls.getDeclaredMethods()) {
+                if (!"notifyDataChanged".equals(mm.getName())) continue;
+                if (mm.getParameterTypes().length != 0) continue;
+                m = mm;
+                break;
+            }
+            if (m == null) return;
+            m.setAccessible(true);
+            XposedBridge.hookMethod(m, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    Object self = param.thisObject;
+                    if (self == null) return;
+                    applyMarqueeForFieldTextView(self, "focusSmallTitle");
+                    applyMarqueeForFieldTextView(self, "focusTitle");
+                    applyMarqueeForFieldTextView(self, "focusTitleView");
+                }
+            });
+        } catch (Throwable ignore) {
+        }
+    }
+
+    private void applyMarqueeForFieldTextView(Object holder, String fieldName) {
+        if (holder == null || TextUtils.isEmpty(fieldName)) return;
+        try {
+            Field f = findField(holder.getClass(), fieldName);
+            if (f == null) return;
+            f.setAccessible(true);
+            Object obj = f.get(holder);
+            if (!(obj instanceof TextView)) return;
+            TextView tv = (TextView) obj;
+            if (TextUtils.isEmpty(tv.getText())) return;
+            ensureAdaptiveWatcher(tv);
+            applyAdaptiveMarquee(tv);
+        } catch (Throwable ignore) {
+        }
     }
 
     private void hookCalculateMaxWidthWithSmall(ClassLoader classLoader) {
@@ -314,7 +363,10 @@ public class SystemUiHook {
                         Object tvObj = param.args[0];
                         if (!(tvObj instanceof TextView)) return;
                         TextView tv = (TextView) tvObj;
-                        if (!isSubtitleTargetView(tv)) return;
+                        boolean subtitleTarget = isSubtitleTargetView(tv);
+                        boolean titleTarget = isTitleTargetView(tv);
+                        if (!subtitleTarget && !titleTarget) return;
+                        if (!subtitleTarget) return;
 
                         CharSequence cs = tv.getText();
                         if (TextUtils.isEmpty(cs)) return;
@@ -341,8 +393,15 @@ public class SystemUiHook {
                         Object tvObj = param.args[0];
                         if (!(tvObj instanceof TextView)) return;
                         TextView tv = (TextView) tvObj;
-                        if (!isSubtitleTargetView(tv)) return;
+                        boolean subtitleTarget = isSubtitleTargetView(tv);
+                        boolean titleTarget = isTitleTargetView(tv);
+                        if (!subtitleTarget && !titleTarget) return;
                         if (TextUtils.isEmpty(tv.getText())) return;
+                        if (titleTarget) {
+                            ensureAdaptiveWatcher(tv);
+                            applyAdaptiveMarquee(tv);
+                            return;
+                        }
                         sReentry.set(Boolean.TRUE);
                         try {
                             tv.setVisibility(View.VISIBLE);
@@ -371,6 +430,20 @@ public class SystemUiHook {
             if (idName.endsWith("subtitle")) return true;
             if (idName.endsWith("sub_title")) return true;
         }
+        return false;
+    }
+
+    private boolean isTitleTargetView(TextView tv) {
+        if (tv == null) return false;
+        int id = tv.getId();
+        if (id == View.NO_ID) return false;
+        String idName = safeIdName(tv, id).toLowerCase();
+        if (idName.contains("small_subtitle") || idName.contains("sub_title") || idName.contains("subtitle")) {
+            return false;
+        }
+        if (idName.contains("focus_small_title")) return true;
+        if (idName.equals("focus_title")) return true;
+        if (idName.endsWith("_title") && idName.contains("focus")) return true;
         return false;
     }
 
