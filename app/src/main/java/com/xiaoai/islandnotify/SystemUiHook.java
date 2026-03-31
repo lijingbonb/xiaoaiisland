@@ -5,6 +5,7 @@ import android.text.TextUtils;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
+import android.widget.Chronometer;
 import android.widget.TextView;
 
 import com.xiaoai.islandnotify.modernhook.XC_MethodHook;
@@ -338,6 +339,7 @@ public class SystemUiHook {
                         if (self == null) return;
                         Object tpl = (param.args != null && param.args.length > 0) ? param.args[0] : null;
                         ensureSubTitleFieldVisible(self, tpl, "smallSubTitle");
+                        syncPureTimerToSubtitle(self, tpl, "smallSubTitle", "chronometerHint");
                         clearTitleWhenPureTimer(self, tpl);
                         fixTimerTitleAndSubtitleLeakForTextButton(self);
                     }
@@ -464,6 +466,7 @@ public class SystemUiHook {
                         // hintInfo.type=2(按钮组件2): subTitle -> focusSmallSubtitleView
                         Object tpl = (param.args != null && param.args.length > 0) ? param.args[0] : null;
                         ensureSubTitleFieldVisible(self, tpl, "focusSmallSubtitleView");
+                        syncPureTimerToSubtitle(self, tpl, "focusSmallSubtitleView", "chronometerHintView");
                         clearTitleWhenPureTimer(self, tpl);
                         fixTimerTitleAndSubtitleLeakForDecoPort(self);
                         forceSmallSubtitleNoFirstTrim(self, "focusSmallSubtitleView");
@@ -628,6 +631,53 @@ public class SystemUiHook {
         } catch (Throwable ignore) {
         } finally {
             sReentry.set(Boolean.FALSE);
+        }
+    }
+
+    private void syncPureTimerToSubtitle(Object host, Object templateObj, String subFieldName, String chronoFieldName) {
+        if (host == null || templateObj == null) return;
+        try {
+            Object hint = invokeNoArg(templateObj, "getHintInfo");
+            if (hint == null) return;
+            Object timerInfo = invokeNoArg(hint, "getTimerInfo");
+            if (timerInfo == null) return;
+            Object subObj = invokeNoArg(hint, "getSubTitle");
+            String sub = subObj instanceof String ? ((String) subObj).trim() : "";
+            if (!"{倒计时}".equals(sub) && !"{正计时}".equals(sub)) return;
+
+            Object subTvObj = getFieldValue(host, subFieldName);
+            Object chronoObj = getFieldValue(host, chronoFieldName);
+            if (!(subTvObj instanceof TextView) || !(chronoObj instanceof TextView)) return;
+            TextView subTv = (TextView) subTvObj;
+            TextView chronoTv = (TextView) chronoObj;
+
+            sReentry.set(Boolean.TRUE);
+            try {
+                subTv.setVisibility(View.VISIBLE);
+                subTv.setText(chronoTv.getText());
+                subTv.setSingleLine(true);
+                subTv.setMaxLines(1);
+                subTv.setEllipsize(null);
+                subTv.setHorizontallyScrolling(false);
+            } finally {
+                sReentry.set(Boolean.FALSE);
+            }
+
+            if (chronoObj instanceof Chronometer) {
+                Chronometer chronometer = (Chronometer) chronoObj;
+                chronometer.setOnChronometerTickListener(c -> {
+                    try {
+                        sReentry.set(Boolean.TRUE);
+                        subTv.setText(c.getText());
+                    } catch (Throwable ignore) {
+                    } finally {
+                        sReentry.set(Boolean.FALSE);
+                    }
+                });
+            }
+            ensureAdaptiveWatcher(subTv);
+            applyAdaptiveMarquee(subTv);
+        } catch (Throwable ignore) {
         }
     }
 

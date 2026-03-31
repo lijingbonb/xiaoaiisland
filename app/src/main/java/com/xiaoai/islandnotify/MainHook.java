@@ -2056,26 +2056,40 @@ public class MainHook {
             String hintSubContentText = resolveTemplate(
                     getStagedPref(prefs, "tpl_hint_subcontent", stageSuffix),
                     info, "地点");
-            String hintSubTitleText = applyTimerVars(resolveTemplate(
+            String hintSubTitleText = resolveTemplate(
                     getStagedPref(prefs, "tpl_hint_subtitle", stageSuffix),
-                    info, info.classroom.isEmpty() ? "\u2014" : info.classroom), state, startMs, endMs, now);
+                    info, info.classroom.isEmpty() ? "\u2014" : info.classroom);
+            String rawHintSubTitleText = hintSubTitleText == null ? "" : hintSubTitleText.trim();
+            boolean hintSubTitleWantsCountdown = hintSubTitleText.contains("{倒计时}");
+            boolean hintSubTitleWantsElapsed = hintSubTitleText.contains("{正计时}");
+            boolean hintSubTitlePureCountdown = "{倒计时}".equals(rawHintSubTitleText);
+            boolean hintSubTitlePureElapsed = "{正计时}".equals(rawHintSubTitleText);
+            boolean usePureTimerAsDynamicSubTitle = false;
             hintSubContentText = applyTimerVars(hintSubContentText, state, startMs, endMs, now);
             if (state == STATE_ELAPSED) {
-                if (hintTitleWantsCountdown) {
+                if (hintTitleWantsCountdown || hintSubTitleWantsCountdown) {
                     timerMs = endMs;
                     timerType = (endMs > now) ? -1 : 1;
-                } else if (hintTitleWantsElapsed) {
+                } else if (hintTitleWantsElapsed || hintSubTitleWantsElapsed) {
                     timerMs = startMs;
                     timerType = 1;
                 }
             }
             boolean unsupportedElapsedInPre = state == STATE_COUNTDOWN && hintTitleWantsElapsed;
             boolean unsupportedCountdownInPost = state == STATE_FINISHED && hintTitleWantsCountdown;
+            boolean unsupportedSubElapsedInPre = state == STATE_COUNTDOWN && hintSubTitleWantsElapsed;
+            boolean unsupportedSubCountdownInPost = state == STATE_FINISHED && hintSubTitleWantsCountdown;
             if (unsupportedElapsedInPre) {
                 hintTitleText = hintTitleText.replace("{正计时}", "上课前不支持正计时");
             }
             if (unsupportedCountdownInPost) {
                 hintTitleText = hintTitleText.replace("{倒计时}", "下课后不支持倒计时");
+            }
+            if (unsupportedSubElapsedInPre) {
+                hintSubTitleText = hintSubTitleText.replace("{正计时}", "上课前不支持正计时");
+            }
+            if (unsupportedSubCountdownInPost) {
+                hintSubTitleText = hintSubTitleText.replace("{倒计时}", "下课后不支持倒计时");
             }
             boolean unsupportedTimerVar = unsupportedElapsedInPre || unsupportedCountdownInPost;
             usePureTimerAsDynamicTitle =
@@ -2084,12 +2098,22 @@ public class MainHook {
                                     || (state == STATE_ELAPSED && (hintTitlePureCountdown || hintTitlePureElapsed))
                                     || (state == STATE_FINISHED && hintTitlePureElapsed)
                     );
+            boolean unsupportedSubTimerVar = unsupportedSubElapsedInPre || unsupportedSubCountdownInPost;
+            usePureTimerAsDynamicSubTitle =
+                    !unsupportedSubTimerVar && (
+                            (state == STATE_COUNTDOWN && hintSubTitlePureCountdown)
+                                    || (state == STATE_ELAPSED && (hintSubTitlePureCountdown || hintSubTitlePureElapsed))
+                                    || (state == STATE_FINISHED && hintSubTitlePureElapsed)
+                    );
             if (usePureTimerAsDynamicTitle) {
                 // 纯计时变量时不渲染静态文本，由 timerInfo 负责动态显示
                 hintTitleText = "";
             } else {
                 hintTitleText = applyTimerVars(hintTitleText, state, startMs, endMs, now);
                 hintTitleText = applyExtraVars(hintTitleText, info);
+            }
+            if (!usePureTimerAsDynamicSubTitle) {
+                hintSubTitleText = applyTimerVars(hintSubTitleText, state, startMs, endMs, now);
             }
             hintSubContentText = applyExtraVars(hintSubContentText, info);
             hintSubTitleText = applyExtraVars(hintSubTitleText, info);
