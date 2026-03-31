@@ -154,7 +154,7 @@ public class MainActivity extends AppCompatActivity {
     };
     private static final String[][] DEFAULT_EXPANDED_TPLS_V2 = {
             {"{\u8bfe\u540d}", "{\u5012\u8ba1\u65f6}", "{\u6559\u5ba4}", "\u5373\u5c06\u4e0a\u8bfe", "\u5730\u70b9", "{\u5f00\u59cb} | {\u7ed3\u675f}", ""},
-            {"{\u8bfe\u540d}", "{\u5012\u8ba1\u65f6}", "{\u6559\u5ba4}", "\u5df2\u7ecf\u4e0a\u8bfe", "\u5730\u70b9", "{\u5f00\u59cb} | {\u7ed3\u675f}", ""},
+            {"{\u8bfe\u540d}", "{\u5012\u8ba1\u65f6}", "{\u6559\u5ba4}", "\u8ddd\u79bb\u4e0b\u8bfe", "\u5730\u70b9", "{\u5f00\u59cb} | {\u7ed3\u675f}", ""},
             {"{\u8bfe\u540d}", "{\u6b63\u8ba1\u65f6}", "{\u6559\u5ba4}", "\u5df2\u7ecf\u4e0b\u8bfe", "\u5730\u70b9", "{\u5f00\u59cb} | {\u7ed3\u675f}", ""}
     };
     private static final String TARGET_VOICEASSIST = "com.miui.voiceassist";
