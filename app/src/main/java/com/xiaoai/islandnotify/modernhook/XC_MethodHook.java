@@ -1,8 +1,7 @@
 package com.xiaoai.islandnotify.modernhook;
 
 import java.lang.reflect.Member;
-
-import io.github.libxposed.api.XposedInterface;
+import java.lang.reflect.Method;
 
 public abstract class XC_MethodHook {
 
@@ -14,9 +13,9 @@ public abstract class XC_MethodHook {
 
     public class Unhook {
         private final Member hookedMethod;
-        private final XposedInterface.HookHandle handle;
+        private final Object handle;
 
-        Unhook(Member hookedMethod, XposedInterface.HookHandle handle) {
+        Unhook(Member hookedMethod, Object handle) {
             this.hookedMethod = hookedMethod;
             this.handle = handle;
         }
@@ -27,7 +26,19 @@ public abstract class XC_MethodHook {
 
         public void unhook() {
             if (handle != null) {
-                handle.unhook();
+                invokeUnhook(handle);
+            }
+        }
+
+        private void invokeUnhook(Object h) {
+            for (String name : new String[]{"unhook", "remove", "cancel"}) {
+                try {
+                    Method m = h.getClass().getMethod(name);
+                    m.setAccessible(true);
+                    m.invoke(h);
+                    return;
+                } catch (Throwable ignored) {
+                }
             }
         }
     }

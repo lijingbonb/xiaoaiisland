@@ -243,11 +243,19 @@ public class MainActivity extends AppCompatActivity {
             public void onServiceBind(XposedService service) {
                 mXposedService = service;
                 mFrameworkActive = true;
+                int apiVersion = 0;
+                try {
+                    apiVersion = service.getApiVersion();
+                } catch (Throwable ignored) {}
                 mFrameworkDesc = "Framework: " + service.getFrameworkName()
-                        + "\nAPI: " + service.getApiVersion()
+                        + "\nAPI: " + apiVersion
                         + "  Version: " + service.getFrameworkVersionCode();
-                initRemotePrefsBridgeV2(service);
-                requestMissingScopeIfNeeded(service);
+                if (apiVersion >= 101) {
+                    initRemotePrefsBridgeV2(service);
+                    requestMissingScopeIfNeeded(service);
+                } else {
+                    initRemotePrefsBridge(service);
+                }
                 runOnUiThread(MainActivity.this::updateModuleStatus);
             }
 
@@ -697,7 +705,7 @@ public class MainActivity extends AppCompatActivity {
             ImageViewCompat.setImageTintList(icon, ColorStateList.valueOf(onColor));
             title.setText("模块已激活");
             title.setTextColor(onColor);
-            desc.setText(mFrameworkDesc.isEmpty() ? "LSPosed Service 已连接 (API 101)" : mFrameworkDesc);
+            desc.setText(mFrameworkDesc.isEmpty() ? "LSPosed Service 已连接" : mFrameworkDesc);
             desc.setTextColor(onColor);
         } else {
             int bg      = MaterialColors.getColor(this, com.google.android.material.R.attr.colorErrorContainer,   Color.LTGRAY);
