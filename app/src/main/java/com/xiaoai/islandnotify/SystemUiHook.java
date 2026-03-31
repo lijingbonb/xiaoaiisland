@@ -54,10 +54,14 @@ public class SystemUiHook {
             "miui.systemui.notification.focus.moduleV3.ModuleTextButtonViewHolder";
     private static final String MODULE_TINY_TEXT_BUTTON_VIEW_HOLDER_CLASS =
             "miui.systemui.notification.focus.moduleV3.ModuleTinyTextButtonViewHolder";
+    private static final String BASE_ISLAND_MODULE_VIEW_HOLDER_CLASS =
+            "miui.systemui.dynamicisland.module.BaseIslandModuleViewHolder";
     private static final String ISLAND_TEXT_VIEW_HOLDER_CLASS =
             "miui.systemui.dynamicisland.module.IslandTextViewHolder";
     private static final String ISLAND_RIGHT_TEXT_VIEW_HOLDER_CLASS =
             "miui.systemui.dynamicisland.module.IslandRightTextViewHolder";
+    private static final String ISLAND_SAME_WIDTH_DIGIT_VIEW_HOLDER_CLASS =
+            "miui.systemui.dynamicisland.module.IslandSameWidthDigitViewHolder";
 
     private static final ThreadLocal<Boolean> sReentry = new ThreadLocal<>();
     private static final ThreadLocal<Integer> sIslandBindDepth = new ThreadLocal<>();
@@ -92,6 +96,8 @@ public class SystemUiHook {
         sInstalledHookLoaders.put(classLoader, Boolean.TRUE);
         hookExactFirstLimitPoints(classLoader);
         hookIslandExpandedView(classLoader);
+        hookSameWidthDigitSuffixStyle(classLoader);
+        hookSameWidthDigitContentColor(classLoader);
     }
 
     private void hookPluginClassLoaderBridge(ClassLoader classLoader) {
@@ -173,6 +179,210 @@ public class SystemUiHook {
         hookNotifyDataChangedMarquee(classLoader, MODULE_TEXT_BUTTON_VIEW_HOLDER_CLASS);
         hookNotifyDataChangedMarquee(classLoader, MODULE_TINY_TEXT_BUTTON_VIEW_HOLDER_CLASS);
         hookNotifyDataChangedMarquee(classLoader, MODULE_TEXT_VIEW_HOLDER_CLASS);
+    }
+
+    private void hookSameWidthDigitSuffixStyle(ClassLoader classLoader) {
+        try {
+            Class<?> cls = Class.forName(ISLAND_SAME_WIDTH_DIGIT_VIEW_HOLDER_CLASS, false, classLoader);
+            for (Method m : cls.getDeclaredMethods()) {
+                if (!"bind".equals(m.getName())) continue;
+                if (m.getParameterTypes().length != 2) continue;
+                m.setAccessible(true);
+                XposedBridge.hookMethod(m, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        Object self = param.thisObject;
+                        if (self == null) return;
+                        Object digitObj = getFieldValue(self, "sameWidthDigit");
+                        Object titleObj = getFieldValue(self, "title");
+                        Object contentObj = getFieldValue(self, "content");
+                        if (!(contentObj instanceof TextView)) return;
+                        enforceSameWidthDigitTypeface(self);
+                        TextView source = null;
+                        if (digitObj instanceof TextView) {
+                            TextView digit = (TextView) digitObj;
+                            if (digit.getVisibility() == View.VISIBLE) source = digit;
+                        }
+                        if (source == null && titleObj instanceof TextView) {
+                            TextView title = (TextView) titleObj;
+                            if (title.getVisibility() == View.VISIBLE) source = title;
+                        }
+                        if (source == null && titleObj instanceof TextView) {
+                            source = (TextView) titleObj;
+                        }
+                        if (source == null) return;
+                        harmonizeSuffixStyle(source, (TextView) contentObj);
+                    }
+                });
+                return;
+            }
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": hook IslandSameWidthDigitViewHolder#bind failed -> " + t.getMessage());
+        }
+    }
+
+    private void enforceSameWidthDigitTypeface(Object holder) {
+        if (holder == null) return;
+        TextView digit = null;
+        TextView title = null;
+        TextView content = null;
+        Object d = getFieldValue(holder, "sameWidthDigit");
+        Object t = getFieldValue(holder, "title");
+        Object c = getFieldValue(holder, "content");
+        if (d instanceof TextView) digit = (TextView) d;
+        if (t instanceof TextView) title = (TextView) t;
+        if (c instanceof TextView) content = (TextView) c;
+        android.graphics.Typeface tf = android.graphics.Typeface.create("mipro-demibold", android.graphics.Typeface.NORMAL);
+        sReentry.set(Boolean.TRUE);
+        try {
+            if (digit != null) {
+                digit.setTypeface(tf);
+                digit.setTextScaleX(1f);
+                digit.setLetterSpacing(0f);
+            }
+            if (title != null) {
+                title.setTypeface(tf);
+                title.setTextScaleX(1f);
+                title.setLetterSpacing(0f);
+            }
+            if (content != null) {
+                content.setTypeface(tf);
+                content.setTextScaleX(1f);
+                content.setLetterSpacing(0f);
+            }
+        } catch (Throwable ignore) {
+        } finally {
+            sReentry.set(Boolean.FALSE);
+        }
+    }
+
+    private void hookSameWidthDigitContentColor(ClassLoader classLoader) {
+        try {
+            Class<?> cls = Class.forName(BASE_ISLAND_MODULE_VIEW_HOLDER_CLASS, false, classLoader);
+            for (Method m : cls.getDeclaredMethods()) {
+                if (!"setContentHighlightColor".equals(m.getName())) continue;
+                if (m.getParameterTypes().length != 4) continue;
+                m.setAccessible(true);
+                XposedBridge.hookMethod(m, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        Object self = param.thisObject;
+                        if (self == null) return;
+                        if (!ISLAND_SAME_WIDTH_DIGIT_VIEW_HOLDER_CLASS.equals(self.getClass().getName())) return;
+                        if (param.args == null || param.args.length < 4) return;
+                        Object contentObj = param.args[2];
+                        Object textObj = param.args[3];
+                        if (!(contentObj instanceof TextView)) return;
+                        String text = textObj instanceof String ? (String) textObj : null;
+                        if (text == null) return;
+                        TextView content = (TextView) contentObj;
+
+                        TextView src = null;
+                        Object digitObj = getFieldValue(self, "sameWidthDigit");
+                        if (digitObj instanceof TextView && ((TextView) digitObj).getVisibility() == View.VISIBLE) {
+                            src = (TextView) digitObj;
+                        }
+                        if (src == null) {
+                            Object titleObj = getFieldValue(self, "title");
+                            if (titleObj instanceof TextView) src = (TextView) titleObj;
+                        }
+                        int color = src != null ? src.getCurrentTextColor() : content.getCurrentTextColor();
+                        sReentry.set(Boolean.TRUE);
+                        try {
+                            invokeUpdateTextWithColor(content, text, color);
+                            content.setTextColor(color);
+                        } catch (Throwable ignore) {
+                        } finally {
+                            sReentry.set(Boolean.FALSE);
+                        }
+                    }
+                });
+                return;
+            }
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": hook BaseIslandModuleViewHolder#setContentHighlightColor failed -> " + t.getMessage());
+        }
+    }
+
+    private void invokeUpdateTextWithColor(TextView target, String text, int color) {
+        if (target == null) return;
+        try {
+            Method m = target.getClass().getMethod("updateTextWithNewAppearance", CharSequence.class, Integer.class);
+            m.setAccessible(true);
+            m.invoke(target, text, Integer.valueOf(color));
+        } catch (Throwable ignore) {
+            target.setText(text, TextView.BufferType.SPANNABLE);
+        }
+    }
+
+    private void harmonizeSuffixStyle(TextView title, TextView content) {
+        if (title == null || content == null) return;
+        sReentry.set(Boolean.TRUE);
+        try {
+            applyExactIslandTitleStyle(content);
+            content.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, title.getTextSize());
+            content.setTypeface(android.graphics.Typeface.create("mipro-demibold", android.graphics.Typeface.NORMAL));
+            if (title.getTextColors() != null) {
+                content.setTextColor(title.getTextColors());
+            } else {
+                content.setTextColor(title.getCurrentTextColor());
+            }
+            content.setAlpha(title.getAlpha());
+            content.setIncludeFontPadding(title.getIncludeFontPadding());
+            content.setGravity(title.getGravity());
+            content.setAllCaps(title.isAllCaps());
+            content.setElegantTextHeight(title.isElegantTextHeight());
+            content.setFallbackLineSpacing(title.isFallbackLineSpacing());
+            content.setShadowLayer(title.getShadowRadius(), title.getShadowDx(), title.getShadowDy(), title.getShadowColor());
+            content.setLineSpacing(title.getLineSpacingExtra(), title.getLineSpacingMultiplier());
+            content.setMinHeight(title.getMinHeight());
+            content.setMinWidth(title.getMinWidth());
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                content.setLineHeight(title.getLineHeight());
+            }
+            ViewGroup.LayoutParams lp = content.getLayoutParams();
+            ViewGroup.LayoutParams titleLp = title.getLayoutParams();
+            if (lp instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
+                if (titleLp instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams tmlp = (ViewGroup.MarginLayoutParams) titleLp;
+                    mlp.leftMargin = tmlp.leftMargin;
+                    mlp.topMargin = tmlp.topMargin;
+                    mlp.rightMargin = tmlp.rightMargin;
+                    mlp.bottomMargin = tmlp.bottomMargin;
+                } else {
+                    mlp.leftMargin = 0;
+                    mlp.topMargin = 0;
+                    mlp.rightMargin = 0;
+                    mlp.bottomMargin = 0;
+                }
+                content.setLayoutParams(mlp);
+            }
+            content.setPadding(title.getPaddingLeft(), title.getPaddingTop(), title.getPaddingRight(), title.getPaddingBottom());
+            content.requestLayout();
+        } catch (Throwable ignore) {
+        } finally {
+            sReentry.set(Boolean.FALSE);
+        }
+    }
+
+    private void applyExactIslandTitleStyle(TextView target) {
+        if (target == null) return;
+        try {
+            android.content.Context ctx = target.getContext();
+            if (ctx == null) return;
+            android.content.res.Resources res = ctx.getResources();
+            if (res == null) return;
+            String pkg = ctx.getPackageName();
+            int styleId = res.getIdentifier("IslandTitleStyle", "style", pkg);
+            if (styleId == 0) {
+                styleId = res.getIdentifier("IslandTitleStyle", "style", "miui.systemui.plugin");
+            }
+            if (styleId != 0) {
+                target.setTextAppearance(ctx, styleId);
+            }
+        } catch (Throwable ignore) {
+        }
     }
 
     private void hookNotifyDataChangedMarquee(ClassLoader classLoader, String className) {

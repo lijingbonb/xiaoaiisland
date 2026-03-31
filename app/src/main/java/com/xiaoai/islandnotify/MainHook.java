@@ -22,6 +22,7 @@ import com.xzakota.hyper.notification.focus.model.HintInfo;
 import com.xzakota.hyper.notification.focus.model.PicInfo;
 import com.xzakota.hyper.notification.island.model.BigIslandArea;
 import com.xzakota.hyper.notification.island.model.ImageTextInfo;
+import com.xzakota.hyper.notification.island.model.SameWidthDigitInfo;
 import com.xzakota.hyper.notification.island.model.ShareData;
 import com.xzakota.hyper.notification.island.model.SmallIslandArea;
 import com.xzakota.hyper.notification.island.model.TextInfo;
@@ -2020,9 +2021,12 @@ public class MainHook {
                     state, startMs, endMs, now);
             String bFallback = resolveTemplate(DEFAULT_TPLS[stageIdx][1], info,
                     info.classroom.isEmpty() ? "\u2014" : info.classroom);
-            String bTitle = applyTimerVars(
-                    applyExtraVars(resolveTemplate(getStagedPref(prefs, "tpl_b", stageSuffix), info, bFallback), info),
-                    state, startMs, endMs, now);
+            String bTemplateRaw = applyExtraVars(
+                    resolveTemplate(getStagedPref(prefs, "tpl_b", stageSuffix), info, bFallback), info);
+            IslandBSameWidthSpec bSameWidthSpec = buildIslandBSameWidthSpec(bTemplateRaw, state, startMs, endMs, now);
+            String bTitle = bSameWidthSpec != null && !bSameWidthSpec.supported
+                    ? bSameWidthSpec.unsupportedText
+                    : applyTimerVars(bTemplateRaw, state, startMs, endMs, now);
 
             // Expanded custom text fields (all support template vars via resolveTemplate):
             // tpl_base_title / tpl_base_content / tpl_base_subcontent
@@ -2203,11 +2207,26 @@ public class MainHook {
                     imageTextInfoLeft.setPicInfo(islandPicInfo);
                 }
 
-                TextInfo bTextInfo = new TextInfo();
-                bTextInfo.setTitle(bTitle);
                 BigIslandArea bigIslandArea = new BigIslandArea();
                 bigIslandArea.setImageTextInfoLeft(imageTextInfoLeft);
-                bigIslandArea.setTextInfo(bTextInfo);
+                if (bSameWidthSpec != null && bSameWidthSpec.supported) {
+                    SameWidthDigitInfo sameWidthDigitInfo = new SameWidthDigitInfo();
+                    TimerInfo islandTimerInfo = new TimerInfo();
+                    islandTimerInfo.setTimerType(bSameWidthSpec.timerType);
+                    islandTimerInfo.setTimerWhen(bSameWidthSpec.timerWhen);
+                    islandTimerInfo.setTimerSystemCurrent(now);
+                    sameWidthDigitInfo.setTimerInfo(islandTimerInfo);
+                    if (!safeStr(bSameWidthSpec.suffix).isEmpty()) {
+                        sameWidthDigitInfo.setContent(bSameWidthSpec.suffix);
+                    }
+                    sameWidthDigitInfo.setTurnAnim(true);
+                    sameWidthDigitInfo.setShowHighlightColor(Boolean.FALSE);
+                    bigIslandArea.setSameWidthDigitInfo(sameWidthDigitInfo);
+                } else {
+                    TextInfo bTextInfo = new TextInfo();
+                    bTextInfo.setTitle(bTitle);
+                    bigIslandArea.setTextInfo(bTextInfo);
+                }
 
                 SmallIslandArea smallIslandArea = new SmallIslandArea();
 
@@ -2289,6 +2308,59 @@ public class MainHook {
                 .replace("{\u6559\u5e08}", info.teacher == null ? "" : info.teacher);
     }
 
+    private static IslandBSameWidthSpec buildIslandBSameWidthSpec(
+            String template, int state, long startMs, long endMs, long now) {
+        if (template == null || template.isEmpty()) return null;
+        final String countdownVar = "{\u5012\u8ba1\u65f6}";
+        final String elapsedVar = "{\u6b63\u8ba1\u65f6}";
+        int idxCountdown = template.indexOf(countdownVar);
+        int idxElapsed = template.indexOf(elapsedVar);
+        if (idxCountdown < 0 && idxElapsed < 0) return null;
+
+        final boolean useCountdown;
+        final int idx;
+        final String token;
+        if (idxCountdown >= 0 && (idxElapsed < 0 || idxCountdown <= idxElapsed)) {
+            useCountdown = true;
+            idx = idxCountdown;
+            token = countdownVar;
+        } else {
+            useCountdown = false;
+            idx = idxElapsed;
+            token = elapsedVar;
+        }
+
+        String prefix = template.substring(0, Math.max(0, idx));
+        if (!prefix.trim().isEmpty()) {
+            return null;
+        }
+        String suffix = safeStr(template.substring(Math.min(template.length(), idx + token.length())));
+
+        if (!useCountdown && state == STATE_COUNTDOWN) {
+            return IslandBSameWidthSpec.unsupported(template.replace(elapsedVar, "上课前不支持正计时"));
+        }
+        if (useCountdown && state == STATE_FINISHED) {
+            return IslandBSameWidthSpec.unsupported(template.replace(countdownVar, "下课后不支持倒计时"));
+        }
+
+        int timerType;
+        long timerWhen;
+        if (useCountdown) {
+            if (state == STATE_ELAPSED) {
+                timerWhen = endMs;
+                timerType = (endMs > now) ? -1 : 1;
+            } else {
+                timerWhen = startMs;
+                timerType = (startMs > now) ? -1 : 1;
+            }
+        } else {
+            timerWhen = startMs;
+            timerType = 1;
+        }
+        if (timerWhen <= 0L) return null;
+        return IslandBSameWidthSpec.supported(timerType, timerWhen, suffix);
+    }
+
     private static String applyTimerVars(String text, int state, long startMs, long endMs, long now) {
         if (text == null || text.isEmpty()) return text == null ? "" : text;
         if (state == STATE_COUNTDOWN) {
@@ -2322,6 +2394,30 @@ public class MainHook {
             return String.format(java.util.Locale.getDefault(), "%d:%02d:%02d", h, m, s);
         }
         return String.format(java.util.Locale.getDefault(), "%02d:%02d", m, s);
+    }
+
+    private static final class IslandBSameWidthSpec {
+        final boolean supported;
+        final int timerType;
+        final long timerWhen;
+        final String suffix;
+        final String unsupportedText;
+
+        private IslandBSameWidthSpec(boolean supported, int timerType, long timerWhen, String suffix, String unsupportedText) {
+            this.supported = supported;
+            this.timerType = timerType;
+            this.timerWhen = timerWhen;
+            this.suffix = suffix == null ? "" : suffix;
+            this.unsupportedText = unsupportedText == null ? "" : unsupportedText;
+        }
+
+        static IslandBSameWidthSpec supported(int timerType, long timerWhen, String suffix) {
+            return new IslandBSameWidthSpec(true, timerType, timerWhen, suffix, "");
+        }
+
+        static IslandBSameWidthSpec unsupported(String text) {
+            return new IslandBSameWidthSpec(false, 0, 0L, "", text);
+        }
     }
 
     private void bootstrapRemotePrefsUnified(Context ctx) {
