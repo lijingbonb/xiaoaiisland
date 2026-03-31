@@ -52,8 +52,10 @@ jobs:
           keyPassword=${{ secrets.SIGNING_KEY_PASSWORD }}
           EOF
 
-      - name: Build release APK
-        run: ./gradlew --no-daemon clean assembleRelease
+      - name: Build release APKs
+        run: |
+          rm -rf build/debug build/release
+          ./gradlew --no-daemon clean assembleApi100Release assembleApi101Release
 
       - name: Read commit message
         id: commit
@@ -80,7 +82,11 @@ jobs:
 
           candidates = [
               Path("build/release/output-metadata.json"),
+              Path("build/release/api100/output-metadata.json"),
+              Path("build/release/api101/output-metadata.json"),
               Path("app/build/outputs/apk/release/output-metadata.json"),
+              Path("app/build/outputs/apk/api100/release/output-metadata.json"),
+              Path("app/build/outputs/apk/api101/release/output-metadata.json"),
           ]
           if not any(p.exists() for p in candidates):
               candidates = list(Path(".").rglob("output-metadata.json"))
@@ -154,13 +160,13 @@ jobs:
           git tag "$TAG"
           git push origin "$TAG"
 
-      - name: Upload release APK artifact
+      - name: Upload release APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-apk
+          name: release-apks
           path: |
-            build/release/*.apk
-            app/build/outputs/apk/release/*.apk
+            build/release/**/*.apk
+            app/build/outputs/apk/**/release/*.apk
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -170,5 +176,5 @@ jobs:
           tag_name: ${{ steps.autotag.outputs.tag }}
           body: ${{ steps.commit.outputs.message }}
           files: |
-            build/release/*.apk
-            app/build/outputs/apk/release/*.apk
+            build/release/**/*.apk
+            app/build/outputs/apk/**/release/*.apk
