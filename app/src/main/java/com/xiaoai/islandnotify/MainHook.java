@@ -2148,7 +2148,10 @@ public class MainHook {
 
                 HintInfo hintInfo = new HintInfo();
                 hintInfo.setType(2);
-                if (!finalUsePureTimerAsDynamicTitle) {
+                if (finalUsePureTimerAsDynamicTitle) {
+                    // 纯计时模式：显式置空，避免复用视图残留上一阶段文本，同时不注入任何字符串
+                    hintInfo.setTitle(null);
+                } else {
                     hintInfo.setTitle(finalHintTitleText);
                 }
                 hintInfo.setContent(finalHintContentText);

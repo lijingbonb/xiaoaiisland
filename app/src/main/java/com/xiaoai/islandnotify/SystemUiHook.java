@@ -338,6 +338,8 @@ public class SystemUiHook {
                         if (self == null) return;
                         Object tpl = (param.args != null && param.args.length > 0) ? param.args[0] : null;
                         ensureSubTitleFieldVisible(self, tpl, "smallSubTitle");
+                        clearTitleWhenPureTimer(self, tpl);
+                        fixTimerTitleAndSubtitleLeakForTextButton(self);
                     }
                 });
                 return;
@@ -462,6 +464,8 @@ public class SystemUiHook {
                         // hintInfo.type=2(按钮组件2): subTitle -> focusSmallSubtitleView
                         Object tpl = (param.args != null && param.args.length > 0) ? param.args[0] : null;
                         ensureSubTitleFieldVisible(self, tpl, "focusSmallSubtitleView");
+                        clearTitleWhenPureTimer(self, tpl);
+                        fixTimerTitleAndSubtitleLeakForDecoPort(self);
                         forceSmallSubtitleNoFirstTrim(self, "focusSmallSubtitleView");
                         // 组件2里 title 也在同一容器，避免相互挤压时再次触发首段省略
                     }
@@ -497,7 +501,20 @@ public class SystemUiHook {
         if (!(tvObj instanceof TextView)) return;
         TextView tv = (TextView) tvObj;
         String text = extractSubTitle(host, templateObj);
-        if (TextUtils.isEmpty(text)) return;
+        if (TextUtils.isEmpty(text)) {
+            // 显式清空，避免Recycler/复用导致上一阶段文本残留
+            sReentry.set(Boolean.TRUE);
+            try {
+                tv.setText("");
+                tv.setSelected(false);
+                tv.setEllipsize(null);
+                tv.setHorizontallyScrolling(false);
+            } catch (Throwable ignore) {
+            } finally {
+                sReentry.set(Boolean.FALSE);
+            }
+            return;
+        }
         sReentry.set(Boolean.TRUE);
         try {
             tv.setVisibility(View.VISIBLE);
@@ -518,6 +535,100 @@ public class SystemUiHook {
         }
         ensureAdaptiveWatcher(tv);
         applyAdaptiveMarquee(tv);
+    }
+
+    private void clearTitleWhenPureTimer(Object host, Object templateObj) {
+        if (host == null || templateObj == null) return;
+        try {
+            Object hint = invokeNoArg(templateObj, "getHintInfo");
+            if (hint == null) return;
+            Object timerInfo = invokeNoArg(hint, "getTimerInfo");
+            Object titleObj = invokeNoArg(hint, "getTitle");
+            String title = titleObj instanceof String ? (String) titleObj : "";
+            if (timerInfo == null) return;
+            if (!TextUtils.isEmpty(title)) return;
+            clearTitleField(host, "focusSmallTitle");
+            clearTitleField(host, "focusTitle");
+            clearTitleField(host, "focusTitleView");
+        } catch (Throwable ignore) {
+        }
+    }
+
+    private void clearTitleField(Object host, String fieldName) {
+        Object tvObj = getFieldValue(host, fieldName);
+        if (!(tvObj instanceof TextView)) return;
+        TextView tv = (TextView) tvObj;
+        sReentry.set(Boolean.TRUE);
+        try {
+            tv.setText("");
+            tv.setSelected(false);
+            tv.setEllipsize(null);
+            tv.setHorizontallyScrolling(false);
+        } catch (Throwable ignore) {
+        } finally {
+            sReentry.set(Boolean.FALSE);
+        }
+    }
+
+    private void fixTimerTitleAndSubtitleLeakForTextButton(Object host) {
+        if (host == null) return;
+        try {
+            Object chronoObj = getFieldValue(host, "chronometerHint");
+            Object titleObj = getFieldValue(host, "focusSmallTitle");
+            Object subObj = getFieldValue(host, "smallSubTitle");
+            if (chronoObj instanceof View && titleObj instanceof TextView) {
+                View chrono = (View) chronoObj;
+                TextView titleTv = (TextView) titleObj;
+                if (chrono.getVisibility() == View.VISIBLE) {
+                    clearTextViewNow(titleTv);
+                }
+            }
+            String subtitle = "";
+            Object subStr = invokeNoArg(host, "getSubtitle");
+            if (subStr instanceof String) subtitle = (String) subStr;
+            if (subObj instanceof TextView && TextUtils.isEmpty(subtitle)) {
+                clearTextViewNow((TextView) subObj);
+            }
+        } catch (Throwable ignore) {
+        }
+    }
+
+    private void fixTimerTitleAndSubtitleLeakForDecoPort(Object host) {
+        if (host == null) return;
+        try {
+            Object chronoObj = getFieldValue(host, "chronometerHintView");
+            Object titleObj = getFieldValue(host, "focusSmallTitleView");
+            Object subObj = getFieldValue(host, "focusSmallSubtitleView");
+            if (chronoObj instanceof View && titleObj instanceof TextView) {
+                View chrono = (View) chronoObj;
+                TextView titleTv = (TextView) titleObj;
+                if (chrono.getVisibility() == View.VISIBLE) {
+                    clearTextViewNow(titleTv);
+                }
+            }
+            String subtitle = "";
+            Object subStr = invokeNoArg(host, "getSubtitle");
+            if (subStr instanceof String) subtitle = (String) subStr;
+            if (subObj instanceof TextView && TextUtils.isEmpty(subtitle)) {
+                clearTextViewNow((TextView) subObj);
+            }
+        } catch (Throwable ignore) {
+        }
+    }
+
+    private void clearTextViewNow(TextView tv) {
+        if (tv == null) return;
+        sReentry.set(Boolean.TRUE);
+        try {
+            tv.setText("");
+            tv.setVisibility(View.GONE);
+            tv.setSelected(false);
+            tv.setEllipsize(null);
+            tv.setHorizontallyScrolling(false);
+        } catch (Throwable ignore) {
+        } finally {
+            sReentry.set(Boolean.FALSE);
+        }
     }
 
     private String extractSubTitle(Object host, Object templateObj) {
