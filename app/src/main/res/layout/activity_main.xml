@@ -221,6 +221,14 @@
                         android:textAppearance="?attr/textAppearanceBodySmall"
                         android:textColor="?attr/colorOnSurfaceVariant"
                         android:alpha="0.75" />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="14dp"
+                        android:text="可用变量补充：{倒计时} {正计时}。状态栏岛仅岛B支持计时变量，计时变量需放在开头，可在后面拼接文本；上课前不支持{正计时}，下课后不支持{倒计时}。"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:alpha="0.75" />
 
                     <!-- ── 上课前 ───────────────────────────── -->
                     <TextView
@@ -1195,7 +1203,7 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="关闭后：通知补发、课中即时静音/勿扰均停用，仅保留未来闹钟调度"
+                                android:text="关闭后：通知补发、课中即时静音/勿扰均停用，仅保留未来闹钟调度。如果出现手动关闭静音勿扰后仍被开启，请停用此功能。"
                                 android:textAppearance="?attr/textAppearanceBodySmall"
                                 android:textColor="?attr/colorOnSurfaceVariant" />
                         </LinearLayout>
