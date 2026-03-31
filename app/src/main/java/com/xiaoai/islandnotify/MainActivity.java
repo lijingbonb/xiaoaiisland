@@ -930,7 +930,7 @@ public class MainActivity extends AppCompatActivity {
         expandedContent.addView(title);
 
         TextView tips = new TextView(this);
-        tips.setText("可用变量：{课名} {开始} {结束} {教室} {节次} {教师} {倒计时} {正计时}");
+        tips.setText("可用变量：{课名} {开始} {结束} {教室} {节次} {教师} {倒计时} {正计时}；上课前不支持{正计时}，下课后不支持{倒计时}。计时器仅主要小文本支持且不可与其他字符串等拼接。");
         tips.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall);
         tips.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.DKGRAY));
         tips.setAlpha(0.75f);
