@@ -62,6 +62,7 @@ public class MainActivity extends AppCompatActivity {
 
     // 保存按钮引用与脏状态
     private MaterialButton btnSaveCustom;
+    private MaterialButton btnSaveExpanded;
     private MaterialButton btnSaveTimeout;
     private boolean customDirty  = false;
     private boolean timeoutDirty = false;
@@ -115,6 +116,46 @@ public class MainActivity extends AppCompatActivity {
     };
     private static final int[] CUSTOM_IDS_TICKER = {
             R.id.et_tpl_ticker_pre, R.id.et_tpl_ticker_active, R.id.et_tpl_ticker_post
+    };
+    private static final String[] EXPANDED_TPL_KEYS = {
+            "tpl_base_title",
+            "tpl_hint_title",
+            "tpl_hint_subtitle",
+            "tpl_hint_content",
+            "tpl_hint_subcontent",
+            "tpl_base_content",
+            "tpl_base_subcontent"
+    };
+    private static final int[][] CUSTOM_IDS_EXPANDED = {
+            {R.id.et_tpl_base_title_pre, R.id.et_tpl_base_title_active, R.id.et_tpl_base_title_post},
+            {R.id.et_tpl_hint_subtitle_pre, R.id.et_tpl_hint_subtitle_active, R.id.et_tpl_hint_subtitle_post},
+            {R.id.et_tpl_base_content_pre, R.id.et_tpl_base_content_active, R.id.et_tpl_base_content_post},
+            {R.id.et_tpl_base_subcontent_pre, R.id.et_tpl_base_subcontent_active, R.id.et_tpl_base_subcontent_post},
+            {R.id.et_tpl_hint_title_pre, R.id.et_tpl_hint_title_active, R.id.et_tpl_hint_title_post},
+            {R.id.et_tpl_hint_content_pre, R.id.et_tpl_hint_content_active, R.id.et_tpl_hint_content_post},
+            {R.id.et_tpl_hint_subcontent_pre, R.id.et_tpl_hint_subcontent_active, R.id.et_tpl_hint_subcontent_post}
+    };
+    private static final String[][] DEFAULT_EXPANDED_TPLS = {
+            // pre
+            {"{课名}", "{开始}-{结束}", "", "", "{教室}", "即将上课", "地点"},
+            // active
+            {"{课名}", "{开始}-{结束}", "", "", "{教室}", "已经上课", "地点"},
+            // post
+            {"{课名}", "{开始}-{结束}", "", "", "{教室}", "已经下课", "地点"}
+    };
+    private static final int[][] CUSTOM_IDS_EXPANDED_V2 = {
+            {R.id.et_tpl_base_title_pre, R.id.et_tpl_base_title_active, R.id.et_tpl_base_title_post},
+            {R.id.et_tpl_hint_title_pre, R.id.et_tpl_hint_title_active, R.id.et_tpl_hint_title_post},
+            {R.id.et_tpl_hint_subtitle_pre, R.id.et_tpl_hint_subtitle_active, R.id.et_tpl_hint_subtitle_post},
+            {R.id.et_tpl_hint_content_pre, R.id.et_tpl_hint_content_active, R.id.et_tpl_hint_content_post},
+            {R.id.et_tpl_hint_subcontent_pre, R.id.et_tpl_hint_subcontent_active, R.id.et_tpl_hint_subcontent_post},
+            {R.id.et_tpl_base_content_pre, R.id.et_tpl_base_content_active, R.id.et_tpl_base_content_post},
+            {R.id.et_tpl_base_subcontent_pre, R.id.et_tpl_base_subcontent_active, R.id.et_tpl_base_subcontent_post}
+    };
+    private static final String[][] DEFAULT_EXPANDED_TPLS_V2 = {
+            {"{\u8bfe\u540d}", "{\u5012\u8ba1\u65f6}", "{\u6559\u5ba4}", "\u5373\u5c06\u4e0a\u8bfe", "\u5730\u70b9", "{\u5f00\u59cb}-{\u7ed3\u675f}", ""},
+            {"{\u8bfe\u540d}", "{\u5012\u8ba1\u65f6}", "{\u6559\u5ba4}", "\u5df2\u7ecf\u4e0a\u8bfe", "\u5730\u70b9", "{\u5f00\u59cb}-{\u7ed3\u675f}", ""},
+            {"{\u8bfe\u540d}", "{\u6b63\u8ba1\u65f6}", "{\u6559\u5ba4}", "\u5df2\u7ecf\u4e0b\u8bfe", "\u5730\u70b9", "{\u5f00\u59cb}-{\u7ed3\u675f}", ""}
     };
     private static final String TARGET_VOICEASSIST = "com.miui.voiceassist";
     private static final String TARGET_DESKCLOCK = "com.android.deskclock";
@@ -230,7 +271,7 @@ public class MainActivity extends AppCompatActivity {
             migrateLegacyConfigOnce(remote);
             migrateLegacyConfigOnce(local);
             if (runInitialMigrationV2(remote, local, "配置", true)) {
-                runOnUiThread(this::recreate);
+                runOnUiThread(this::refreshAfterConfigSynced);
             }
 
             if (mLocalPrefMirrorListener == null) {
@@ -310,7 +351,7 @@ public class MainActivity extends AppCompatActivity {
             migrateLegacyConfigOnce(remote);
             migrateLegacyConfigOnce(local);
             if (runInitialMigration(remote, local, "配置")) {
-                runOnUiThread(this::recreate);
+                runOnUiThread(this::refreshAfterConfigSynced);
             }
 
             if (mLocalPrefMirrorListener == null) {
@@ -395,6 +436,7 @@ public class MainActivity extends AppCompatActivity {
             changed |= migrateSingleTimeoutKey(sp, ed, "to_notif", KEY_NOTIF_DISMISS_TRIGGER);
             // 通知超时阶段统一为单选
             changed |= normalizeSingleNotifPhase(sp, ed);
+            changed |= migrateLegacyActiveTimerSwitch(sp, ed);
 
             if (changed) {
                 Log.d("IslandNotify", "一次性迁移完成（旧配置 -> 三阶段）");
@@ -458,6 +500,24 @@ public class MainActivity extends AppCompatActivity {
             changed = true;
         }
         return changed;
+    }
+
+    private boolean migrateLegacyActiveTimerSwitch(SharedPreferences sp, SharedPreferences.Editor ed) {
+        if (!sp.contains(KEY_ACTIVE_COUNTDOWN_TO_END)) return false;
+        boolean oldCountdown = sp.getBoolean(KEY_ACTIVE_COUNTDOWN_TO_END, false);
+        boolean changed = false;
+        String keyHintContentActive = "tpl_hint_content_active";
+        String keyHintTitleActive = "tpl_hint_title_active";
+        if (safeString(sp.getString(keyHintContentActive, "")).isEmpty()) {
+            ed.putString(keyHintContentActive, oldCountdown ? "距离下课 {倒计时}" : "已经上课 {正计时}");
+            changed = true;
+        }
+        if (safeString(sp.getString(keyHintTitleActive, "")).isEmpty()) {
+            ed.putString(keyHintTitleActive, oldCountdown ? "{倒计时}" : "{正计时}");
+            changed = true;
+        }
+        ed.remove(KEY_ACTIVE_COUNTDOWN_TO_END);
+        return true || changed;
     }
 
     private static String safeString(String value) {
@@ -613,6 +673,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        applyExpandedFieldOrderHints();
 
         // 三个阶段 SP 后缀：_pre=上课前  _active=上课中  _post=下课后
         final String[] SUFFIXES = {"_pre", "_active", "_post"};
@@ -626,8 +687,8 @@ public class MainActivity extends AppCompatActivity {
         final int[] IDS_TICKER = CUSTOM_IDS_TICKER;
 
         SwitchMaterial swIconA = findViewById(R.id.sw_icon_a);
-        SwitchMaterial swActiveCountdownToEnd = findViewById(R.id.sw_active_countdown_to_end);
         TextView tvHint        = findViewById(R.id.tv_save_hint);
+        TextView tvExpandedHint = findViewById(R.id.tv_save_hint_expanded);
 
         // 读取已保存配置，无则用默认值
         for (int i = 0; i < 3; i++) {
@@ -637,12 +698,16 @@ public class MainActivity extends AppCompatActivity {
                     sp.getString("tpl_b"      + SUFFIXES[i], DEFAULT_B[i]));
             ((EditText) findViewById(IDS_TICKER[i])).setText(
                     sp.getString("tpl_ticker" + SUFFIXES[i], DEFAULT_TICKER[i]));
+            for (int k = 0; k < EXPANDED_TPL_KEYS.length; k++) {
+                ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i])).setText(
+                        sp.getString(EXPANDED_TPL_KEYS[k] + SUFFIXES[i], defaultExpandedTpl(i, k)));
+            }
         }
         swIconA.setChecked(sp.getBoolean("icon_a", true));
-        swActiveCountdownToEnd.setChecked(sp.getBoolean(KEY_ACTIVE_COUNTDOWN_TO_END, false));
 
         // 保存按钮引用 & 监控输入变化用于即时指示未保存状态
         btnSaveCustom = findViewById(R.id.btn_save_custom);
+        btnSaveExpanded = findViewById(R.id.btn_save_expanded);
         for (int i = 0; i < 3; i++) {
             ((EditText) findViewById(IDS_A[i])).addTextChangedListener(new android.text.TextWatcher() {
                 @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
@@ -659,9 +724,15 @@ public class MainActivity extends AppCompatActivity {
                 @Override public void onTextChanged(CharSequence s, int st, int b, int c) { updateCustomDirtyIndicator(); }
                 @Override public void afterTextChanged(android.text.Editable s) {}
             });
+            for (int k = 0; k < EXPANDED_TPL_KEYS.length; k++) {
+                ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i])).addTextChangedListener(new android.text.TextWatcher() {
+                    @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
+                    @Override public void onTextChanged(CharSequence s, int st, int b, int c) { updateCustomDirtyIndicator(); }
+                    @Override public void afterTextChanged(android.text.Editable s) {}
+                });
+            }
         }
         swIconA.setOnCheckedChangeListener((b, checked) -> updateCustomDirtyIndicator());
-        swActiveCountdownToEnd.setOnCheckedChangeListener((b, checked) -> updateCustomDirtyIndicator());
 
         findViewById(R.id.btn_save_custom).setOnClickListener(v -> {
 
@@ -678,7 +749,6 @@ public class MainActivity extends AppCompatActivity {
             }
             boolean iconA = swIconA.isChecked();
             ed.putBoolean("icon_a", iconA);
-            ed.putBoolean(KEY_ACTIVE_COUNTDOWN_TO_END, swActiveCountdownToEnd.isChecked());
             ed.apply();
 
             tvHint.setText("已保存，下次通知生效");
@@ -687,6 +757,31 @@ public class MainActivity extends AppCompatActivity {
             customDirty = false;
             updateCustomDirtyIndicator();
         });
+
+        View btnSaveExpandedView = findViewById(R.id.btn_save_expanded);
+        if (btnSaveExpandedView != null) {
+            btnSaveExpandedView.setOnClickListener(v -> {
+                SharedPreferences.Editor ed = sp.edit();
+                for (int i = 0; i < 3; i++) {
+                    for (int k = 0; k < EXPANDED_TPL_KEYS.length; k++) {
+                        String expandedValue = ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i]))
+                                .getText().toString().trim();
+                        ed.putString(EXPANDED_TPL_KEYS[k] + SUFFIXES[i], expandedValue);
+                    }
+                }
+                ed.apply();
+                if (tvExpandedHint != null) {
+                    tvExpandedHint.setText("已保存，下次通知生效");
+                    tvExpandedHint.setVisibility(View.VISIBLE);
+                }
+                updateCustomDirtyIndicator();
+            });
+        }
+
+        View btnResetDefaults = findViewById(R.id.btn_reset_defaults);
+        if (btnResetDefaults != null) {
+            btnResetDefaults.setOnClickListener(v -> showResetDefaultsDialog());
+        }
 
         mCustomCardBound = true;
 
@@ -701,10 +796,12 @@ public class MainActivity extends AppCompatActivity {
                     sp.getString("tpl_b" + CUSTOM_SUFFIXES[i], DEFAULT_TPL_B[i]));
             ((EditText) findViewById(CUSTOM_IDS_TICKER[i])).setText(
                     sp.getString("tpl_ticker" + CUSTOM_SUFFIXES[i], DEFAULT_TPL_TICKER[i]));
+            for (int k = 0; k < EXPANDED_TPL_KEYS.length; k++) {
+                ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i])).setText(
+                        sp.getString(EXPANDED_TPL_KEYS[k] + CUSTOM_SUFFIXES[i], defaultExpandedTpl(i, k)));
+            }
         }
         ((SwitchMaterial) findViewById(R.id.sw_icon_a)).setChecked(sp.getBoolean("icon_a", true));
-        ((SwitchMaterial) findViewById(R.id.sw_active_countdown_to_end))
-                .setChecked(sp.getBoolean(KEY_ACTIVE_COUNTDOWN_TO_END, false));
         customDirty = false;
         updateCustomDirtyIndicator();
     }
@@ -712,7 +809,7 @@ public class MainActivity extends AppCompatActivity {
     /**
      * 检查「自定义模板」卡片是否有未保存变更
      */
-    private boolean isCustomDirty() {
+    private boolean isStatusCustomDirty() {
         SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         final String[] SUFFIXES = {"_pre", "_active", "_post"};
         final int[] IDS_A      = {R.id.et_tpl_a_pre,      R.id.et_tpl_a_active,      R.id.et_tpl_a_post};
@@ -729,9 +826,176 @@ public class MainActivity extends AppCompatActivity {
         }
         SwitchMaterial swIconA = findViewById(R.id.sw_icon_a);
         if (swIconA.isChecked() != sp.getBoolean("icon_a", true)) return true;
-        SwitchMaterial swActiveCountdownToEnd = findViewById(R.id.sw_active_countdown_to_end);
-        if (swActiveCountdownToEnd.isChecked() != sp.getBoolean(KEY_ACTIVE_COUNTDOWN_TO_END, false)) return true;
         return false;
+    }
+
+    private boolean isExpandedCustomDirty() {
+        SharedPreferences sp = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        final String[] SUFFIXES = {"_pre", "_active", "_post"};
+        for (int i = 0; i < 3; i++) {
+            for (int k = 0; k < EXPANDED_TPL_KEYS.length; k++) {
+                String curV = ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i])).getText().toString().trim();
+                String saveV = sp.getString(EXPANDED_TPL_KEYS[k] + SUFFIXES[i], defaultExpandedTpl(i, k));
+                if (!curV.equals(saveV)) return true;
+            }
+        }
+        return false;
+    }
+
+    private String defaultExpandedTpl(int stageIndex, int keyIndex) {
+        if (stageIndex < 0 || stageIndex >= DEFAULT_EXPANDED_TPLS_V2.length) return "";
+        if (keyIndex < 0) return "";
+        // DEFAULT_EXPANDED_TPLS 仍按旧顺序存储：
+        // 0 base_title, 1 base_content, 2 base_subcontent, 3 hint_title, 4 hint_subtitle, 5 hint_content, 6 hint_subcontent
+        // UI新顺序：base_title, hint_title, hint_subtitle, hint_content, hint_subcontent, base_content, base_subcontent
+        if (keyIndex >= DEFAULT_EXPANDED_TPLS_V2[stageIndex].length) return "";
+        return DEFAULT_EXPANDED_TPLS_V2[stageIndex][keyIndex];
+    }
+
+    private void applyExpandedFieldOrderHints() {
+        final int[][] orderedIds = {
+                {R.id.et_tpl_base_title_pre, R.id.et_tpl_hint_title_pre, R.id.et_tpl_hint_subtitle_pre, R.id.et_tpl_hint_content_pre, R.id.et_tpl_hint_subcontent_pre, R.id.et_tpl_base_content_pre, R.id.et_tpl_base_subcontent_pre},
+                {R.id.et_tpl_base_title_active, R.id.et_tpl_hint_title_active, R.id.et_tpl_hint_subtitle_active, R.id.et_tpl_hint_content_active, R.id.et_tpl_hint_subcontent_active, R.id.et_tpl_base_content_active, R.id.et_tpl_base_subcontent_active},
+                {R.id.et_tpl_base_title_post, R.id.et_tpl_hint_title_post, R.id.et_tpl_hint_subtitle_post, R.id.et_tpl_hint_content_post, R.id.et_tpl_hint_subcontent_post, R.id.et_tpl_base_content_post, R.id.et_tpl_base_subcontent_post}
+        };
+        final String[] hints = {
+                "主要标题",
+                "主要小文本1",
+                "主要小文本2",
+                "前置文本1",
+                "前置文本2",
+                "次要文本1",
+                "次要文本2"
+        };
+        for (int[] stage : orderedIds) {
+            for (int i = 0; i < stage.length && i < hints.length; i++) {
+                setTextInputLayoutHint(stage[i], hints[i]);
+            }
+        }
+    }
+
+    private void setTextInputLayoutHint(int editTextId, String hint) {
+        View child = findViewById(editTextId);
+        if (child == null) return;
+        View parent = (View) child.getParent();
+        if (parent instanceof TextInputLayout) {
+            ((TextInputLayout) parent).setHint(hint);
+        }
+    }
+
+    private void splitCustomCardsIfNeeded() {
+        MaterialCardView statusCard = findViewById(R.id.card_custom);
+        if (statusCard == null) return;
+        View parentView = (View) statusCard.getParent();
+        if (!(parentView instanceof LinearLayout)) return;
+        LinearLayout listContainer = (LinearLayout) parentView;
+        if (listContainer.findViewWithTag("expanded_custom_card") != null) return;
+        if (statusCard.getChildCount() == 0 || !(statusCard.getChildAt(0) instanceof LinearLayout)) return;
+        LinearLayout statusContent = (LinearLayout) statusCard.getChildAt(0);
+
+        View expandedFirstField = findViewById(R.id.et_tpl_base_title_pre);
+        if (expandedFirstField == null || expandedFirstField.getParent() == null) return;
+        View expandedFirstLayout = (View) expandedFirstField.getParent();
+        int startIndex = statusContent.indexOfChild(expandedFirstLayout);
+        if (startIndex <= 0) return;
+        if (statusContent.getChildAt(startIndex - 1) instanceof TextView) {
+            startIndex -= 1;
+        }
+
+        View iconSwitch = findViewById(R.id.sw_icon_a);
+        if (iconSwitch == null || iconSwitch.getParent() == null) return;
+        View iconRow = (View) iconSwitch.getParent();
+        int endIndex = statusContent.indexOfChild(iconRow);
+        if (endIndex <= startIndex) return;
+
+        MaterialCardView expandedCard = new MaterialCardView(this, null, com.google.android.material.R.attr.materialCardViewOutlinedStyle);
+        expandedCard.setTag("expanded_custom_card");
+        expandedCard.setRadius(dpToPx(16));
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        cardLp.bottomMargin = dpToPx(12);
+        expandedCard.setLayoutParams(cardLp);
+
+        LinearLayout expandedContent = new LinearLayout(this);
+        expandedContent.setOrientation(LinearLayout.VERTICAL);
+        expandedContent.setPadding(dpToPx(20), dpToPx(20), dpToPx(20), dpToPx(20));
+        expandedCard.addView(expandedContent);
+
+        TextView title = new TextView(this);
+        title.setText("岛展开态自定义");
+        title.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelLarge);
+        title.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, Color.BLACK));
+        expandedContent.addView(title);
+
+        TextView tips = new TextView(this);
+        tips.setText("可用变量：{课名} {开始} {结束} {教室} {节次} {教师} {倒计时} {正计时}");
+        tips.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall);
+        tips.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.DKGRAY));
+        tips.setAlpha(0.75f);
+        LinearLayout.LayoutParams tipsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        tipsLp.topMargin = dpToPx(4);
+        tipsLp.bottomMargin = dpToPx(14);
+        tips.setLayoutParams(tipsLp);
+        expandedContent.addView(tips);
+
+        for (int i = startIndex; i < endIndex; i++) {
+            View child = statusContent.getChildAt(startIndex);
+            statusContent.removeViewAt(startIndex);
+            expandedContent.addView(child);
+        }
+        reorderExpandedFieldLayouts(expandedContent);
+
+        View statusTitle = statusContent.getChildCount() > 0 ? statusContent.getChildAt(0) : null;
+        if (statusTitle instanceof TextView) {
+            ((TextView) statusTitle).setText("状态栏岛自定义");
+        }
+
+        int statusCardIndex = listContainer.indexOfChild(statusCard);
+        listContainer.addView(expandedCard, statusCardIndex + 1);
+    }
+
+    private void reorderExpandedFieldLayouts(ViewGroup container) {
+        reorderGroup(container, new int[]{
+                R.id.et_tpl_base_title_pre, R.id.et_tpl_hint_title_pre, R.id.et_tpl_hint_subtitle_pre,
+                R.id.et_tpl_hint_content_pre, R.id.et_tpl_hint_subcontent_pre, R.id.et_tpl_base_content_pre,
+                R.id.et_tpl_base_subcontent_pre
+        });
+        reorderGroup(container, new int[]{
+                R.id.et_tpl_base_title_active, R.id.et_tpl_hint_title_active, R.id.et_tpl_hint_subtitle_active,
+                R.id.et_tpl_hint_content_active, R.id.et_tpl_hint_subcontent_active, R.id.et_tpl_base_content_active,
+                R.id.et_tpl_base_subcontent_active
+        });
+        reorderGroup(container, new int[]{
+                R.id.et_tpl_base_title_post, R.id.et_tpl_hint_title_post, R.id.et_tpl_hint_subtitle_post,
+                R.id.et_tpl_hint_content_post, R.id.et_tpl_hint_subcontent_post, R.id.et_tpl_base_content_post,
+                R.id.et_tpl_base_subcontent_post
+        });
+    }
+
+    private void reorderGroup(ViewGroup container, int[] editTextIds) {
+        java.util.List<View> blocks = new java.util.ArrayList<>();
+        int insertAt = Integer.MAX_VALUE;
+        for (int id : editTextIds) {
+            View editText = findViewById(id);
+            if (editText == null) return;
+            View block = (View) editText.getParent();
+            if (block == null || block.getParent() != container) return;
+            int idx = container.indexOfChild(block);
+            if (idx >= 0 && idx < insertAt) insertAt = idx;
+            blocks.add(block);
+        }
+        if (insertAt == Integer.MAX_VALUE) return;
+        for (View block : blocks) {
+            container.removeView(block);
+        }
+        for (View block : blocks) {
+            container.addView(block, insertAt++);
+        }
     }
 
     /**
@@ -805,12 +1069,25 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateCustomDirtyIndicator() {
-        boolean d = isCustomDirty();
+        boolean statusDirty = isStatusCustomDirty();
+        boolean expandedDirty = isExpandedCustomDirty();
+        boolean d = statusDirty || expandedDirty;
         customDirty = d;
-        if (btnSaveCustom == null) return;
+        if (btnSaveCustom != null) {
+            int statusColor = statusDirty ? Color.parseColor("#FF9800")
+                    : MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, Color.parseColor("#6200EE"));
+            btnSaveCustom.setBackgroundTintList(ColorStateList.valueOf(statusColor));
+        }
+        if (btnSaveExpanded != null) {
+            int expandedColor = expandedDirty ? Color.parseColor("#FF9800")
+                    : MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, Color.parseColor("#6200EE"));
+            btnSaveExpanded.setBackgroundTintList(ColorStateList.valueOf(expandedColor));
+        }
         int color = d ? Color.parseColor("#FF9800")
                 : MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, Color.parseColor("#6200EE"));
-        btnSaveCustom.setBackgroundTintList(ColorStateList.valueOf(color));
+        if (btnSaveCustom != null && btnSaveExpanded == null) {
+            btnSaveCustom.setBackgroundTintList(ColorStateList.valueOf(color));
+        }
     }
 
     private void updateTimeoutDirtyIndicator() {
@@ -1497,6 +1774,8 @@ public class MainActivity extends AppCompatActivity {
         android.widget.EditText etClassroom = findViewById(R.id.et_classroom);
         String courseName = etName.getText() != null ? etName.getText().toString().trim() : "";
         String classroom  = etClassroom.getText() != null ? etClassroom.getText().toString().trim() : "";
+        String sectionRange = "1-2";
+        String teacher = "\u6d4b\u8bd5\u6559\u5e08";
         if (courseName.isEmpty()) courseName = "高等数学";
         if (classroom.isEmpty())  classroom  = "教科A-101";
 
@@ -1533,6 +1812,8 @@ public class MainActivity extends AppCompatActivity {
         intent.putExtra("start_time",  startTime);
         intent.putExtra("end_time",    endTime);
         intent.putExtra("classroom",   classroom);
+        intent.putExtra("section_range", sectionRange);
+        intent.putExtra("teacher", teacher);
         intent.putExtra("mute_enabled",      muteEnabled);
         intent.putExtra("mute_mins_before",  muteBefore);
         intent.putExtra("unmute_enabled",    unmuteEnabled);
@@ -2219,6 +2500,55 @@ public class MainActivity extends AppCompatActivity {
 
     private int dpToPx(int dp) {
         return Math.round(dp * getResources().getDisplayMetrics().density);
+    }
+
+    private void refreshAfterConfigSynced() {
+        if (mCustomCardBound) refreshCustomCardFromPrefs();
+        updateCustomDirtyIndicator();
+        updateTimeoutDirtyIndicator();
+    }
+
+    private void showResetDefaultsDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("恢复默认")
+                .setMessage("将清空所有配置（本地 + LSPosed RemotePrefs）并恢复默认值，是否继续？")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("恢复", (d, w) -> {
+                    int count = resetAllConfigToDefaults();
+                    Toast.makeText(this, "已恢复默认配置：" + count + " 项", Toast.LENGTH_SHORT).show();
+                    refreshAfterConfigSynced();
+                })
+                .show();
+    }
+
+    private int resetAllConfigToDefaults() {
+        SharedPreferences local = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        SharedPreferences remote = mRemotePrefs;
+        Set<String> configKeys = new HashSet<>();
+        Map<String, ?> localAll = local.getAll();
+        if (localAll != null) {
+            for (String key : localAll.keySet()) {
+                if (isConfigKey(key)) configKeys.add(key);
+            }
+        }
+        if (remote != null) {
+            Map<String, ?> remoteAll = remote.getAll();
+            if (remoteAll != null) {
+                for (String key : remoteAll.keySet()) {
+                    if (isConfigKey(key)) configKeys.add(key);
+                }
+            }
+        }
+        if (configKeys.isEmpty()) return 0;
+        SharedPreferences.Editor localEd = local.edit();
+        SharedPreferences.Editor remoteEd = (remote != null) ? remote.edit() : null;
+        for (String key : configKeys) {
+            localEd.remove(key);
+            if (remoteEd != null) remoteEd.remove(key);
+        }
+        localEd.apply();
+        if (remoteEd != null) remoteEd.apply();
+        return configKeys.size();
     }
 
     // ─────────────────────────────────────────────────────────────

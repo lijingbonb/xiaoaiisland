@@ -161,7 +161,6 @@ public class MainHook {
     private static volatile boolean sWakeupAfternoonEnabled = false;
     /** 全局补发开关：控制通知补发与课中即时静音/勿扰 */
     private static volatile boolean sRepostEnabled = true;
-    private static volatile boolean sActiveCountdownToEnd = false;
     /** 超级岛按钮功能模式：0=仅静音, 1=仅勿扰, 2=两者 */
     private static volatile int sIslandButtonMode = 2;
     /** 已调度的静音/取消静音 alarm reqCode 集合，用于批量取消 */
@@ -261,7 +260,9 @@ public class MainHook {
                             String startTime  = safeStr(intent.getStringExtra("start_time"));
                             String endTime    = safeStr(intent.getStringExtra("end_time"));
                             String classroom  = safeStr(intent.getStringExtra("classroom"));
-                            CourseInfo info   = new CourseInfo(courseName, startTime, endTime, classroom);
+                            String sectionRange = safeStr(intent.getStringExtra("section_range"));
+                            String teacher = safeStr(intent.getStringExtra("teacher"));
+                            CourseInfo info   = new CourseInfo(courseName, startTime, endTime, classroom, sectionRange, teacher);
                             int state         = intent.getIntExtra("state", STATE_ELAPSED);
                             String channelId  = safeStr(intent.getStringExtra("channel_id"));
                             String tag        = intent.getStringExtra("notif_tag");
@@ -296,10 +297,14 @@ public class MainHook {
                             String tStartTime  = intent.getStringExtra("start_time");
                             String tEndTime    = intent.getStringExtra("end_time");
                             String tClassroom  = intent.getStringExtra("classroom");
+                            String tSection    = intent.getStringExtra("section_range");
+                            String tTeacher    = intent.getStringExtra("teacher");
                             if (tCourseName == null || tCourseName.isEmpty()) tCourseName = "高等数学";
                             if (tStartTime  == null || tStartTime.isEmpty())  tStartTime  = "00:00";
                             if (tEndTime    == null || tEndTime.isEmpty())    tEndTime    = "00:00";
                             if (tClassroom  == null || tClassroom.isEmpty())  tClassroom  = "教科A-101";
+                            if (tSection == null) tSection = "";
+                            if (tTeacher == null) tTeacher = "";
 
                             // 独立测试通知渠道，不依赖 voiceassist 自带渠道（importance 不受控制）
                             final String TEST_CHANNEL_ID = "xiaoai_course_reminder_alert";
@@ -326,6 +331,8 @@ public class MainHook {
                             tNotif.extras.putString("xiaoai.test.start_time",  tStartTime);
                             tNotif.extras.putString("xiaoai.test.end_time",    tEndTime);
                             tNotif.extras.putString("xiaoai.test.classroom",   tClassroom);
+                            tNotif.extras.putString("xiaoai.test.section_range", tSection);
+                            tNotif.extras.putString("xiaoai.test.teacher", tTeacher);
 
                             int tNotifId = sTestNotifId.getAndIncrement();
                             // 先取消上一条测试通知，避免堆积
@@ -335,7 +342,7 @@ public class MainHook {
                             }
                             sLastTestNotifId = tNotifId;
                             XposedBridge.log(TAG + ": 即将发出测试通知 → " + tCourseName + " @" + tStartTime);
-                            CourseInfo tInfo = new CourseInfo(tCourseName, tStartTime, tEndTime, tClassroom);
+                            CourseInfo tInfo = new CourseInfo(tCourseName, tStartTime, tEndTime, tClassroom, tSection, tTeacher);
                             applyIslandParams(context, tNotif, tInfo, tNotifId, null);
                             tnm.notify(tNotifId, tNotif);
                             XposedBridge.log(TAG + ": 已在目标进程发出测试通知 id=" + tNotifId);
@@ -394,6 +401,8 @@ public class MainHook {
                             String crStart = safeStr(intent.getStringExtra("start_time"));
                             String crEnd   = safeStr(intent.getStringExtra("end_time"));
                             String crRoom  = safeStr(intent.getStringExtra("classroom"));
+                            String crSection = safeStr(intent.getStringExtra("section_range"));
+                            String crTeacher = safeStr(intent.getStringExtra("teacher"));
                             int    crId    = intent.getIntExtra("notif_id", 2001);
                             boolean crConsecutive = intent.getBooleanExtra("consecutive", false);
 
@@ -417,7 +426,7 @@ public class MainHook {
                                 }
                                 if (prevSbn != null) {
                                     // 用新课程信息直接更新现有岛（STATE_COUNTDOWN），无新通知声音
-                                    CourseInfo newInfo = new CourseInfo(crName, crStart, crEnd, crRoom);
+                                    CourseInfo newInfo = new CourseInfo(crName, crStart, crEnd, crRoom, crSection, crTeacher);
                                     SharedPreferences crPrefs = context.getSharedPreferences(
                                             PREFS_NAME, Context.MODE_PRIVATE);
                                     int    prevId  = prevSbn.getId();
@@ -523,7 +532,7 @@ public class MainHook {
                             crNotif.extras.putString("xiaoai.test.start_time",  crStart);
                             crNotif.extras.putString("xiaoai.test.end_time",    crEnd);
                             crNotif.extras.putString("xiaoai.test.classroom",   crRoom);
-                            CourseInfo crInfo = new CourseInfo(crName, crStart, crEnd, crRoom);
+                            CourseInfo crInfo = new CourseInfo(crName, crStart, crEnd, crRoom, crSection, crTeacher);
                             applyIslandParams(context, crNotif, crInfo, crId, null);
                             crnm.notify(crId, crNotif);
                             XposedBridge.log(TAG + ": 课前提醒通知已发送 → " + crName + " @" + crStart);
@@ -555,7 +564,6 @@ public class MainHook {
                             sWakeupMorningEnabled   = dp.getBoolean(KEY_WAKEUP_MORNING_ENABLED,   false);
                             sWakeupAfternoonEnabled = dp.getBoolean(KEY_WAKEUP_AFTERNOON_ENABLED, false);
                             sRepostEnabled = dp.getBoolean(KEY_REPOST_ENABLED, true);
-                            sActiveCountdownToEnd = dp.getBoolean(KEY_ACTIVE_COUNTDOWN_TO_END, false);
                             sIslandButtonMode = dp.getInt("island_button_mode", 0);
                             markDailyRescheduleRun(context);
                             safeReschedule(context, "island_reschedule_daily", true);
@@ -592,7 +600,6 @@ public class MainHook {
                 sWakeupMorningEnabled   = initPrefs.getBoolean(KEY_WAKEUP_MORNING_ENABLED,    false);
                 sWakeupAfternoonEnabled = initPrefs.getBoolean(KEY_WAKEUP_AFTERNOON_ENABLED,  false);
                 sRepostEnabled          = initPrefs.getBoolean(KEY_REPOST_ENABLED,             true);
-                sActiveCountdownToEnd   = initPrefs.getBoolean(KEY_ACTIVE_COUNTDOWN_TO_END,   false);
                 sIslandButtonMode       = initPrefs.getInt    ("island_button_mode",           0);
                 registerRemotePrefsListener(appCtx);
                 // 加载持久化的闹钟 ID
@@ -915,11 +922,13 @@ public class MainHook {
                 String endTime    = getSectionTime(sectionTimes, lastSec,  false);
                 String courseName = course.getString("name");
                 String classroom  = course.optString("position", "");
-                CourseInfo info   = new CourseInfo(courseName, startTime, endTime, classroom);
+                String sectionRange = firstSec + "-" + lastSec;
+                String teacher = extractTeacher(course);
+                CourseInfo info   = new CourseInfo(courseName, startTime, endTime, classroom, sectionRange, teacher);
                 // 将所有关键参数纳入 hash 计算，确保教室、结束时间等发生变化时，能生成新的 alarmId 
                 // 从而让旧的 alarm（未包含在新 validIds 中）被精确清理，并重新排布新闹钟触发岛更新
                 // 确保生成 id 后直接抛弃高 8 位给后面的或操作腾出绝对干净的空间
-                int alarmId       = Math.abs((courseName + startTime + endTime + classroom).hashCode()) & 0x00FFFFFF;
+                int alarmId       = Math.abs((courseName + startTime + endTime + classroom + sectionRange + teacher).hashCode()) & 0x00FFFFFF;
                 validAlarmIds.add(alarmId);
 
                 // 默认触发时间：课程开始前 N 分钟
@@ -1031,6 +1040,8 @@ public class MainHook {
             intent.putExtra("start_time",   info.startTime);
             intent.putExtra("end_time",     info.endTime);
             intent.putExtra("classroom",    info.classroom);
+            intent.putExtra("section_range", info.sectionRange);
+            intent.putExtra("teacher", info.teacher);
             intent.putExtra("notif_id",     alarmId);
             intent.putExtra("consecutive",  isConsecutive);
             PendingIntent pi = PendingIntent.getService(ctx, alarmId, intent,
@@ -1829,6 +1840,8 @@ public class MainHook {
                 intent.putExtra("start_time",  info.startTime);
                 intent.putExtra("end_time",    info.endTime);
                 intent.putExtra("classroom",   info.classroom);
+                intent.putExtra("section_range", info.sectionRange);
+                intent.putExtra("teacher", info.teacher);
                 intent.putExtra("state",       state);
                 intent.putExtra("channel_id",  channelId);
                 intent.putExtra("notif_tag",   tag);
@@ -1981,7 +1994,7 @@ public class MainHook {
                 timerType = 1;
                 hintContent = "已经下课";
             } else if (isActive) {
-                if (sActiveCountdownToEnd && endMs > 0) {
+                if (endMs > 0 && false) {
                     timerMs = endMs;
                     timerType = (endMs > now) ? -1 : 1;
                     hintContent = "距离下课";
@@ -2002,10 +2015,89 @@ public class MainHook {
             final boolean showIconA = (prefs == null || prefs.getBoolean("icon_a", true));
 
             String aFallback = resolveTemplate(DEFAULT_TPLS[stageIdx][0], info, info.courseName);
-            String aTitle = resolveTemplate(getStagedPref(prefs, "tpl_a", stageSuffix), info, aFallback);
+            String aTitle = applyTimerVars(
+                    applyExtraVars(resolveTemplate(getStagedPref(prefs, "tpl_a", stageSuffix), info, aFallback), info),
+                    state, startMs, endMs, now);
             String bFallback = resolveTemplate(DEFAULT_TPLS[stageIdx][1], info,
                     info.classroom.isEmpty() ? "\u2014" : info.classroom);
-            String bTitle = resolveTemplate(getStagedPref(prefs, "tpl_b", stageSuffix), info, bFallback);
+            String bTitle = applyTimerVars(
+                    applyExtraVars(resolveTemplate(getStagedPref(prefs, "tpl_b", stageSuffix), info, bFallback), info),
+                    state, startMs, endMs, now);
+
+            // Expanded custom text fields (all support template vars via resolveTemplate):
+            // tpl_base_title / tpl_base_content / tpl_base_subcontent
+            // tpl_hint_title / tpl_hint_subtitle / tpl_hint_content / tpl_hint_subcontent
+            String defaultTimeLine = info.startTime
+                    + ((info.endTime == null || info.endTime.isEmpty()) ? "" : "-" + info.endTime);
+            String baseTitle = applyTimerVars(applyExtraVars(resolveTemplate(
+                    getStagedPref(prefs, "tpl_base_title", stageSuffix),
+                    info, info.courseName), info), state, startMs, endMs, now);
+            String baseContent = applyTimerVars(applyExtraVars(resolveTemplate(
+                    getStagedPref(prefs, "tpl_base_content", stageSuffix),
+                    info, defaultTimeLine), info), state, startMs, endMs, now);
+            String baseSubContent = applyTimerVars(applyExtraVars(resolveTemplate(
+                    getStagedPref(prefs, "tpl_base_subcontent", stageSuffix),
+                    info, ""), info), state, startMs, endMs, now);
+            // 主要小文本1留给 timerInfo（计时器）占位；仅当用户自定义时才写入文本
+            // String hintTitleText = resolveTemplate(
+            String hintTitleText = resolveTemplate(
+                    getStagedPref(prefs, "tpl_hint_title", stageSuffix),
+                    info, "");
+            String rawHintTitleText = hintTitleText == null ? "" : hintTitleText.trim();
+            boolean hintTitleWantsCountdown = hintTitleText.contains("{倒计时}");
+            boolean hintTitleWantsElapsed = hintTitleText.contains("{正计时}");
+            boolean hintTitleUsesTimerVar = hintTitleWantsCountdown || hintTitleWantsElapsed;
+            boolean hintTitlePureCountdown = "{倒计时}".equals(rawHintTitleText);
+            boolean hintTitlePureElapsed = "{正计时}".equals(rawHintTitleText);
+            boolean usePureTimerAsDynamicTitle = false;
+            String hintContentText = applyTimerVars(applyExtraVars(resolveTemplate(
+                    getStagedPref(prefs, "tpl_hint_content", stageSuffix),
+                    info, hintContent), info), state, startMs, endMs, now);
+            String hintSubContentText = resolveTemplate(
+                    getStagedPref(prefs, "tpl_hint_subcontent", stageSuffix),
+                    info, "地点");
+            String hintSubTitleText = applyTimerVars(resolveTemplate(
+                    getStagedPref(prefs, "tpl_hint_subtitle", stageSuffix),
+                    info, info.classroom.isEmpty() ? "\u2014" : info.classroom), state, startMs, endMs, now);
+            hintSubContentText = applyTimerVars(hintSubContentText, state, startMs, endMs, now);
+            if (state == STATE_ELAPSED) {
+                if (hintTitleWantsCountdown) {
+                    timerMs = endMs;
+                    timerType = (endMs > now) ? -1 : 1;
+                } else if (hintTitleWantsElapsed) {
+                    timerMs = startMs;
+                    timerType = 1;
+                }
+            }
+            boolean unsupportedElapsedInPre = state == STATE_COUNTDOWN && hintTitleWantsElapsed;
+            boolean unsupportedCountdownInPost = state == STATE_FINISHED && hintTitleWantsCountdown;
+            if (unsupportedElapsedInPre) {
+                hintTitleText = hintTitleText.replace("{正计时}", "上课前不支持正计时");
+            }
+            if (unsupportedCountdownInPost) {
+                hintTitleText = hintTitleText.replace("{倒计时}", "下课后不支持倒计时");
+            }
+            boolean unsupportedTimerVar = unsupportedElapsedInPre || unsupportedCountdownInPost;
+            usePureTimerAsDynamicTitle =
+                    !unsupportedTimerVar && (
+                            (state == STATE_COUNTDOWN && hintTitlePureCountdown)
+                                    || (state == STATE_ELAPSED && (hintTitlePureCountdown || hintTitlePureElapsed))
+                                    || (state == STATE_FINISHED && hintTitlePureElapsed)
+                    );
+            if (usePureTimerAsDynamicTitle) {
+                // 纯计时变量时不渲染静态文本，由 timerInfo 负责动态显示
+                hintTitleText = "";
+            } else {
+                hintTitleText = applyTimerVars(hintTitleText, state, startMs, endMs, now);
+                hintTitleText = applyExtraVars(hintTitleText, info);
+            }
+            hintSubContentText = applyExtraVars(hintSubContentText, info);
+            hintSubTitleText = applyExtraVars(hintSubTitleText, info);
+            final String finalHintTitleText = hintTitleText;
+            final String finalHintContentText = hintContentText;
+            final String finalHintSubContentText = hintSubContentText;
+            final String finalHintSubTitleText = hintSubTitleText;
+            final boolean finalUsePureTimerAsDynamicTitle = usePureTimerAsDynamicTitle;
 
             String timeRange = info.startTime + (info.endTime.isEmpty() ? "" : "-" + info.endTime);
             String phase = (state == STATE_COUNTDOWN) ? "pre"
@@ -2017,25 +2109,29 @@ public class MainHook {
                 islandTimeoutSec = "m".equals(islandToUnit) ? islandToVal * 60 : islandToVal;
             }
             final int finalIslandTimeoutSec = islandTimeoutSec;
+            final long finalTimerMs = timerMs;
+            final int finalTimerType = timerType;
 
-            String tickerText = resolveTemplate(
+            String tickerText = applyExtraVars(resolveTemplate(
                     getStagedPref(prefs, "tpl_ticker", stageSuffix),
-                    info, buildTickerText(info));
+                    info, buildTickerText(info)), info);
+            tickerText = applyTimerVars(tickerText, state, startMs, endMs, now);
+            final String finalTickerText = tickerText;
 
             return FocusNotification.buildV3(template -> {
                 template.setBusiness("course_schedule");
                 template.setUpdatable(true);
-                template.setTicker(tickerText);
-                template.setAodTitle(tickerText);
+                template.setTicker(finalTickerText);
+                template.setAodTitle(finalTickerText);
                 template.setEnableFloat(isActive);
                 if (isActive) template.setIslandFirstFloat(true);
 
                 BaseInfo baseInfo = new BaseInfo();
                 baseInfo.setType(2);
-                baseInfo.setTitle(info.courseName);
+                baseInfo.setTitle(baseTitle);
                 if (isActive) baseInfo.setShowDivider(true);
-                if (!info.startTime.isEmpty()) baseInfo.setContent(info.startTime);
-                if (!info.endTime.isEmpty()) baseInfo.setSubContent("| " + info.endTime);
+                if (!baseContent.isEmpty()) baseInfo.setContent(baseContent);
+                if (!baseSubContent.isEmpty()) baseInfo.setSubContent(baseSubContent);
                 template.setBaseInfo(baseInfo);
 
                 PicInfo picInfo = new PicInfo();
@@ -2052,18 +2148,19 @@ public class MainHook {
 
                 HintInfo hintInfo = new HintInfo();
                 hintInfo.setType(2);
-                hintInfo.setContent(hintContent);
-                hintInfo.setSubContent("地点");
-                hintInfo.setSubTitle(info.classroom.isEmpty() ? "\u2014" : info.classroom);
+                if (!finalUsePureTimerAsDynamicTitle) {
+                    hintInfo.setTitle(finalHintTitleText);
+                }
+                hintInfo.setContent(finalHintContentText);
+                hintInfo.setSubContent(finalHintSubContentText);
+                hintInfo.setSubTitle(finalHintSubTitleText);
                 hintInfo.setActionInfo(actionInfo);
-                if (timerMs > 0) {
+                if (finalTimerMs > 0) {
                     TimerInfo timerInfo = new TimerInfo();
-                    timerInfo.setTimerType(timerType);
-                    timerInfo.setTimerWhen(timerMs);
+                    timerInfo.setTimerType(finalTimerType);
+                    timerInfo.setTimerWhen(finalTimerMs);
                     timerInfo.setTimerSystemCurrent(now);
                     hintInfo.setTimerInfo(timerInfo);
-                } else {
-                    hintInfo.setTitle(hintContent);
                 }
                 template.setHintInfo(hintInfo);
 
@@ -2153,7 +2250,51 @@ public class MainHook {
                 .replace("{课名}", info.courseName)
                 .replace("{开始}", info.startTime)
                 .replace("{结束}", info.endTime)
-                .replace("{教室}", info.classroom);
+                .replace("{教室}", info.classroom)
+                .replace("{节次}", info.sectionRange)
+                .replace("{教师}", info.teacher);
+    }
+
+    private static String applyExtraVars(String text, CourseInfo info) {
+        if (text == null) return "";
+        return text
+                .replace("{\u8282\u6b21}", info.sectionRange == null ? "" : info.sectionRange)
+                .replace("{\u6559\u5e08}", info.teacher == null ? "" : info.teacher);
+    }
+
+    private static String applyTimerVars(String text, int state, long startMs, long endMs, long now) {
+        if (text == null || text.isEmpty()) return text == null ? "" : text;
+        if (state == STATE_COUNTDOWN) {
+            text = text.replace("{正计时}", "上课前不支持正计时");
+        } else if (state == STATE_FINISHED) {
+            text = text.replace("{倒计时}", "下课后不支持倒计时");
+        }
+        long countdownMs;
+        long elapsedMs;
+        if (state == STATE_COUNTDOWN) {
+            countdownMs = Math.max(0L, startMs - now);
+            elapsedMs = 0L;
+        } else if (state == STATE_ELAPSED) {
+            countdownMs = Math.max(0L, endMs - now);
+            elapsedMs = Math.max(0L, now - startMs);
+        } else {
+            countdownMs = 0L;
+            elapsedMs = Math.max(0L, now - endMs);
+        }
+        return text
+                .replace("{倒计时}", formatTimerText(countdownMs))
+                .replace("{正计时}", formatTimerText(elapsedMs));
+    }
+
+    private static String formatTimerText(long ms) {
+        long totalSec = Math.max(0L, ms / 1000L);
+        long h = totalSec / 3600L;
+        long m = (totalSec % 3600L) / 60L;
+        long s = totalSec % 60L;
+        if (h > 0L) {
+            return String.format(java.util.Locale.getDefault(), "%d:%02d:%02d", h, m, s);
+        }
+        return String.format(java.util.Locale.getDefault(), "%02d:%02d", m, s);
     }
 
     private void bootstrapRemotePrefsUnified(Context ctx) {
@@ -2172,6 +2313,15 @@ public class MainHook {
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": bootstrapRemotePrefsUnified failed -> " + t.getMessage());
         }
+    }
+
+    private String extractTeacher(JSONObject course) {
+        if (course == null) return "";
+        String teacher = course.optString("teacher", "");
+        if (teacher == null || teacher.isEmpty()) teacher = course.optString("teacherName", "");
+        if (teacher == null || teacher.isEmpty()) teacher = course.optString("teacher_name", "");
+        if (teacher == null || teacher.isEmpty()) teacher = course.optString("teachers", "");
+        return teacher == null ? "" : teacher;
     }
 
     private void runInitialMigrationFiltered(SharedPreferences remote, SharedPreferences local,
@@ -2498,7 +2648,6 @@ public class MainHook {
         sWakeupMorningEnabled   = prefs.getBoolean(KEY_WAKEUP_MORNING_ENABLED, false);
         sWakeupAfternoonEnabled = prefs.getBoolean(KEY_WAKEUP_AFTERNOON_ENABLED, false);
         sRepostEnabled          = prefs.getBoolean(KEY_REPOST_ENABLED, true);
-        sActiveCountdownToEnd   = prefs.getBoolean(KEY_ACTIVE_COUNTDOWN_TO_END, false);
         sIslandButtonMode       = prefs.getInt("island_button_mode", 0);
     }
 
@@ -2514,7 +2663,6 @@ public class MainHook {
                 || KEY_UNDND_ENABLED.equals(key)
                 || KEY_UNDND_MINS_AFTER.equals(key)
                 || KEY_REPOST_ENABLED.equals(key)
-                || KEY_ACTIVE_COUNTDOWN_TO_END.equals(key)
                 || "island_button_mode".equals(key)) {
             return true;
         }
@@ -2585,12 +2733,20 @@ public class MainHook {
         final String startTime;
         final String endTime;
         final String classroom;
+        final String sectionRange;
+        final String teacher;
 
         CourseInfo(String courseName, String startTime, String endTime, String classroom) {
+            this(courseName, startTime, endTime, classroom, "", "");
+        }
+
+        CourseInfo(String courseName, String startTime, String endTime, String classroom, String sectionRange, String teacher) {
             this.courseName = courseName;
             this.startTime  = startTime;
             this.endTime    = endTime;
             this.classroom  = classroom;
+            this.sectionRange = sectionRange == null ? "" : sectionRange;
+            this.teacher = teacher == null ? "" : teacher;
         }
     }
 }
