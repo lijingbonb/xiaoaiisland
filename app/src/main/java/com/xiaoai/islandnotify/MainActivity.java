@@ -132,64 +132,102 @@ public class MainActivity extends AppCompatActivity {
         PrefsAccess.clearLocal(this, prefsName);
     }
 
+    void requestComposeRefresh() {
+        ComposeRefreshBus.bump();
+    }
+
+    boolean uiFrameworkActive() {
+        return mFrameworkActive;
+    }
+
+    String uiFrameworkDesc() {
+        return mFrameworkDesc;
+    }
+
+    SharedPreferences uiConfigPrefs() {
+        return getConfigPrefs();
+    }
+
+    SharedPreferences.Editor uiEditConfigPrefs() {
+        return editConfigPrefs();
+    }
+
+    SharedPreferences uiHolidayPrefs() {
+        return getHolidayPrefs();
+    }
+
+    SharedPreferences.Editor uiEditHolidayPrefs() {
+        return editHolidayPrefs();
+    }
+
+    void uiSyncHolidayToHook(int year) {
+        syncHolidayToHook(year);
+        requestComposeRefresh();
+    }
+
+    void uiRescheduleIfCoversToday(String date, String endDate) {
+        rescheduleIfCoversToday(date, endDate);
+    }
+
+    int uiReadTotalWeekFromCourseData() {
+        return readTotalWeekFromCourseData();
+    }
+
+    int uiResetAllConfigToDefaults() {
+        int removed = resetAllConfigToDefaults();
+        requestComposeRefresh();
+        return removed;
+    }
+
+    boolean uiIsHideIconEnabled() {
+        android.content.pm.PackageManager pm = getPackageManager();
+        android.content.ComponentName alias = new android.content.ComponentName(this, ALIAS);
+        int state = pm.getComponentEnabledSetting(alias);
+        return state == android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+    }
+
+    void uiSetHideIconEnabled(boolean checked) {
+        android.content.pm.PackageManager pm = getPackageManager();
+        android.content.ComponentName alias = new android.content.ComponentName(this, ALIAS);
+        pm.setComponentEnabledSetting(
+                alias,
+                checked
+                        ? android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                        : android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                android.content.pm.PackageManager.DONT_KILL_APP);
+    }
+
+    String uiReadAppVersionName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Throwable t) {
+            return "未知版本";
+        }
+    }
+
+    void uiOpenAuthorPage() {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.coolapk.com/u/3336736"));
+            startActivity(intent);
+        } catch (Throwable ignored) {
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         // 必须在 super.onCreate 前调用，才能正确应用动态色彩
         DynamicColors.applyToActivityIfAvailable(this);
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-
-        // 设置 Toolbar 为 ActionBar
-        Toolbar toolbar = findViewById(R.id.toolbar);
-        setSupportActionBar(toolbar);
-
-        // 设置边缘到边缘沉浸式（Edge-to-Edge）
+        MainComposeEntry.install(this);
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.coordinator_root), (v, insets) -> {
-            androidx.core.graphics.Insets systemBars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars());
-            
-            // 顶栏避让状态栏
-            findViewById(R.id.app_bar).setPadding(0, systemBars.top, 0, 0);
-
-            // 底部 Tab栏 避让导航栏（小白条）
-            View tabLayout = findViewById(R.id.tab_layout);
-            if (tabLayout != null) {
-                tabLayout.setPadding(0, 0, 0, systemBars.bottom);
-            }
-
-            // 中间滚动区域增加底部 padding，防止被 Tab栏和小白条挡住
-            View scrollView = findViewById(R.id.scroll_view);
-            if (scrollView != null) {
-                // 预留 Tab 高度 (通常约 56dp) + 小白条高度
-                int tabHeight = Math.round(56 * getResources().getDisplayMetrics().density);
-                scrollView.setPadding(0, 0, 0, tabHeight + systemBars.bottom);
-            }
-            return insets;
-        });
-
-        // 测试通知：1分钟后上课（倒计时）
-        findViewById(R.id.btn_send_test).setOnClickListener(v -> {
-            sendTestBroadcastToTarget(60_000L);
-            showTestHint("已发送测试通知（倒计时），请下拉通知栏查看超级岛效果");
-        });
-
         initFrameworkServiceStatus();
         updateModuleStatus();
-        initCustomCard();
-        initTimeoutCard();
-        initReminderCard();
-        initMuteCard();
-        initWakeupCard();
-        initHideIconSwitch();
-        initAboutSection(); // 初始化关于页面的版本信息
-        setupTabs();
-        initHolidayTab();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        refreshUiFromPrefs(false);
+        requestComposeRefresh();
     }
 
     @Override
@@ -528,7 +566,7 @@ public class MainActivity extends AppCompatActivity {
      * 根据模块是否激活，设置状态卡片的颜色、图标和文字。
      */
     private void updateModuleStatus() {
-        StatusCardController.render(this, mFrameworkActive, mFrameworkDesc);
+        requestComposeRefresh();
     }
 
     /** SharedPreferences 名称（与 MainHook 保持一致） */
@@ -796,11 +834,21 @@ public class MainActivity extends AppCompatActivity {
      * 向目标进程（com.miui.voiceassist）发送广播，由目标进程在其自身上下文中发出测试通知。
      * 通知将经过完整的 Xposed Hook 路径，与真实课程提醒行为一致。
      */
+    void uiSendTestBroadcastToTarget(long startOffsetMs, String courseNameInput, String classroomInput) {
+        sendTestBroadcastInternal(startOffsetMs, courseNameInput, classroomInput);
+    }
+
     private void sendTestBroadcastToTarget(long startOffsetMs) {
         android.widget.EditText etName      = findViewById(R.id.et_course_name);
         android.widget.EditText etClassroom = findViewById(R.id.et_classroom);
-        String courseName = etName.getText() != null ? etName.getText().toString().trim() : "";
-        String classroom  = etClassroom.getText() != null ? etClassroom.getText().toString().trim() : "";
+        String courseName = etName.getText() != null ? etName.getText().toString() : "";
+        String classroom  = etClassroom.getText() != null ? etClassroom.getText().toString() : "";
+        sendTestBroadcastInternal(startOffsetMs, courseName, classroom);
+    }
+
+    private void sendTestBroadcastInternal(long startOffsetMs, String courseNameInput, String classroomInput) {
+        String courseName = courseNameInput == null ? "" : courseNameInput.trim();
+        String classroom = classroomInput == null ? "" : classroomInput.trim();
         String sectionRange = "1-2";
         String teacher = "\u6d4b\u8bd5\u6559\u5e08";
         if (courseName.isEmpty()) courseName = "高等数学";
@@ -1091,7 +1139,11 @@ public class MainActivity extends AppCompatActivity {
     // ── 渲染列表 ───────────────────────────────────────────────────
 
     private void renderHolidayLists() {
-        if (mLlHolidayList == null) return;
+        if (mLlHolidayList == null || mLlWorkswapList == null
+                || mTvHolidayEmpty == null || mTvWorkswapEmpty == null) {
+            requestComposeRefresh();
+            return;
+        }
         List<HolidayManager.HolidayEntry> all = HolidayManager.loadEntries(this, mCurrentHolidayYear);
 
         List<HolidayManager.HolidayEntry> holidays  = new ArrayList<>();
@@ -1539,6 +1591,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void refreshAfterConfigSynced() {
         refreshUiFromPrefs(false);
+        requestComposeRefresh();
     }
 
     private void showResetDefaultsDialog() {
