@@ -3,6 +3,7 @@ package com.xiaoai.islandnotify;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import java.io.File;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
@@ -57,5 +58,22 @@ final class PrefsAccess {
     static void clearLocal(Context ctx, String prefsName) {
         SharedPreferences local = ctx.getSharedPreferences(prefsName, Context.MODE_PRIVATE);
         clearIfNotEmpty(local);
+        deleteLocalIfEmpty(ctx, prefsName);
+    }
+
+    static void deleteLocalIfEmpty(Context ctx, String prefsName) {
+        SharedPreferences local = ctx.getSharedPreferences(prefsName, Context.MODE_PRIVATE);
+        Map<String, ?> all = local.getAll();
+        if (all != null && !all.isEmpty()) return;
+        try {
+            ctx.deleteSharedPreferences(prefsName);
+        } catch (Throwable ignored) {}
+        try {
+            File dir = new File(ctx.getApplicationInfo().dataDir, "shared_prefs");
+            File xml = new File(dir, prefsName + ".xml");
+            File bak = new File(dir, prefsName + ".xml.bak");
+            if (xml.exists()) xml.delete();
+            if (bak.exists()) bak.delete();
+        } catch (Throwable ignored) {}
     }
 }

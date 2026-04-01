@@ -2463,7 +2463,9 @@ public class MainHook {
             HolidayManager.setRemotePrefs(remoteHoliday);
             migrateRuntimeStorageOnce(hostConfig, hostRuntime, null);
             purgeHostConfigKeys(hostConfig);
+            PrefsAccess.deleteLocalIfEmpty(ctx, PREFS_NAME);
             clearPrefs(hostHoliday);
+            PrefsAccess.deleteLocalIfEmpty(ctx, HolidayManager.PREFS_HOLIDAY);
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": bootstrapRemotePrefsUnified failed -> " + t.getMessage());
         }
