@@ -56,9 +56,13 @@ def generateVersion(buildType) {
     return [code: versionCode, name: versionName, displayName: displayVersionName]
 }
 
-// 判断构建类型
-def isReleaseBuild = gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
-def isDebugBuild = gradle.startParameter.taskNames.any { it.toLowerCase().contains('debug') }
+// 判断构建类型：仅在真正产出 APK/AAB 的任务中自增版本号，避免 lint/test 等任务污染版本计数
+def requestedTasks = gradle.startParameter.taskNames.collect { it.toLowerCase() }
+def isPackagingTask = requestedTasks.any { t ->
+    t.contains('assemble') || t.contains('bundle') || t.contains('package') || t.contains('install')
+}
+def isReleaseBuild = isPackagingTask && requestedTasks.any { it.contains('release') }
+def isDebugBuild = isPackagingTask && requestedTasks.any { it.contains('debug') }
 
 def releaseVersion, debugVersion
 

@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.Build;
+import androidx.core.content.ContextCompat;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -73,11 +74,7 @@ public class DeskClockHook {
                 handleSchedule(context, intent, cl);
             }
         };
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ctx.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
-        } else {
-            ctx.registerReceiver(receiver, filter);
-        }
+        ContextCompat.registerReceiver(ctx, receiver, filter, ContextCompat.RECEIVER_EXPORTED);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

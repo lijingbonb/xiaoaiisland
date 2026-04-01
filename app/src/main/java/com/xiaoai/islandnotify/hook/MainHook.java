@@ -13,6 +13,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.net.Uri;
 import android.service.notification.StatusBarNotification;
+import androidx.core.content.ContextCompat;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -560,11 +561,7 @@ public class MainHook {
                         }
                     }
                 };
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    appCtx.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
-                } else {
-                    appCtx.registerReceiver(receiver, filter);
-                }
+                ContextCompat.registerReceiver(appCtx, receiver, filter, ContextCompat.RECEIVER_EXPORTED);
                 XposedBridge.log(TAG + ": [Application] 广播接收器已注册");
                 // 动态定位小米内部 SettingsUtil（change 方法），用于静音/勿扰模式切换，结果按版本号缓存
                 MiuiSettingsInvoker.init(appCtx, appCtx.getClassLoader());
@@ -1415,7 +1412,7 @@ public class MainHook {
                     Intent schedIntent = new Intent(ACTION_SCHEDULE_CLOCK_ALARMS);
                     schedIntent.setPackage(DESKCLOCK_PKG);
                     // 关键标志位：允许触发已停止的应用，且提高接收优先级
-                    schedIntent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES | 0x10000000); // 0x10000000 = FLAG_RECEIVER_FOREGROUND
+                    schedIntent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES | Intent.FLAG_RECEIVER_FOREGROUND);
                     
                     // 原始课程数据（deskclock 侧自行解析）
                     schedIntent.putExtra("bean_json", beanJson);
@@ -1472,7 +1469,7 @@ public class MainHook {
             try {
                 Intent i = new Intent(ACTION_SCHEDULE_CLOCK_ALARMS);
                 i.setPackage(DESKCLOCK_PKG);
-                i.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES | 0x10000000);
+                i.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES | Intent.FLAG_RECEIVER_FOREGROUND);
                 i.putExtra("clear_only", true);
                 ctx.sendBroadcast(i);
             } catch (Throwable ignored) {}

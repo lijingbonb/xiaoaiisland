@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Hook 运行在宿主进程中，通知由宿主能力决定；本模块本体不申请 POST_NOTIFICATIONS -->
+    <issue id="NotificationPermission">
+        <ignore path="src/main/java/com/xiaoai/islandnotify/hook/MainHook.java" />
+    </issue>
+</lint>
