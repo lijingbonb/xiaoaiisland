@@ -596,17 +596,18 @@ public class MainActivity extends AppCompatActivity {
         // 读取已保存配置，无则用默认值
         for (int i = 0; i < 3; i++) {
             ((EditText) findViewById(IDS_A[i])).setText(
-                    sp.getString("tpl_a"      + SUFFIXES[i], DEFAULT_A[i]));
+                    PrefsAccess.readStagedTemplate(sp, "tpl_a", SUFFIXES[i], ""));
             ((EditText) findViewById(IDS_B[i])).setText(
-                    sp.getString("tpl_b"      + SUFFIXES[i], DEFAULT_B[i]));
+                    PrefsAccess.readStagedTemplate(sp, "tpl_b", SUFFIXES[i], ""));
             ((EditText) findViewById(IDS_TICKER[i])).setText(
-                    sp.getString("tpl_ticker" + SUFFIXES[i], DEFAULT_TICKER[i]));
+                    PrefsAccess.readStagedTemplate(sp, "tpl_ticker", SUFFIXES[i], ""));
             for (int k = 0; k < ConfigDefaults.EXPANDED_TPL_KEYS.length; k++) {
                 ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i])).setText(
-                        sp.getString(ConfigDefaults.EXPANDED_TPL_KEYS[k] + SUFFIXES[i], defaultExpandedTpl(i, k)));
+                        PrefsAccess.readStagedString(sp, ConfigDefaults.EXPANDED_TPL_KEYS[k],
+                                SUFFIXES[i], defaultExpandedTpl(i, k)));
             }
         }
-        swIconA.setChecked(sp.getBoolean("icon_a", true));
+        swIconA.setChecked(PrefsAccess.readConfigBool(sp, "icon_a", true));
 
         // 保存按钮引用 & 监控输入变化用于即时指示未保存状态
         btnSaveCustom = findViewById(R.id.btn_save_custom);
@@ -806,17 +807,19 @@ public class MainActivity extends AppCompatActivity {
         SharedPreferences sp = getConfigPrefs();
         for (int i = 0; i < 3; i++) {
             ((EditText) findViewById(CUSTOM_IDS_A[i])).setText(
-                    sp.getString("tpl_a" + CUSTOM_SUFFIXES[i], ConfigDefaults.DEFAULT_TPL_A[i]));
+                    PrefsAccess.readStagedTemplate(sp, "tpl_a", CUSTOM_SUFFIXES[i], ""));
             ((EditText) findViewById(CUSTOM_IDS_B[i])).setText(
-                    sp.getString("tpl_b" + CUSTOM_SUFFIXES[i], ConfigDefaults.DEFAULT_TPL_B[i]));
+                    PrefsAccess.readStagedTemplate(sp, "tpl_b", CUSTOM_SUFFIXES[i], ""));
             ((EditText) findViewById(CUSTOM_IDS_TICKER[i])).setText(
-                    sp.getString("tpl_ticker" + CUSTOM_SUFFIXES[i], ConfigDefaults.DEFAULT_TPL_TICKER[i]));
+                    PrefsAccess.readStagedTemplate(sp, "tpl_ticker", CUSTOM_SUFFIXES[i], ""));
             for (int k = 0; k < ConfigDefaults.EXPANDED_TPL_KEYS.length; k++) {
                 ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i])).setText(
-                        sp.getString(ConfigDefaults.EXPANDED_TPL_KEYS[k] + CUSTOM_SUFFIXES[i], defaultExpandedTpl(i, k)));
+                        PrefsAccess.readStagedString(sp, ConfigDefaults.EXPANDED_TPL_KEYS[k],
+                                CUSTOM_SUFFIXES[i], defaultExpandedTpl(i, k)));
             }
         }
-        ((SwitchMaterial) findViewById(R.id.sw_icon_a)).setChecked(sp.getBoolean("icon_a", true));
+        ((SwitchMaterial) findViewById(R.id.sw_icon_a))
+                .setChecked(PrefsAccess.readConfigBool(sp, "icon_a", true));
         customDirty = false;
         updateCustomDirtyIndicator();
     }
@@ -834,13 +837,13 @@ public class MainActivity extends AppCompatActivity {
             String curA = ((EditText) findViewById(IDS_A[i])).getText().toString().trim();
             String curB = ((EditText) findViewById(IDS_B[i])).getText().toString().trim();
             String curT = ((EditText) findViewById(IDS_TICKER[i])).getText().toString().trim();
-            String sA = sp.getString("tpl_a" + SUFFIXES[i], ConfigDefaults.DEFAULT_TPL_A[i]);
-            String sB = sp.getString("tpl_b" + SUFFIXES[i], ConfigDefaults.DEFAULT_TPL_B[i]);
-            String sT = sp.getString("tpl_ticker" + SUFFIXES[i], ConfigDefaults.DEFAULT_TPL_TICKER[i]);
+            String sA = PrefsAccess.readStagedTemplate(sp, "tpl_a", SUFFIXES[i], "");
+            String sB = PrefsAccess.readStagedTemplate(sp, "tpl_b", SUFFIXES[i], "");
+            String sT = PrefsAccess.readStagedTemplate(sp, "tpl_ticker", SUFFIXES[i], "");
             if (!curA.equals(sA) || !curB.equals(sB) || !curT.equals(sT)) return true;
         }
         SwitchMaterial swIconA = findViewById(R.id.sw_icon_a);
-        if (swIconA.isChecked() != sp.getBoolean("icon_a", true)) return true;
+        if (swIconA.isChecked() != PrefsAccess.readConfigBool(sp, "icon_a", true)) return true;
         return false;
     }
 
@@ -850,7 +853,8 @@ public class MainActivity extends AppCompatActivity {
         for (int i = 0; i < 3; i++) {
             for (int k = 0; k < ConfigDefaults.EXPANDED_TPL_KEYS.length; k++) {
                 String curV = ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i])).getText().toString().trim();
-                String saveV = sp.getString(ConfigDefaults.EXPANDED_TPL_KEYS[k] + SUFFIXES[i], defaultExpandedTpl(i, k));
+                String saveV = PrefsAccess.readStagedString(sp, ConfigDefaults.EXPANDED_TPL_KEYS[k],
+                        SUFFIXES[i], defaultExpandedTpl(i, k));
                 if (!curV.equals(saveV)) return true;
             }
         }

@@ -2323,11 +2323,7 @@ public class MainHook {
      * SP 为空时 fallback 到代码内置默认值。
      */
     private static String getStagedPref(SharedPreferences prefs, String key, String suffix) {
-        if (prefs != null) {
-            String v = prefs.getString(key + suffix, "");
-            if (v != null && !v.isEmpty()) return v;
-        }
-        return ConfigDefaults.stagedTemplateDefault(key, suffix, "");
+        return PrefsAccess.readStagedTemplate(prefs, key, suffix, "");
     }
 
     /**

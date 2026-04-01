@@ -64,6 +64,18 @@ final class PrefsAccess {
         return value == null ? "" : value;
     }
 
+    static String readStagedString(SharedPreferences prefs, String key, String suffix, String fallback) {
+        SharedPreferences target = resolve(prefs);
+        String value = target.getString(key + suffix, "");
+        if (value == null || value.isEmpty()) return fallback;
+        return value;
+    }
+
+    static String readStagedTemplate(SharedPreferences prefs, String key, String suffix, String fallback) {
+        return readStagedString(prefs, key, suffix,
+                ConfigDefaults.stagedTemplateDefault(key, suffix, fallback));
+    }
+
     static void copyAll(SharedPreferences target, Map<String, ?> allValues) {
         copyAllFiltered(target, allValues, false);
     }
