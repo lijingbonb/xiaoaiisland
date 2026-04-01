@@ -541,14 +541,11 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         SharedPreferences sp = getConfigPrefs();
-        applyExpandedFieldOrderHints();
+        CustomCardController.applyExpandedFieldOrderHints(this);
 
         // 三个阶段 SP 后缀：_pre=上课前  _active=上课中  _post=下课后
         final String[] SUFFIXES = ConfigDefaults.STAGE_SUFFIXES;
         // 各阶段 A/B/ticker 的默认值
-        final String[] DEFAULT_A = ConfigDefaults.DEFAULT_TPL_A;
-        final String[] DEFAULT_B = ConfigDefaults.DEFAULT_TPL_B;
-        final String[] DEFAULT_TICKER = ConfigDefaults.DEFAULT_TPL_TICKER;
         // 各阶段输入框 View ID
         final int[] IDS_A = CUSTOM_IDS_A;
         final int[] IDS_B = CUSTOM_IDS_B;
@@ -559,37 +556,31 @@ public class MainActivity extends AppCompatActivity {
         TextView tvExpandedHint = findViewById(R.id.tv_save_hint_expanded);
 
         // 读取已保存配置，无则用默认值
-        for (int i = 0; i < 3; i++) {
-            ((EditText) findViewById(IDS_A[i])).setText(
-                    PrefsAccess.readStagedTemplate(sp, "tpl_a", SUFFIXES[i], ""));
-            ((EditText) findViewById(IDS_B[i])).setText(
-                    PrefsAccess.readStagedTemplate(sp, "tpl_b", SUFFIXES[i], ""));
-            ((EditText) findViewById(IDS_TICKER[i])).setText(
-                    PrefsAccess.readStagedTemplate(sp, "tpl_ticker", SUFFIXES[i], ""));
-            for (int k = 0; k < ConfigDefaults.EXPANDED_TPL_KEYS.length; k++) {
-                ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i])).setText(
-                        PrefsAccess.readStagedString(sp, ConfigDefaults.EXPANDED_TPL_KEYS[k],
-                                SUFFIXES[i], defaultExpandedTpl(i, k)));
-            }
-        }
-        swIconA.setChecked(PrefsAccess.readConfigBool(sp, "icon_a", true));
+        CustomCardController.refreshFromPrefs(
+                this, sp, IDS_A, IDS_B, IDS_TICKER, CUSTOM_IDS_EXPANDED_V2, SUFFIXES);
 
         // 保存按钮引用 & 监控输入变化用于即时指示未保存状态
         btnSaveCustom = findViewById(R.id.btn_save_custom);
         btnSaveExpanded = findViewById(R.id.btn_save_expanded);
         for (int i = 0; i < 3; i++) {
-            bindCustomDirtyWatcher((EditText) findViewById(IDS_A[i]));
-            bindCustomDirtyWatcher((EditText) findViewById(IDS_B[i]));
-            bindCustomDirtyWatcher((EditText) findViewById(IDS_TICKER[i]));
+            CustomCardController.bindDirtyWatcher(
+                    (EditText) findViewById(IDS_A[i]), this::updateCustomDirtyIndicator);
+            CustomCardController.bindDirtyWatcher(
+                    (EditText) findViewById(IDS_B[i]), this::updateCustomDirtyIndicator);
+            CustomCardController.bindDirtyWatcher(
+                    (EditText) findViewById(IDS_TICKER[i]), this::updateCustomDirtyIndicator);
             for (int k = 0; k < ConfigDefaults.EXPANDED_TPL_KEYS.length; k++) {
-                bindCustomDirtyWatcher((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i]));
+                CustomCardController.bindDirtyWatcher(
+                        (EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i]),
+                        this::updateCustomDirtyIndicator);
             }
         }
         swIconA.setOnCheckedChangeListener((b, checked) -> updateCustomDirtyIndicator());
 
         findViewById(R.id.btn_save_custom).setOnClickListener(v -> {
 
-            int autoAlignedCount = alignExpandedTimerDirectionWithStatusBarFromUi();
+            int autoAlignedCount = CustomCardController.alignExpandedTimerDirectionWithStatusBarFromUi(
+                    this, CUSTOM_IDS_B, CUSTOM_IDS_EXPANDED_V2);
             SharedPreferences.Editor ed = editConfigPrefs();
             // 通知 voiceassist 进程同步最新配置（绕过 SELinux 跨 UID 文件读取限制）
 
@@ -625,7 +616,8 @@ public class MainActivity extends AppCompatActivity {
         View btnSaveExpandedView = findViewById(R.id.btn_save_expanded);
         if (btnSaveExpandedView != null) {
             btnSaveExpandedView.setOnClickListener(v -> {
-                int autoAlignedCount = alignStatusBarTimerDirectionWithExpandedFromUi();
+                int autoAlignedCount = CustomCardController.alignStatusBarTimerDirectionWithExpandedFromUi(
+                        this, CUSTOM_IDS_B, CUSTOM_IDS_EXPANDED_V2);
                 SharedPreferences.Editor ed = editConfigPrefs();
                 for (int i = 0; i < 3; i++) {
                     // 保存展开态前，先把因“同阶段计时类型统一”产生的状态栏 tpl_b 同步写回，
@@ -661,192 +653,34 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-    private void bindCustomDirtyWatcher(EditText editText) {
-        if (editText == null) return;
-        editText.addTextChangedListener(new android.text.TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
-            @Override public void onTextChanged(CharSequence s, int st, int b, int c) {
-                updateCustomDirtyIndicator();
-            }
-            @Override public void afterTextChanged(android.text.Editable s) {}
-        });
-    }
-
-    private int alignExpandedTimerDirectionWithStatusBarFromUi() {
-        int changed = 0;
-        for (int i = 0; i < CUSTOM_SUFFIXES.length; i++) {
-            EditText etStatusBarB = findViewById(CUSTOM_IDS_B[i]);
-            EditText etExpandedHintTitle = findViewById(CUSTOM_IDS_EXPANDED_V2[1][i]); // tpl_hint_title
-            EditText etExpandedHintSubTitle = findViewById(CUSTOM_IDS_EXPANDED_V2[2][i]); // tpl_hint_subtitle
-            if (etStatusBarB == null || etExpandedHintTitle == null || etExpandedHintSubTitle == null) continue;
-
-            String statusBarText = etStatusBarB.getText() == null ? "" : etStatusBarB.getText().toString().trim();
-            int statusKind = detectTimerKind(statusBarText);
-            changed += alignOneExpandedTimerField(etExpandedHintTitle, statusKind);
-            changed += alignOneExpandedTimerField(etExpandedHintSubTitle, statusKind);
-        }
-        return changed;
-    }
-
-    private int alignStatusBarTimerDirectionWithExpandedFromUi() {
-        int changed = 0;
-        for (int i = 0; i < CUSTOM_SUFFIXES.length; i++) {
-            EditText etStatusBarB = findViewById(CUSTOM_IDS_B[i]);
-            EditText etExpandedHintTitle = findViewById(CUSTOM_IDS_EXPANDED_V2[1][i]); // tpl_hint_title
-            EditText etExpandedHintSubTitle = findViewById(CUSTOM_IDS_EXPANDED_V2[2][i]); // tpl_hint_subtitle
-            if (etStatusBarB == null || etExpandedHintTitle == null || etExpandedHintSubTitle == null) continue;
-
-            int expandedKind = detectExpandedTimerKindForStage(
-                    etExpandedHintTitle.getText() == null ? "" : etExpandedHintTitle.getText().toString().trim(),
-                    etExpandedHintSubTitle.getText() == null ? "" : etExpandedHintSubTitle.getText().toString().trim());
-            if (expandedKind != -1 && expandedKind != 1) continue;
-            changed += alignStatusBarTimerField(etStatusBarB, expandedKind);
-        }
-        return changed;
-    }
-
-    private int detectExpandedTimerKindForStage(String hintTitle, String hintSubTitle) {
-        int titleKind = detectTimerKind(hintTitle);
-        if (titleKind == -1 || titleKind == 1) return titleKind;
-        int subKind = detectTimerKind(hintSubTitle);
-        if (subKind == -1 || subKind == 1) return subKind;
-        return 0;
-    }
-
-    private int alignStatusBarTimerField(EditText target, int expandedKind) {
-        if (target == null) return 0;
-        String text = target.getText() == null ? "" : target.getText().toString().trim();
-        int kind = detectTimerKind(text);
-        if ((kind == -1 || kind == 1) && kind != expandedKind) {
-            String aligned = forceTimerKind(text, expandedKind);
-            if (!aligned.equals(text)) {
-                target.setText(aligned);
-                return 1;
-            }
-        }
-        return 0;
-    }
-
-    private int alignOneExpandedTimerField(EditText target, int statusKind) {
-        if (target == null) return 0;
-        String text = target.getText() == null ? "" : target.getText().toString().trim();
-        int kind = detectTimerKind(text);
-        if ((statusKind == -1 || statusKind == 1)
-                && (kind == -1 || kind == 1)
-                && statusKind != kind) {
-            String aligned = forceTimerKind(text, statusKind);
-            if (!aligned.equals(text)) {
-                target.setText(aligned);
-                return 1;
-            }
-        }
-        return 0;
-    }
-
-    private int detectTimerKind(String text) {
-        if (text == null || text.isEmpty()) return 0;
-        boolean hasCountdown = text.contains("{\u5012\u8ba1\u65f6}");
-        boolean hasElapsed = text.contains("{\u6b63\u8ba1\u65f6}");
-        if (hasCountdown && hasElapsed) return 2;
-        if (hasCountdown) return -1;
-        if (hasElapsed) return 1;
-        return 0;
-    }
-
-    private String forceTimerKind(String text, int targetKind) {
-        if (text == null) return "";
-        final String countdown = "{\u5012\u8ba1\u65f6}";
-        final String elapsed = "{\u6b63\u8ba1\u65f6}";
-        if (targetKind >= 0) {
-            return text.replace(countdown, elapsed);
-        }
-        return text.replace(elapsed, countdown);
-    }
-
     private void refreshCustomCardFromPrefs() {
-        SharedPreferences sp = getConfigPrefs();
-        for (int i = 0; i < 3; i++) {
-            ((EditText) findViewById(CUSTOM_IDS_A[i])).setText(
-                    PrefsAccess.readStagedTemplate(sp, "tpl_a", CUSTOM_SUFFIXES[i], ""));
-            ((EditText) findViewById(CUSTOM_IDS_B[i])).setText(
-                    PrefsAccess.readStagedTemplate(sp, "tpl_b", CUSTOM_SUFFIXES[i], ""));
-            ((EditText) findViewById(CUSTOM_IDS_TICKER[i])).setText(
-                    PrefsAccess.readStagedTemplate(sp, "tpl_ticker", CUSTOM_SUFFIXES[i], ""));
-            for (int k = 0; k < ConfigDefaults.EXPANDED_TPL_KEYS.length; k++) {
-                ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i])).setText(
-                        PrefsAccess.readStagedString(sp, ConfigDefaults.EXPANDED_TPL_KEYS[k],
-                                CUSTOM_SUFFIXES[i], defaultExpandedTpl(i, k)));
-            }
-        }
-        ((SwitchMaterial) findViewById(R.id.sw_icon_a))
-                .setChecked(PrefsAccess.readConfigBool(sp, "icon_a", true));
+        CustomCardController.refreshFromPrefs(
+                this,
+                getConfigPrefs(),
+                CUSTOM_IDS_A,
+                CUSTOM_IDS_B,
+                CUSTOM_IDS_TICKER,
+                CUSTOM_IDS_EXPANDED_V2,
+                CUSTOM_SUFFIXES);
         customDirty = false;
         updateCustomDirtyIndicator();
     }
 
-    /**
-     * 检查「自定义模板」卡片是否有未保存变更
-     */
     private boolean isStatusCustomDirty() {
-        SharedPreferences sp = getConfigPrefs();
-        final String[] SUFFIXES = ConfigDefaults.STAGE_SUFFIXES;
-        final int[] IDS_A      = {R.id.et_tpl_a_pre,      R.id.et_tpl_a_active,      R.id.et_tpl_a_post};
-        final int[] IDS_B      = {R.id.et_tpl_b_pre,      R.id.et_tpl_b_active,      R.id.et_tpl_b_post};
-        final int[] IDS_TICKER = {R.id.et_tpl_ticker_pre,  R.id.et_tpl_ticker_active,  R.id.et_tpl_ticker_post};
-        for (int i = 0; i < 3; i++) {
-            String curA = ((EditText) findViewById(IDS_A[i])).getText().toString().trim();
-            String curB = ((EditText) findViewById(IDS_B[i])).getText().toString().trim();
-            String curT = ((EditText) findViewById(IDS_TICKER[i])).getText().toString().trim();
-            String sA = PrefsAccess.readStagedTemplate(sp, "tpl_a", SUFFIXES[i], "");
-            String sB = PrefsAccess.readStagedTemplate(sp, "tpl_b", SUFFIXES[i], "");
-            String sT = PrefsAccess.readStagedTemplate(sp, "tpl_ticker", SUFFIXES[i], "");
-            if (!curA.equals(sA) || !curB.equals(sB) || !curT.equals(sT)) return true;
-        }
-        SwitchMaterial swIconA = findViewById(R.id.sw_icon_a);
-        if (swIconA.isChecked() != PrefsAccess.readConfigBool(sp, "icon_a", true)) return true;
-        return false;
+        return CustomCardController.isStatusDirty(
+                this,
+                getConfigPrefs(),
+                CUSTOM_IDS_A,
+                CUSTOM_IDS_B,
+                CUSTOM_IDS_TICKER,
+                CUSTOM_SUFFIXES);
     }
 
     private boolean isExpandedCustomDirty() {
-        SharedPreferences sp = getConfigPrefs();
-        final String[] SUFFIXES = ConfigDefaults.STAGE_SUFFIXES;
-        for (int i = 0; i < 3; i++) {
-            for (int k = 0; k < ConfigDefaults.EXPANDED_TPL_KEYS.length; k++) {
-                String curV = ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i])).getText().toString().trim();
-                String saveV = PrefsAccess.readStagedString(sp, ConfigDefaults.EXPANDED_TPL_KEYS[k],
-                        SUFFIXES[i], defaultExpandedTpl(i, k));
-                if (!curV.equals(saveV)) return true;
-            }
-        }
-        return false;
+        return CustomCardController.isExpandedDirty(
+                this, getConfigPrefs(), CUSTOM_IDS_EXPANDED_V2, CUSTOM_SUFFIXES);
     }
 
-    private String defaultExpandedTpl(int stageIndex, int keyIndex) {
-        return ConfigDefaults.expandedTemplateDefault(stageIndex, keyIndex, "");
-    }
-
-    private void applyExpandedFieldOrderHints() {
-        for (int stage = 0; stage < ConfigDefaults.STAGE_PHASES.length; stage++) {
-            for (int field = 0; field < ConfigDefaults.EXPANDED_TPL_EDIT_IDS.length
-                    && field < ConfigDefaults.EXPANDED_TPL_HINTS.length; field++) {
-                setTextInputLayoutHint(
-                        ConfigDefaults.EXPANDED_TPL_EDIT_IDS[field][stage],
-                        ConfigDefaults.EXPANDED_TPL_HINTS[field]);
-            }
-        }
-    }
-
-    private void setTextInputLayoutHint(int editTextId, String hint) {
-        View child = findViewById(editTextId);
-        if (child == null) return;
-        View parent = (View) child.getParent();
-        if (parent instanceof TextInputLayout) {
-            ((TextInputLayout) parent).setHint(hint);
-        }
-    }
-    /**
-     * 检查「超时设置」卡片当前可见项是否与已保存值不同（表明存在未保存修改）
-     */
     private boolean isTimeoutDirty() {
         return TimeoutCardController.isDirty(
                 this, getConfigPrefs(), ISLAND_PHASE_BUTTON_IDS, NOTIF_PHASE_BUTTON_IDS);
@@ -1741,7 +1575,9 @@ public class MainActivity extends AppCompatActivity {
             ed.putString("tpl_b" + suffix, ConfigDefaults.DEFAULT_TPL_B[i]);
             ed.putString("tpl_ticker" + suffix, ConfigDefaults.DEFAULT_TPL_TICKER[i]);
             for (int k = 0; k < ConfigDefaults.EXPANDED_TPL_KEYS.length; k++) {
-                ed.putString(ConfigDefaults.EXPANDED_TPL_KEYS[k] + suffix, defaultExpandedTpl(i, k));
+                ed.putString(
+                        ConfigDefaults.EXPANDED_TPL_KEYS[k] + suffix,
+                        ConfigDefaults.expandedTemplateDefault(i, k, ""));
             }
         }
         ed.putBoolean("icon_a", true);
