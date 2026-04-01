@@ -2045,14 +2045,17 @@ public class MainHook {
 
             String stageSuffix = (state == STATE_COUNTDOWN) ? "_pre"
                     : (state == STATE_ELAPSED) ? "_active" : "_post";
-            int stageIdx = (state == STATE_COUNTDOWN) ? 0 : (state == STATE_ELAPSED) ? 1 : 2;
             final boolean showIconA = (prefs == null || prefs.getBoolean("icon_a", true));
 
-            String aFallback = resolveTemplate(DEFAULT_TPLS[stageIdx][0], info, info.courseName);
+            String aFallback = resolveTemplate(
+                    ConfigDefaults.stagedTemplateDefault("tpl_a", stageSuffix, ""),
+                    info, info.courseName);
             String aTitle = applyTimerVars(
                     applyExtraVars(resolveTemplate(getStagedPref(prefs, "tpl_a", stageSuffix), info, aFallback), info),
                     state, startMs, endMs, now);
-            String bFallback = resolveTemplate(DEFAULT_TPLS[stageIdx][1], info,
+            String bFallback = resolveTemplate(
+                    ConfigDefaults.stagedTemplateDefault("tpl_b", stageSuffix, ""),
+                    info,
                     info.classroom.isEmpty() ? "\u2014" : info.classroom);
             String bTemplateRaw = applyExtraVars(
                     resolveTemplate(getStagedPref(prefs, "tpl_b", stageSuffix), info, bFallback), info);
@@ -2289,15 +2292,6 @@ public class MainHook {
         return (info.startTime.isEmpty() ? info.courseName : info.startTime + "上课");
     }
 
-    // 各阶段模板的最终兑底默认值（即使未开启过模块主界面也生效）
-    private static final String[][] DEFAULT_TPLS = {
-        // { tpl_a,    tpl_b,       tpl_ticker          }
-        { "{\u6559\u5ba4}",   "{\u5f00\u59cb}\u4e0a\u8bfe",  "{\u6559\u5ba4}\uff5c{\u5f00\u59cb}\u4e0a\u8bfe"  }, // _pre
-        { "{\u8bfe\u540d}",   "{\u7ed3\u675f}\u4e0b\u8bfe",  "{\u8bfe\u540d}\uff5c{\u7ed3\u675f}\u4e0b\u8bfe"  }, // _active
-        { "{\u8bfe\u540d}",   "\u5df2\u7ecf\u4e0b\u8bfe",    "{\u8bfe\u540d}\uff5c\u5df2\u7ecf\u4e0b\u8bfe"    }, // _post
-    };
-    private static final String[] STAGE_SUFFIXES = {"_pre", "_active", "_post"};
-    private static final String[] TPL_KEYS       = {"tpl_a", "tpl_b", "tpl_ticker"};
     private static final String[] TO_PHASES = {"pre", "active", "post"};
     private static final String KEY_MIGRATION_DONE = "migration_config_v1_done";
     private static final String KEY_NOTIF_DISMISS_TRIGGER = "notif_dismiss_trigger";
@@ -2311,11 +2305,7 @@ public class MainHook {
             String v = prefs.getString(key + suffix, "");
             if (v != null && !v.isEmpty()) return v;
         }
-        // SP 完全为空（未开启过主界面），返回代码内置默认模板
-        int si = java.util.Arrays.asList(STAGE_SUFFIXES).indexOf(suffix);
-        int ki = java.util.Arrays.asList(TPL_KEYS).indexOf(key);
-        if (si >= 0 && ki >= 0) return DEFAULT_TPLS[si][ki];
-        return "";
+        return ConfigDefaults.stagedTemplateDefault(key, suffix, "");
     }
 
     /**
@@ -2679,10 +2669,10 @@ public class MainHook {
             boolean changed = false;
 
             // 旧版单模板键 -> 三阶段模板键
-            for (String baseKey : TPL_KEYS) {
+            for (String baseKey : ConfigDefaults.TEMPLATE_BASE_KEYS) {
                 String old = safeStr(sp.getString(baseKey, ""));
                 if (old.isEmpty()) continue;
-                for (String suffix : STAGE_SUFFIXES) {
+                for (String suffix : ConfigDefaults.STAGE_SUFFIXES) {
                     String stageKey = baseKey + suffix;
                     if (safeStr(sp.getString(stageKey, "")).isEmpty()) {
                         ed.putString(stageKey, old);

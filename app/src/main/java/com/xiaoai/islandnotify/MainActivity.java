@@ -83,32 +83,10 @@ public class MainActivity extends AppCompatActivity {
     private SharedPreferences.OnSharedPreferenceChangeListener mLocalHolidayMirrorListener;
     private volatile boolean mScopeRequested = false;
 
-    private static final String[] CUSTOM_SUFFIXES = {"_pre", "_active", "_post"};
-    private static final String[] STAGED_SUFFIXES = {"_pre", "_active", "_post"};
-    private static final String[] TEMPLATE_BASE_KEYS = {"tpl_a", "tpl_b", "tpl_ticker"};
+    private static final String[] CUSTOM_SUFFIXES = ConfigDefaults.STAGE_SUFFIXES;
     private static final String KEY_MIGRATION_DONE = "migration_config_v1_done";
     private static final String KEY_MIGRATION_V2_DONE = "migration_config_v2_done";
     private static final String PREFS_RUNTIME_NAME = "island_runtime";
-    private static final String[] DEFAULT_TPL_A = {
-            "{\u6559\u5ba4}", "{\u8bfe\u540d}", "{\u8bfe\u540d}"
-    };
-    private static final String[] DEFAULT_TPL_B = {
-            "{\u5f00\u59cb}\u4e0a\u8bfe",
-            "{\u7ed3\u675f}\u4e0b\u8bfe",
-            "\u5df2\u7ecf\u4e0b\u8bfe"
-    };
-    /*
-    private static final String[] DEFAULT_TPL_TICKER = {
-            "{鏁欏}锝渰寮€濮媫涓婅",
-            "{璇惧悕}锝渰缁撴潫}涓嬭",
-            "{璇惧悕}锝滃凡缁忎笅璇?"
-    };
-    */
-    private static final String[] DEFAULT_TPL_TICKER = {
-            "{\u6559\u5ba4}\uFF5C{\u5f00\u59cb}\u4e0a\u8bfe",
-            "{\u8bfe\u540d}\uFF5C{\u7ed3\u675f}\u4e0b\u8bfe",
-            "{\u8bfe\u540d}\uFF5C\u5df2\u7ecf\u4e0b\u8bfe"
-    };
     private static final int[] CUSTOM_IDS_A = {
             R.id.et_tpl_a_pre, R.id.et_tpl_a_active, R.id.et_tpl_a_post
     };
@@ -118,32 +96,6 @@ public class MainActivity extends AppCompatActivity {
     private static final int[] CUSTOM_IDS_TICKER = {
             R.id.et_tpl_ticker_pre, R.id.et_tpl_ticker_active, R.id.et_tpl_ticker_post
     };
-    private static final String[] EXPANDED_TPL_KEYS = {
-            "tpl_base_title",
-            "tpl_hint_title",
-            "tpl_hint_subtitle",
-            "tpl_hint_content",
-            "tpl_hint_subcontent",
-            "tpl_base_content",
-            "tpl_base_subcontent"
-    };
-    private static final int[][] CUSTOM_IDS_EXPANDED = {
-            {R.id.et_tpl_base_title_pre, R.id.et_tpl_base_title_active, R.id.et_tpl_base_title_post},
-            {R.id.et_tpl_hint_subtitle_pre, R.id.et_tpl_hint_subtitle_active, R.id.et_tpl_hint_subtitle_post},
-            {R.id.et_tpl_base_content_pre, R.id.et_tpl_base_content_active, R.id.et_tpl_base_content_post},
-            {R.id.et_tpl_base_subcontent_pre, R.id.et_tpl_base_subcontent_active, R.id.et_tpl_base_subcontent_post},
-            {R.id.et_tpl_hint_title_pre, R.id.et_tpl_hint_title_active, R.id.et_tpl_hint_title_post},
-            {R.id.et_tpl_hint_content_pre, R.id.et_tpl_hint_content_active, R.id.et_tpl_hint_content_post},
-            {R.id.et_tpl_hint_subcontent_pre, R.id.et_tpl_hint_subcontent_active, R.id.et_tpl_hint_subcontent_post}
-    };
-    private static final String[][] DEFAULT_EXPANDED_TPLS = {
-            // pre
-            {"{课名}", "{开始} | {结束}", "", "", "{教室}", "即将上课", "地点"},
-            // active
-            {"{课名}", "{开始} | {结束}", "", "", "{教室}", "已经上课", "地点"},
-            // post
-            {"{课名}", "{开始} | {结束}", "", "", "{教室}", "已经下课", "地点"}
-    };
     private static final int[][] CUSTOM_IDS_EXPANDED_V2 = {
             {R.id.et_tpl_base_title_pre, R.id.et_tpl_base_title_active, R.id.et_tpl_base_title_post},
             {R.id.et_tpl_hint_title_pre, R.id.et_tpl_hint_title_active, R.id.et_tpl_hint_title_post},
@@ -152,11 +104,6 @@ public class MainActivity extends AppCompatActivity {
             {R.id.et_tpl_hint_subcontent_pre, R.id.et_tpl_hint_subcontent_active, R.id.et_tpl_hint_subcontent_post},
             {R.id.et_tpl_base_content_pre, R.id.et_tpl_base_content_active, R.id.et_tpl_base_content_post},
             {R.id.et_tpl_base_subcontent_pre, R.id.et_tpl_base_subcontent_active, R.id.et_tpl_base_subcontent_post}
-    };
-    private static final String[][] DEFAULT_EXPANDED_TPLS_V2 = {
-            {"{\u8bfe\u540d}", "{\u5012\u8ba1\u65f6}", "{\u6559\u5ba4}", "\u5373\u5c06\u4e0a\u8bfe", "\u5730\u70b9", "{\u5f00\u59cb} | {\u7ed3\u675f}", ""},
-            {"{\u8bfe\u540d}", "{\u5012\u8ba1\u65f6}", "{\u6559\u5ba4}", "\u8ddd\u79bb\u4e0b\u8bfe", "\u5730\u70b9", "{\u5f00\u59cb} | {\u7ed3\u675f}", ""},
-            {"{\u8bfe\u540d}", "{\u6b63\u8ba1\u65f6}", "{\u6559\u5ba4}", "\u5df2\u7ecf\u4e0b\u8bfe", "\u5730\u70b9", "{\u5f00\u59cb} | {\u7ed3\u675f}", ""}
     };
     private static final String TARGET_VOICEASSIST = "com.miui.voiceassist";
     private static final String TARGET_DESKCLOCK = "com.android.deskclock";
@@ -484,10 +431,10 @@ public class MainActivity extends AppCompatActivity {
             boolean changed = false;
 
             // 旧版单模板键 -> 三阶段模板键
-            for (String baseKey : TEMPLATE_BASE_KEYS) {
+            for (String baseKey : ConfigDefaults.TEMPLATE_BASE_KEYS) {
                 String old = safeString(sp.getString(baseKey, ""));
                 if (old.isEmpty()) continue;
-                for (String suffix : STAGED_SUFFIXES) {
+                for (String suffix : ConfigDefaults.STAGE_SUFFIXES) {
                     String stageKey = baseKey + suffix;
                     if (safeString(sp.getString(stageKey, "")).isEmpty()) {
                         ed.putString(stageKey, old);
@@ -782,11 +729,11 @@ public class MainActivity extends AppCompatActivity {
         applyExpandedFieldOrderHints();
 
         // 三个阶段 SP 后缀：_pre=上课前  _active=上课中  _post=下课后
-        final String[] SUFFIXES = {"_pre", "_active", "_post"};
+        final String[] SUFFIXES = ConfigDefaults.STAGE_SUFFIXES;
         // 各阶段 A/B/ticker 的默认值
-        final String[] DEFAULT_A = DEFAULT_TPL_A;
-        final String[] DEFAULT_B = DEFAULT_TPL_B;
-        final String[] DEFAULT_TICKER = DEFAULT_TPL_TICKER;
+        final String[] DEFAULT_A = ConfigDefaults.DEFAULT_TPL_A;
+        final String[] DEFAULT_B = ConfigDefaults.DEFAULT_TPL_B;
+        final String[] DEFAULT_TICKER = ConfigDefaults.DEFAULT_TPL_TICKER;
         // 各阶段输入框 View ID
         final int[] IDS_A = CUSTOM_IDS_A;
         final int[] IDS_B = CUSTOM_IDS_B;
@@ -804,9 +751,9 @@ public class MainActivity extends AppCompatActivity {
                     sp.getString("tpl_b"      + SUFFIXES[i], DEFAULT_B[i]));
             ((EditText) findViewById(IDS_TICKER[i])).setText(
                     sp.getString("tpl_ticker" + SUFFIXES[i], DEFAULT_TICKER[i]));
-            for (int k = 0; k < EXPANDED_TPL_KEYS.length; k++) {
+            for (int k = 0; k < ConfigDefaults.EXPANDED_TPL_KEYS.length; k++) {
                 ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i])).setText(
-                        sp.getString(EXPANDED_TPL_KEYS[k] + SUFFIXES[i], defaultExpandedTpl(i, k)));
+                        sp.getString(ConfigDefaults.EXPANDED_TPL_KEYS[k] + SUFFIXES[i], defaultExpandedTpl(i, k)));
             }
         }
         swIconA.setChecked(sp.getBoolean("icon_a", true));
@@ -830,7 +777,7 @@ public class MainActivity extends AppCompatActivity {
                 @Override public void onTextChanged(CharSequence s, int st, int b, int c) { updateCustomDirtyIndicator(); }
                 @Override public void afterTextChanged(android.text.Editable s) {}
             });
-            for (int k = 0; k < EXPANDED_TPL_KEYS.length; k++) {
+            for (int k = 0; k < ConfigDefaults.EXPANDED_TPL_KEYS.length; k++) {
                 ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i])).addTextChangedListener(new android.text.TextWatcher() {
                     @Override public void beforeTextChanged(CharSequence s, int st, int c, int a) {}
                     @Override public void onTextChanged(CharSequence s, int st, int b, int c) { updateCustomDirtyIndicator(); }
@@ -886,10 +833,10 @@ public class MainActivity extends AppCompatActivity {
                     String alignedTplB = ((EditText) findViewById(IDS_B[i]))
                             .getText().toString().trim();
                     ed.putString("tpl_b" + SUFFIXES[i], alignedTplB);
-                    for (int k = 0; k < EXPANDED_TPL_KEYS.length; k++) {
+                    for (int k = 0; k < ConfigDefaults.EXPANDED_TPL_KEYS.length; k++) {
                         String expandedValue = ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i]))
                                 .getText().toString().trim();
-                        ed.putString(EXPANDED_TPL_KEYS[k] + SUFFIXES[i], expandedValue);
+                        ed.putString(ConfigDefaults.EXPANDED_TPL_KEYS[k] + SUFFIXES[i], expandedValue);
                     }
                 }
                 ed.apply();
@@ -1009,14 +956,14 @@ public class MainActivity extends AppCompatActivity {
         SharedPreferences sp = getConfigPrefs();
         for (int i = 0; i < 3; i++) {
             ((EditText) findViewById(CUSTOM_IDS_A[i])).setText(
-                    sp.getString("tpl_a" + CUSTOM_SUFFIXES[i], DEFAULT_TPL_A[i]));
+                    sp.getString("tpl_a" + CUSTOM_SUFFIXES[i], ConfigDefaults.DEFAULT_TPL_A[i]));
             ((EditText) findViewById(CUSTOM_IDS_B[i])).setText(
-                    sp.getString("tpl_b" + CUSTOM_SUFFIXES[i], DEFAULT_TPL_B[i]));
+                    sp.getString("tpl_b" + CUSTOM_SUFFIXES[i], ConfigDefaults.DEFAULT_TPL_B[i]));
             ((EditText) findViewById(CUSTOM_IDS_TICKER[i])).setText(
-                    sp.getString("tpl_ticker" + CUSTOM_SUFFIXES[i], DEFAULT_TPL_TICKER[i]));
-            for (int k = 0; k < EXPANDED_TPL_KEYS.length; k++) {
+                    sp.getString("tpl_ticker" + CUSTOM_SUFFIXES[i], ConfigDefaults.DEFAULT_TPL_TICKER[i]));
+            for (int k = 0; k < ConfigDefaults.EXPANDED_TPL_KEYS.length; k++) {
                 ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i])).setText(
-                        sp.getString(EXPANDED_TPL_KEYS[k] + CUSTOM_SUFFIXES[i], defaultExpandedTpl(i, k)));
+                        sp.getString(ConfigDefaults.EXPANDED_TPL_KEYS[k] + CUSTOM_SUFFIXES[i], defaultExpandedTpl(i, k)));
             }
         }
         ((SwitchMaterial) findViewById(R.id.sw_icon_a)).setChecked(sp.getBoolean("icon_a", true));
@@ -1029,7 +976,7 @@ public class MainActivity extends AppCompatActivity {
      */
     private boolean isStatusCustomDirty() {
         SharedPreferences sp = getConfigPrefs();
-        final String[] SUFFIXES = {"_pre", "_active", "_post"};
+        final String[] SUFFIXES = ConfigDefaults.STAGE_SUFFIXES;
         final int[] IDS_A      = {R.id.et_tpl_a_pre,      R.id.et_tpl_a_active,      R.id.et_tpl_a_post};
         final int[] IDS_B      = {R.id.et_tpl_b_pre,      R.id.et_tpl_b_active,      R.id.et_tpl_b_post};
         final int[] IDS_TICKER = {R.id.et_tpl_ticker_pre,  R.id.et_tpl_ticker_active,  R.id.et_tpl_ticker_post};
@@ -1037,9 +984,9 @@ public class MainActivity extends AppCompatActivity {
             String curA = ((EditText) findViewById(IDS_A[i])).getText().toString().trim();
             String curB = ((EditText) findViewById(IDS_B[i])).getText().toString().trim();
             String curT = ((EditText) findViewById(IDS_TICKER[i])).getText().toString().trim();
-            String sA = sp.getString("tpl_a" + SUFFIXES[i], DEFAULT_TPL_A[i]);
-            String sB = sp.getString("tpl_b" + SUFFIXES[i], DEFAULT_TPL_B[i]);
-            String sT = sp.getString("tpl_ticker" + SUFFIXES[i], DEFAULT_TPL_TICKER[i]);
+            String sA = sp.getString("tpl_a" + SUFFIXES[i], ConfigDefaults.DEFAULT_TPL_A[i]);
+            String sB = sp.getString("tpl_b" + SUFFIXES[i], ConfigDefaults.DEFAULT_TPL_B[i]);
+            String sT = sp.getString("tpl_ticker" + SUFFIXES[i], ConfigDefaults.DEFAULT_TPL_TICKER[i]);
             if (!curA.equals(sA) || !curB.equals(sB) || !curT.equals(sT)) return true;
         }
         SwitchMaterial swIconA = findViewById(R.id.sw_icon_a);
@@ -1049,11 +996,11 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean isExpandedCustomDirty() {
         SharedPreferences sp = getConfigPrefs();
-        final String[] SUFFIXES = {"_pre", "_active", "_post"};
+        final String[] SUFFIXES = ConfigDefaults.STAGE_SUFFIXES;
         for (int i = 0; i < 3; i++) {
-            for (int k = 0; k < EXPANDED_TPL_KEYS.length; k++) {
+            for (int k = 0; k < ConfigDefaults.EXPANDED_TPL_KEYS.length; k++) {
                 String curV = ((EditText) findViewById(CUSTOM_IDS_EXPANDED_V2[k][i])).getText().toString().trim();
-                String saveV = sp.getString(EXPANDED_TPL_KEYS[k] + SUFFIXES[i], defaultExpandedTpl(i, k));
+                String saveV = sp.getString(ConfigDefaults.EXPANDED_TPL_KEYS[k] + SUFFIXES[i], defaultExpandedTpl(i, k));
                 if (!curV.equals(saveV)) return true;
             }
         }
@@ -1061,13 +1008,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String defaultExpandedTpl(int stageIndex, int keyIndex) {
-        if (stageIndex < 0 || stageIndex >= DEFAULT_EXPANDED_TPLS_V2.length) return "";
-        if (keyIndex < 0) return "";
-        // DEFAULT_EXPANDED_TPLS 仍按旧顺序存储：
-        // 0 base_title, 1 base_content, 2 base_subcontent, 3 hint_title, 4 hint_subtitle, 5 hint_content, 6 hint_subcontent
-        // UI新顺序：base_title, hint_title, hint_subtitle, hint_content, hint_subcontent, base_content, base_subcontent
-        if (keyIndex >= DEFAULT_EXPANDED_TPLS_V2[stageIndex].length) return "";
-        return DEFAULT_EXPANDED_TPLS_V2[stageIndex][keyIndex];
+        return ConfigDefaults.expandedTemplateDefault(stageIndex, keyIndex, "");
     }
 
     private void applyExpandedFieldOrderHints() {
@@ -2705,11 +2646,11 @@ public class MainActivity extends AppCompatActivity {
         if (ed == null) return;
         for (int i = 0; i < CUSTOM_SUFFIXES.length; i++) {
             String suffix = CUSTOM_SUFFIXES[i];
-            ed.putString("tpl_a" + suffix, DEFAULT_TPL_A[i]);
-            ed.putString("tpl_b" + suffix, DEFAULT_TPL_B[i]);
-            ed.putString("tpl_ticker" + suffix, DEFAULT_TPL_TICKER[i]);
-            for (int k = 0; k < EXPANDED_TPL_KEYS.length; k++) {
-                ed.putString(EXPANDED_TPL_KEYS[k] + suffix, defaultExpandedTpl(i, k));
+            ed.putString("tpl_a" + suffix, ConfigDefaults.DEFAULT_TPL_A[i]);
+            ed.putString("tpl_b" + suffix, ConfigDefaults.DEFAULT_TPL_B[i]);
+            ed.putString("tpl_ticker" + suffix, ConfigDefaults.DEFAULT_TPL_TICKER[i]);
+            for (int k = 0; k < ConfigDefaults.EXPANDED_TPL_KEYS.length; k++) {
+                ed.putString(ConfigDefaults.EXPANDED_TPL_KEYS[k] + suffix, defaultExpandedTpl(i, k));
             }
         }
         ed.putBoolean("icon_a", true);
