@@ -97,7 +97,7 @@ public class MainHook {
     /** 课前提醒分钟数配置键（存入 island_custom SP） */
     private static final String KEY_REMINDER_MINUTES = "reminder_minutes_before";
     /** 课前提醒默认提前分钟数 */
-    private static final int DEFAULT_REMINDER_MINUTES = 15;
+    private static final int DEFAULT_REMINDER_MINUTES = ConfigDefaults.REMINDER_MINUTES;
     /** CourseData.xml FileObserver，跨进程写入时仍能感知 */
     private android.os.FileObserver mCourseDataObserver;
     /** CourseData 变化防抖延迟（ms）：合并同一次写入触发的多个 inotify 事件 */
@@ -138,10 +138,10 @@ public class MainHook {
     private static final String SETTINGS_CACHE_PREFIX = "settings_util_class_@";
     private static final String TIMETABLE_CACHE_PREFIX = "timetable_helper_class_@";
     private static final String KEY_RUNTIME_MIGRATION_DONE = "runtime_storage_v1_done";
-    private static final int    DEFAULT_MUTE_MINS_BEFORE  = 0;
-    private static final int    DEFAULT_UNMUTE_MINS_AFTER = 0;
-    private static final int    DEFAULT_DND_MINS_BEFORE   = 0;
-    private static final int    DEFAULT_UNDND_MINS_AFTER  = 0;
+    private static final int    DEFAULT_MUTE_MINS_BEFORE  = ConfigDefaults.MINUTES_OFFSET;
+    private static final int    DEFAULT_UNMUTE_MINS_AFTER = ConfigDefaults.MINUTES_OFFSET;
+    private static final int    DEFAULT_DND_MINS_BEFORE   = ConfigDefaults.MINUTES_OFFSET;
+    private static final int    DEFAULT_UNDND_MINS_AFTER  = ConfigDefaults.MINUTES_OFFSET;
     // ── 自动叫醒（系统闹钟）相关常量 ──
     private static final String ACTION_SCHEDULE_CLOCK_ALARMS  = DeskClockHook.ACTION_SCHEDULE_CLOCK_ALARMS;
     private static final String DESKCLOCK_PKG                  = "com.android.deskclock";
@@ -151,24 +151,24 @@ public class MainHook {
     private static final String KEY_WAKEUP_AFTERNOON_ENABLED      = "wakeup_afternoon_enabled";
     private static final String KEY_WAKEUP_AFTERNOON_FIRST_SEC    = "wakeup_afternoon_first_sec";
     private static final String KEY_WAKEUP_AFTERNOON_RULES_JSON   = "wakeup_afternoon_rules_json";
-    private static final int    DEFAULT_WAKEUP_MORNING_LAST_SEC       = 4;
-    private static final int    DEFAULT_WAKEUP_AFTERNOON_FIRST_SEC    = 5;
-    private static final String DEFAULT_WAKEUP_MORNING_RULES_JSON     = "[{\"sec\":1,\"hour\":7,\"minute\":0}]";
-    private static final String DEFAULT_WAKEUP_AFTERNOON_RULES_JSON   = "[{\"sec\":5,\"hour\":12,\"minute\":0}]";
+    private static final int    DEFAULT_WAKEUP_MORNING_LAST_SEC       = ConfigDefaults.WAKEUP_MORNING_LAST_SEC;
+    private static final int    DEFAULT_WAKEUP_AFTERNOON_FIRST_SEC    = ConfigDefaults.WAKEUP_AFTERNOON_FIRST_SEC;
+    private static final String DEFAULT_WAKEUP_MORNING_RULES_JSON     = ConfigDefaults.WAKEUP_MORNING_RULES_JSON;
+    private static final String DEFAULT_WAKEUP_AFTERNOON_RULES_JSON   = ConfigDefaults.WAKEUP_AFTERNOON_RULES_JSON;
     /** 静音功能开关（volatile，跨 Xposed 回调线程读取） */
-    private static volatile boolean sMuteEnabled   = false;
+    private static volatile boolean sMuteEnabled   = ConfigDefaults.SWITCH_DISABLED;
     /** 取消静音功能开关 */
-    private static volatile boolean sUnmuteEnabled = false;
+    private static volatile boolean sUnmuteEnabled = ConfigDefaults.SWITCH_DISABLED;
     /** 勿扰独立开关（与静音相互独立，可同时启用） */
-    private static volatile boolean sDndEnabled    = false;
-    private static volatile boolean sUnDndEnabled  = false;
+    private static volatile boolean sDndEnabled    = ConfigDefaults.SWITCH_DISABLED;
+    private static volatile boolean sUnDndEnabled  = ConfigDefaults.SWITCH_DISABLED;
     /** 自动叫醒功能开关 */
-    private static volatile boolean sWakeupMorningEnabled   = false;
-    private static volatile boolean sWakeupAfternoonEnabled = false;
+    private static volatile boolean sWakeupMorningEnabled   = ConfigDefaults.SWITCH_DISABLED;
+    private static volatile boolean sWakeupAfternoonEnabled = ConfigDefaults.SWITCH_DISABLED;
     /** 全局补发开关：控制通知补发与课中即时静音/勿扰 */
-    private static volatile boolean sRepostEnabled = true;
+    private static volatile boolean sRepostEnabled = ConfigDefaults.REPOST_ENABLED;
     /** 超级岛按钮功能模式：0=仅静音, 1=仅勿扰, 2=两者 */
-    private static volatile int sIslandButtonMode = 2;
+    private static volatile int sIslandButtonMode = ConfigDefaults.ISLAND_BUTTON_MODE;
     /** 已调度的静音/取消静音 alarm reqCode 集合，用于批量取消 */
     private final java.util.Set<Integer> mScheduledMuteIds = new java.util.HashSet<>();
     /** API 101 remote prefs 监听（示例同款能力） */
@@ -588,14 +588,7 @@ public class MainHook {
                             // 每日 00:01 跨日重调：触发主动更新，重新同步开关状态，重新调度当日 alarm
                             XposedBridge.log(TAG + ": [跨日重调] 触发，同步配置并执行主动重调度");
                             SharedPreferences dp = getConfigPrefs(context);
-                            sMuteEnabled   = dp.getBoolean(KEY_MUTE_ENABLED,   false);
-                            sUnmuteEnabled = dp.getBoolean(KEY_UNMUTE_ENABLED, false);
-                            sDndEnabled    = dp.getBoolean(KEY_DND_ENABLED,    false);
-                            sUnDndEnabled  = dp.getBoolean(KEY_UNDND_ENABLED,  false);
-                            sWakeupMorningEnabled   = dp.getBoolean(KEY_WAKEUP_MORNING_ENABLED,   false);
-                            sWakeupAfternoonEnabled = dp.getBoolean(KEY_WAKEUP_AFTERNOON_ENABLED, false);
-                            sRepostEnabled = dp.getBoolean(KEY_REPOST_ENABLED, true);
-                            sIslandButtonMode = dp.getInt("island_button_mode", 0);
+                            refreshRuntimeSwitchesFromPrefs(dp);
                             markDailyRescheduleRun(context);
                             safeReschedule(context, "island_reschedule_daily", true);
                         } else if (ACTION_NOTIF_CANCEL.equals(intent.getAction())) {
@@ -624,14 +617,7 @@ public class MainHook {
                 bootstrapRemotePrefsUnified(appCtx);
                 // 从 SP 读取开关状态
                 SharedPreferences initPrefs = getConfigPrefs(appCtx);
-                sMuteEnabled            = initPrefs.getBoolean(KEY_MUTE_ENABLED,              false);
-                sUnmuteEnabled          = initPrefs.getBoolean(KEY_UNMUTE_ENABLED,            false);
-                sDndEnabled             = initPrefs.getBoolean(KEY_DND_ENABLED,               false);
-                sUnDndEnabled           = initPrefs.getBoolean(KEY_UNDND_ENABLED,             false);
-                sWakeupMorningEnabled   = initPrefs.getBoolean(KEY_WAKEUP_MORNING_ENABLED,    false);
-                sWakeupAfternoonEnabled = initPrefs.getBoolean(KEY_WAKEUP_AFTERNOON_ENABLED,  false);
-                sRepostEnabled          = initPrefs.getBoolean(KEY_REPOST_ENABLED,             true);
-                sIslandButtonMode       = initPrefs.getInt    ("island_button_mode",           0);
+                refreshRuntimeSwitchesFromPrefs(initPrefs);
                 registerRemotePrefsListener(appCtx);
                 // 加载持久化的闹钟 ID
                 mScheduledAlarmIds.addAll(loadScheduledIds(appCtx, KEY_SCHEDULED_ALARM_IDS));
@@ -900,7 +886,7 @@ public class MainHook {
                 twIntent.putExtra(KEY_COURSE_TOTAL_WEEK, totalWeek);
                 ctx.sendBroadcast(twIntent);
             }
-            int reminderMinutes     = prefs.getInt(KEY_REMINDER_MINUTES, DEFAULT_REMINDER_MINUTES);
+            int reminderMinutes     = readConfigInt(prefs, KEY_REMINDER_MINUTES, DEFAULT_REMINDER_MINUTES);
             long nowMs              = System.currentTimeMillis();
             long reminderMs         = (long) reminderMinutes * 60_000L;
 
@@ -1402,10 +1388,10 @@ public class MainHook {
             JSONArray courses      = data.getJSONArray("courses");
 
             SharedPreferences prefs = getConfigPrefs(ctx);
-            int muteMinsBefore  = prefs.getInt(KEY_MUTE_MINS_BEFORE,  DEFAULT_MUTE_MINS_BEFORE);
-            int unmuteMinsAfter = prefs.getInt(KEY_UNMUTE_MINS_AFTER, DEFAULT_UNMUTE_MINS_AFTER);
-            int dndMinsBefore   = prefs.getInt(KEY_DND_MINS_BEFORE,   DEFAULT_DND_MINS_BEFORE);
-            int unDndMinsAfter  = prefs.getInt(KEY_UNDND_MINS_AFTER,  DEFAULT_UNDND_MINS_AFTER);
+            int muteMinsBefore  = readConfigInt(prefs, KEY_MUTE_MINS_BEFORE, DEFAULT_MUTE_MINS_BEFORE);
+            int unmuteMinsAfter = readConfigInt(prefs, KEY_UNMUTE_MINS_AFTER, DEFAULT_UNMUTE_MINS_AFTER);
+            int dndMinsBefore   = readConfigInt(prefs, KEY_DND_MINS_BEFORE, DEFAULT_DND_MINS_BEFORE);
+            int unDndMinsAfter  = readConfigInt(prefs, KEY_UNDND_MINS_AFTER, DEFAULT_UNDND_MINS_AFTER);
             long nowMs = System.currentTimeMillis();
             int count  = 0;
 
@@ -1549,14 +1535,14 @@ public class MainHook {
                     // 上午配置
                     if (sWakeupMorningEnabled) {
                         schedIntent.putExtra("morning_enabled",      true);
-                        schedIntent.putExtra("morning_last_sec",     prefs.getInt(KEY_WAKEUP_MORNING_LAST_SEC, DEFAULT_WAKEUP_MORNING_LAST_SEC));
-                        schedIntent.putExtra("morning_rules_json",   prefs.getString(KEY_WAKEUP_MORNING_RULES_JSON, DEFAULT_WAKEUP_MORNING_RULES_JSON));
+                        schedIntent.putExtra("morning_last_sec",     readConfigInt(prefs, KEY_WAKEUP_MORNING_LAST_SEC, DEFAULT_WAKEUP_MORNING_LAST_SEC));
+                        schedIntent.putExtra("morning_rules_json",   readConfigString(prefs, KEY_WAKEUP_MORNING_RULES_JSON, DEFAULT_WAKEUP_MORNING_RULES_JSON));
                     }
                     // 下午配置
                     if (sWakeupAfternoonEnabled) {
                         schedIntent.putExtra("afternoon_enabled",    true);
-                        schedIntent.putExtra("afternoon_first_sec",  prefs.getInt(KEY_WAKEUP_AFTERNOON_FIRST_SEC, DEFAULT_WAKEUP_AFTERNOON_FIRST_SEC));
-                        schedIntent.putExtra("afternoon_rules_json", prefs.getString(KEY_WAKEUP_AFTERNOON_RULES_JSON, DEFAULT_WAKEUP_AFTERNOON_RULES_JSON));
+                        schedIntent.putExtra("afternoon_first_sec",  readConfigInt(prefs, KEY_WAKEUP_AFTERNOON_FIRST_SEC, DEFAULT_WAKEUP_AFTERNOON_FIRST_SEC));
+                        schedIntent.putExtra("afternoon_rules_json", readConfigString(prefs, KEY_WAKEUP_AFTERNOON_RULES_JSON, DEFAULT_WAKEUP_AFTERNOON_RULES_JSON));
                     }
                     ctx.sendBroadcast(schedIntent);
                     XposedBridge.log(TAG + ": 叫醒配置已转发给 deskclock (已延迟 1s)");
@@ -1857,6 +1843,12 @@ public class MainHook {
     private static final int STATE_ELAPSED   = 1; // 正计时（上课中）
     private static final int STATE_FINISHED  = 2; // 正计时（已下课）
 
+    private static int stageIndexByState(int state) {
+        if (state == STATE_ELAPSED) return ConfigDefaults.STAGE_ACTIVE;
+        if (state == STATE_FINISHED) return ConfigDefaults.STAGE_POST;
+        return ConfigDefaults.STAGE_PRE;
+    }
+
     /**
      * 利用 AlarmManager.setExactAndAllowWhileIdle 在指定时刻发送岛状态更新广播。
      * 运行在 voiceassist 进程内，借用其 SCHEDULE_EXACT_ALARM 权限，精确唤醒 Doze。
@@ -1927,8 +1919,8 @@ public class MainHook {
         final long[]   baseMs = {notifPostedMs, startMs, endMs};
         AlarmManager am = ctx.getSystemService(AlarmManager.class);
         for (int i = 0; i < 3; i++) {
-            int    val  = (prefs != null) ? prefs.getInt   ("to_notif_val_"  + phases[i], -1) : -1;
-            String unit = (prefs != null) ? safeStr(prefs.getString("to_notif_unit_" + phases[i], "m")) : "m";
+            int val = readConfigInt(prefs, "to_notif_val_" + phases[i], ConfigDefaults.TIMEOUT_VALUE);
+            String unit = readConfigString(prefs, "to_notif_unit_" + phases[i], ConfigDefaults.TIMEOUT_UNIT);
             if (val <= 0 || baseMs[i] <= 0) continue;
             long delayMs   = "s".equals(unit) ? (long) val * 1000L : (long) val * 60_000L;
             long triggerMs = baseMs[i] + delayMs;
@@ -2043,9 +2035,9 @@ public class MainHook {
                 hintContent = (startMs > now) ? "即将上课" : "已经上课";
             }
 
-            String stageSuffix = (state == STATE_COUNTDOWN) ? "_pre"
-                    : (state == STATE_ELAPSED) ? "_active" : "_post";
-            final boolean showIconA = (prefs == null || prefs.getBoolean("icon_a", true));
+            int stageIndex = stageIndexByState(state);
+            String stageSuffix = ConfigDefaults.stageSuffix(stageIndex);
+            final boolean showIconA = readConfigBool(prefs, "icon_a", true);
 
             String aFallback = resolveTemplate(
                     ConfigDefaults.stagedTemplateDefault("tpl_a", stageSuffix, ""),
@@ -2164,10 +2156,9 @@ public class MainHook {
             final boolean finalUsePureTimerAsDynamicTitle = usePureTimerAsDynamicTitle;
 
             String timeRange = info.startTime + (info.endTime.isEmpty() ? "" : "-" + info.endTime);
-            String phase = (state == STATE_COUNTDOWN) ? "pre"
-                    : (state == STATE_ELAPSED) ? "active" : "post";
-            int islandToVal = (prefs != null) ? prefs.getInt("to_island_val_" + phase, -1) : -1;
-            String islandToUnit = (prefs != null) ? safeStr(prefs.getString("to_island_unit_" + phase, "m")) : "m";
+            String phase = ConfigDefaults.stagePhase(stageIndex);
+            int islandToVal = readConfigInt(prefs, "to_island_val_" + phase, ConfigDefaults.TIMEOUT_VALUE);
+            String islandToUnit = readConfigString(prefs, "to_island_unit_" + phase, ConfigDefaults.TIMEOUT_UNIT);
             int islandTimeoutSec = -1;
             if (islandToVal > 0) {
                 islandTimeoutSec = "m".equals(islandToUnit) ? islandToVal * 60 : islandToVal;
@@ -2292,9 +2283,9 @@ public class MainHook {
         return (info.startTime.isEmpty() ? info.courseName : info.startTime + "上课");
     }
 
-    private static final String[] TO_PHASES = {"pre", "active", "post"};
+    private static final String[] TO_PHASES = ConfigDefaults.STAGE_PHASES;
     private static final String KEY_MIGRATION_DONE = "migration_config_v1_done";
-    private static final String KEY_NOTIF_DISMISS_TRIGGER = "notif_dismiss_trigger";
+    private static final String KEY_NOTIF_DISMISS_TRIGGER = ConfigDefaults.KEY_NOTIF_DISMISS_TRIGGER;
 
     /**
      * 读取分阶段模板（suffix = "_pre" / "_active" / "_post"）。
@@ -2521,28 +2512,7 @@ public class MainHook {
     }
 
     private boolean isConfigKey(String key) {
-        if (key == null || key.isEmpty()) return false;
-        if (key.startsWith("tpl_") || key.startsWith("to_island_") || key.startsWith("to_notif_")) return true;
-        if (KEY_MIGRATION_DONE.equals(key) || KEY_NOTIF_DISMISS_TRIGGER.equals(key)) return true;
-        return KEY_REMINDER_MINUTES.equals(key)
-                || KEY_MUTE_ENABLED.equals(key)
-                || KEY_MUTE_MINS_BEFORE.equals(key)
-                || KEY_UNMUTE_ENABLED.equals(key)
-                || KEY_UNMUTE_MINS_AFTER.equals(key)
-                || KEY_DND_ENABLED.equals(key)
-                || KEY_DND_MINS_BEFORE.equals(key)
-                || KEY_UNDND_ENABLED.equals(key)
-                || KEY_UNDND_MINS_AFTER.equals(key)
-                || KEY_REPOST_ENABLED.equals(key)
-                || KEY_ACTIVE_COUNTDOWN_TO_END.equals(key)
-                || "island_button_mode".equals(key)
-                || "icon_a".equals(key)
-                || KEY_WAKEUP_MORNING_ENABLED.equals(key)
-                || KEY_WAKEUP_MORNING_LAST_SEC.equals(key)
-                || KEY_WAKEUP_MORNING_RULES_JSON.equals(key)
-                || KEY_WAKEUP_AFTERNOON_ENABLED.equals(key)
-                || KEY_WAKEUP_AFTERNOON_FIRST_SEC.equals(key)
-                || KEY_WAKEUP_AFTERNOON_RULES_JSON.equals(key);
+        return ConfigDefaults.isConfigKey(key);
     }
 
     private void migrateRuntimeStorageOnce(SharedPreferences hostConfig, SharedPreferences hostRuntime,
@@ -2662,34 +2632,11 @@ public class MainHook {
             if (all == null || all.isEmpty()) return;
             if (sp.getBoolean(KEY_MIGRATION_DONE, false)) {
                 SharedPreferences.Editor ed = sp.edit();
-                if (purgeLegacyConfigKeys(ed)) ed.apply();
+                if (ConfigMigration.purgeLegacyConfigKeys(ed)) ed.apply();
                 return;
             }
             SharedPreferences.Editor ed = sp.edit();
-            boolean changed = false;
-
-            // 旧版单模板键 -> 三阶段模板键
-            for (String baseKey : ConfigDefaults.TEMPLATE_BASE_KEYS) {
-                String old = safeStr(sp.getString(baseKey, ""));
-                if (old.isEmpty()) continue;
-                for (String suffix : ConfigDefaults.STAGE_SUFFIXES) {
-                    String stageKey = baseKey + suffix;
-                    if (safeStr(sp.getString(stageKey, "")).isEmpty()) {
-                        ed.putString(stageKey, old);
-                        changed = true;
-                    }
-                }
-                ed.remove(baseKey);
-                changed = true;
-            }
-
-            // 旧版岛超时单键 -> 三阶段键
-            changed |= migrateSingleTimeoutKey(sp, ed, "to_island", "island_dismiss_trigger");
-            // 旧版通知超时单键 -> 三阶段键
-            changed |= migrateSingleTimeoutKey(sp, ed, "to_notif", KEY_NOTIF_DISMISS_TRIGGER);
-            // 三阶段通知仅允许一个生效阶段，统一归并
-            changed |= normalizeSingleNotifPhase(sp, ed);
-            changed |= purgeLegacyConfigKeys(ed);
+            boolean changed = ConfigMigration.migrateBaseConfig(sp, ed, KEY_NOTIF_DISMISS_TRIGGER);
 
             if (changed) {
                 XposedBridge.log(TAG + ": 一次性迁移完成（旧配置 -> 三阶段）");
@@ -2699,75 +2646,6 @@ public class MainHook {
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": migrateLegacyConfigOnce failed -> " + t.getMessage());
         }
-    }
-
-    private boolean migrateSingleTimeoutKey(SharedPreferences sp, SharedPreferences.Editor ed,
-                                            String prefix, String triggerKey) {
-        int oldVal = sp.getInt(prefix + "_val", -1);
-        String oldUnit = safeStr(sp.getString(prefix + "_unit", "m"));
-        if (oldVal < 0) {
-            ed.remove(prefix + "_val");
-            ed.remove(prefix + "_unit");
-            return false;
-        }
-        String phase = safeStr(sp.getString(triggerKey, "pre"));
-        if (!"active".equals(phase) && !"post".equals(phase)) phase = "pre";
-        String valKey = prefix + "_val_" + phase;
-        String unitKey = prefix + "_unit_" + phase;
-        boolean changed = false;
-        if (sp.getInt(valKey, -1) < 0) {
-            ed.putInt(valKey, oldVal);
-            ed.putString(unitKey, oldUnit.isEmpty() ? "m" : oldUnit);
-            changed = true;
-        }
-        ed.remove(prefix + "_val");
-        ed.remove(prefix + "_unit");
-        return changed;
-    }
-
-    private boolean normalizeSingleNotifPhase(SharedPreferences sp, SharedPreferences.Editor ed) {
-        String phase = safeStr(sp.getString(KEY_NOTIF_DISMISS_TRIGGER, "pre"));
-        if (!"active".equals(phase) && !"post".equals(phase)) phase = "pre";
-        int selectedIdx = "active".equals(phase) ? 1 : ("post".equals(phase) ? 2 : 0);
-        if (sp.getInt("to_notif_val_" + TO_PHASES[selectedIdx], -1) < 0) {
-            for (int i = 0; i < TO_PHASES.length; i++) {
-                if (sp.getInt("to_notif_val_" + TO_PHASES[i], -1) >= 0) {
-                    selectedIdx = i;
-                    break;
-                }
-            }
-        }
-
-        boolean changed = false;
-        for (int i = 0; i < TO_PHASES.length; i++) {
-            if (i == selectedIdx) continue;
-            String p = TO_PHASES[i];
-            if (sp.getInt("to_notif_val_" + p, -1) >= 0) {
-                ed.putInt("to_notif_val_" + p, -1);
-                changed = true;
-            }
-        }
-        String selectedPhase = TO_PHASES[selectedIdx];
-        if (!selectedPhase.equals(sp.getString(KEY_NOTIF_DISMISS_TRIGGER, "pre"))) {
-            ed.putString(KEY_NOTIF_DISMISS_TRIGGER, selectedPhase);
-            changed = true;
-        }
-        return changed;
-    }
-
-    private boolean purgeLegacyConfigKeys(SharedPreferences.Editor ed) {
-        if (ed == null) return false;
-        ed.remove("to_island_val");
-        ed.remove("to_island_unit");
-        ed.remove("to_notif_val");
-        ed.remove("to_notif_unit");
-        ed.remove("notif_dismiss_value");
-        ed.remove("notif_dismiss_unit");
-        ed.remove("island_dismiss_value");
-        ed.remove("island_dismiss_unit");
-        ed.remove("island_dismiss_trigger");
-        ed.remove("use_default_behavior");
-        return true;
     }
 
     private boolean isWritablePrefs(SharedPreferences prefs) {
@@ -2827,15 +2705,14 @@ public class MainHook {
     }
 
     private void refreshRuntimeSwitchesFromPrefs(SharedPreferences prefs) {
-        if (prefs == null) return;
-        sMuteEnabled            = prefs.getBoolean(KEY_MUTE_ENABLED, false);
-        sUnmuteEnabled          = prefs.getBoolean(KEY_UNMUTE_ENABLED, false);
-        sDndEnabled             = prefs.getBoolean(KEY_DND_ENABLED, false);
-        sUnDndEnabled           = prefs.getBoolean(KEY_UNDND_ENABLED, false);
-        sWakeupMorningEnabled   = prefs.getBoolean(KEY_WAKEUP_MORNING_ENABLED, false);
-        sWakeupAfternoonEnabled = prefs.getBoolean(KEY_WAKEUP_AFTERNOON_ENABLED, false);
-        sRepostEnabled          = prefs.getBoolean(KEY_REPOST_ENABLED, true);
-        sIslandButtonMode       = prefs.getInt("island_button_mode", 0);
+        sMuteEnabled            = readConfigBool(prefs, KEY_MUTE_ENABLED, ConfigDefaults.SWITCH_DISABLED);
+        sUnmuteEnabled          = readConfigBool(prefs, KEY_UNMUTE_ENABLED, ConfigDefaults.SWITCH_DISABLED);
+        sDndEnabled             = readConfigBool(prefs, KEY_DND_ENABLED, ConfigDefaults.SWITCH_DISABLED);
+        sUnDndEnabled           = readConfigBool(prefs, KEY_UNDND_ENABLED, ConfigDefaults.SWITCH_DISABLED);
+        sWakeupMorningEnabled   = readConfigBool(prefs, KEY_WAKEUP_MORNING_ENABLED, ConfigDefaults.SWITCH_DISABLED);
+        sWakeupAfternoonEnabled = readConfigBool(prefs, KEY_WAKEUP_AFTERNOON_ENABLED, ConfigDefaults.SWITCH_DISABLED);
+        sRepostEnabled          = readConfigBool(prefs, KEY_REPOST_ENABLED, ConfigDefaults.REPOST_ENABLED);
+        sIslandButtonMode       = readConfigInt(prefs, "island_button_mode", ConfigDefaults.ISLAND_BUTTON_MODE);
     }
 
     private boolean isRescheduleRelatedKey(String key) {
@@ -2887,6 +2764,21 @@ public class MainHook {
 
     private SharedPreferences getConfigPrefs(Context ctx) {
         return loadConfigPrefsRemoteFirst(ctx);
+    }
+
+    private int readConfigInt(SharedPreferences prefs, String key, int fallback) {
+        SharedPreferences target = PrefsAccess.resolve(prefs);
+        return target.getInt(key, ConfigDefaults.intDefault(key, fallback));
+    }
+
+    private boolean readConfigBool(SharedPreferences prefs, String key, boolean fallback) {
+        SharedPreferences target = PrefsAccess.resolve(prefs);
+        return target.getBoolean(key, ConfigDefaults.boolDefault(key, fallback));
+    }
+
+    private String readConfigString(SharedPreferences prefs, String key, String fallback) {
+        SharedPreferences target = PrefsAccess.resolve(prefs);
+        return safeStr(target.getString(key, ConfigDefaults.stringDefault(key, fallback)));
     }
 
     /**

@@ -87,6 +87,12 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_MIGRATION_DONE = "migration_config_v1_done";
     private static final String KEY_MIGRATION_V2_DONE = "migration_config_v2_done";
     private static final String PREFS_RUNTIME_NAME = "island_runtime";
+    private static final int[] ISLAND_PHASE_BUTTON_IDS = {
+            R.id.btn_island_phase_pre, R.id.btn_island_phase_active, R.id.btn_island_phase_post
+    };
+    private static final int[] NOTIF_PHASE_BUTTON_IDS = {
+            R.id.btn_notif_phase_pre, R.id.btn_notif_phase_active, R.id.btn_notif_phase_post
+    };
     private static final int[] CUSTOM_IDS_A = {
             R.id.et_tpl_a_pre, R.id.et_tpl_a_active, R.id.et_tpl_a_post
     };
@@ -96,15 +102,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int[] CUSTOM_IDS_TICKER = {
             R.id.et_tpl_ticker_pre, R.id.et_tpl_ticker_active, R.id.et_tpl_ticker_post
     };
-    private static final int[][] CUSTOM_IDS_EXPANDED_V2 = {
-            {R.id.et_tpl_base_title_pre, R.id.et_tpl_base_title_active, R.id.et_tpl_base_title_post},
-            {R.id.et_tpl_hint_title_pre, R.id.et_tpl_hint_title_active, R.id.et_tpl_hint_title_post},
-            {R.id.et_tpl_hint_subtitle_pre, R.id.et_tpl_hint_subtitle_active, R.id.et_tpl_hint_subtitle_post},
-            {R.id.et_tpl_hint_content_pre, R.id.et_tpl_hint_content_active, R.id.et_tpl_hint_content_post},
-            {R.id.et_tpl_hint_subcontent_pre, R.id.et_tpl_hint_subcontent_active, R.id.et_tpl_hint_subcontent_post},
-            {R.id.et_tpl_base_content_pre, R.id.et_tpl_base_content_active, R.id.et_tpl_base_content_post},
-            {R.id.et_tpl_base_subcontent_pre, R.id.et_tpl_base_subcontent_active, R.id.et_tpl_base_subcontent_post}
-    };
+    private static final int[][] CUSTOM_IDS_EXPANDED_V2 = ConfigDefaults.EXPANDED_TPL_EDIT_IDS;
     private static final String TARGET_VOICEASSIST = "com.miui.voiceassist";
     private static final String TARGET_DESKCLOCK = "com.android.deskclock";
     private static final String ACTION_RESCHEDULE_DAILY = "com.xiaoai.islandnotify.ACTION_RESCHEDULE_DAILY";
@@ -115,6 +113,18 @@ public class MainActivity extends AppCompatActivity {
 
     private SharedPreferences.Editor editConfigPrefs() {
         return PrefsAccess.edit(mRemotePrefs);
+    }
+
+    private int readConfigInt(String key, int defaultValue) {
+        return getConfigPrefs().getInt(key, ConfigDefaults.intDefault(key, defaultValue));
+    }
+
+    private boolean readConfigBool(String key, boolean defaultValue) {
+        return getConfigPrefs().getBoolean(key, ConfigDefaults.boolDefault(key, defaultValue));
+    }
+
+    private String readConfigString(String key, String defaultValue) {
+        return getConfigPrefs().getString(key, ConfigDefaults.stringDefault(key, defaultValue));
     }
 
     private SharedPreferences getHolidayPrefs() {
@@ -420,7 +430,7 @@ public class MainActivity extends AppCompatActivity {
             if (sp.getBoolean(KEY_MIGRATION_DONE, false)) {
                 SharedPreferences.Editor ed = sp.edit();
                 boolean changed = false;
-                changed |= purgeLegacyConfigKeys(ed);
+                changed |= ConfigMigration.purgeLegacyConfigKeys(ed);
                 changed |= migrateConfigV2Once(sp, ed);
                 if (changed) {
                     ed.apply();
@@ -428,94 +438,19 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             SharedPreferences.Editor ed = sp.edit();
-            boolean changed = false;
-
-            // 旧版单模板键 -> 三阶段模板键
-            for (String baseKey : ConfigDefaults.TEMPLATE_BASE_KEYS) {
-                String old = safeString(sp.getString(baseKey, ""));
-                if (old.isEmpty()) continue;
-                for (String suffix : ConfigDefaults.STAGE_SUFFIXES) {
-                    String stageKey = baseKey + suffix;
-                    if (safeString(sp.getString(stageKey, "")).isEmpty()) {
-                        ed.putString(stageKey, old);
-                        changed = true;
-                    }
-                }
-                ed.remove(baseKey);
-                changed = true;
-            }
-
-            // 旧版单值超时配置迁移到三阶段
-            changed |= migrateSingleTimeoutKey(sp, ed, "to_island", "island_dismiss_trigger");
-            changed |= migrateSingleTimeoutKey(sp, ed, "to_notif", KEY_NOTIF_DISMISS_TRIGGER);
-            // 通知超时阶段统一为单选
-            changed |= normalizeSingleNotifPhase(sp, ed);
+            boolean changed = ConfigMigration.migrateBaseConfig(sp, ed, KEY_NOTIF_DISMISS_TRIGGER);
             changed |= migrateLegacyActiveTimerSwitch(sp, ed);
 
             if (changed) {
                 Log.d("IslandNotify", "一次性迁移完成（旧配置 -> 三阶段）");
             }
-            changed |= purgeLegacyConfigKeys(ed);
+            changed |= ConfigMigration.purgeLegacyConfigKeys(ed);
             changed |= migrateConfigV2Once(sp, ed);
             ed.putBoolean(KEY_MIGRATION_DONE, true);
             ed.apply();
         } catch (Throwable t) {
             Log.w("IslandNotify", "migrateLegacyConfigOnce failed: " + t.getMessage());
         }
-    }
-
-    private boolean migrateSingleTimeoutKey(SharedPreferences sp, SharedPreferences.Editor ed,
-                                            String prefix, String triggerKey) {
-        int oldVal = sp.getInt(prefix + "_val", -1);
-        String oldUnit = safeString(sp.getString(prefix + "_unit", "m"));
-        if (oldVal < 0) {
-            ed.remove(prefix + "_val");
-            ed.remove(prefix + "_unit");
-            return false;
-        }
-        String phase = safeString(sp.getString(triggerKey, "pre"));
-        if (!"active".equals(phase) && !"post".equals(phase)) phase = "pre";
-        String valKey = prefix + "_val_" + phase;
-        String unitKey = prefix + "_unit_" + phase;
-        boolean changed = false;
-        if (sp.getInt(valKey, -1) < 0) {
-            ed.putInt(valKey, oldVal);
-            ed.putString(unitKey, oldUnit.isEmpty() ? "m" : oldUnit);
-            changed = true;
-        }
-        ed.remove(prefix + "_val");
-        ed.remove(prefix + "_unit");
-        return changed;
-    }
-
-    private boolean normalizeSingleNotifPhase(SharedPreferences sp, SharedPreferences.Editor ed) {
-        String phase = safeString(sp.getString(KEY_NOTIF_DISMISS_TRIGGER, "pre"));
-        if (!"active".equals(phase) && !"post".equals(phase)) phase = "pre";
-        int selectedIdx = "active".equals(phase) ? 1 : ("post".equals(phase) ? 2 : 0);
-        if (sp.getInt("to_notif_val_" + TO_PHASES[selectedIdx], -1) < 0) {
-            for (int i = 0; i < TO_PHASES.length; i++) {
-                if (sp.getInt("to_notif_val_" + TO_PHASES[i], -1) >= 0) {
-                    selectedIdx = i;
-                    break;
-                }
-            }
-        }
-
-        boolean changed = false;
-        for (int i = 0; i < TO_PHASES.length; i++) {
-            if (i == selectedIdx) continue;
-            String p = TO_PHASES[i];
-            if (sp.getInt("to_notif_val_" + p, -1) >= 0) {
-                ed.putInt("to_notif_val_" + p, -1);
-                changed = true;
-            }
-        }
-        String selectedPhase = TO_PHASES[selectedIdx];
-        if (!selectedPhase.equals(sp.getString(KEY_NOTIF_DISMISS_TRIGGER, "pre"))) {
-            ed.putString(KEY_NOTIF_DISMISS_TRIGGER, selectedPhase);
-            changed = true;
-        }
-        return changed;
     }
 
     private boolean migrateLegacyActiveTimerSwitch(SharedPreferences sp, SharedPreferences.Editor ed) {
@@ -556,50 +491,12 @@ public class MainActivity extends AppCompatActivity {
         return true;
     }
 
-    private boolean purgeLegacyConfigKeys(SharedPreferences.Editor ed) {
-        if (ed == null) return false;
-        ed.remove("to_island_val");
-        ed.remove("to_island_unit");
-        ed.remove("to_notif_val");
-        ed.remove("to_notif_unit");
-        ed.remove("notif_dismiss_value");
-        ed.remove("notif_dismiss_unit");
-        ed.remove("island_dismiss_value");
-        ed.remove("island_dismiss_unit");
-        ed.remove("island_dismiss_trigger");
-        ed.remove("use_default_behavior");
-        return true;
-    }
-
     private static String safeString(String value) {
         return value == null ? "" : value;
     }
 
     private boolean isConfigKey(String key) {
-        if (key == null || key.isEmpty()) return false;
-        if (key.startsWith("tpl_") || key.startsWith("to_island_") || key.startsWith("to_notif_")) return true;
-        if (KEY_MIGRATION_DONE.equals(key)
-                || KEY_MIGRATION_V2_DONE.equals(key)
-                || KEY_NOTIF_DISMISS_TRIGGER.equals(key)) return true;
-        return "reminder_minutes_before".equals(key)
-                || "mute_enabled".equals(key)
-                || "mute_mins_before".equals(key)
-                || "unmute_enabled".equals(key)
-                || "unmute_mins_after".equals(key)
-                || "dnd_enabled".equals(key)
-                || "dnd_mins_before".equals(key)
-                || "undnd_enabled".equals(key)
-                || "undnd_mins_after".equals(key)
-                || KEY_REPOST_ENABLED.equals(key)
-                || KEY_ACTIVE_COUNTDOWN_TO_END.equals(key)
-                || "island_button_mode".equals(key)
-                || "icon_a".equals(key)
-                || "wakeup_morning_enabled".equals(key)
-                || "wakeup_morning_last_sec".equals(key)
-                || "wakeup_morning_rules_json".equals(key)
-                || "wakeup_afternoon_enabled".equals(key)
-                || "wakeup_afternoon_first_sec".equals(key)
-                || "wakeup_afternoon_rules_json".equals(key);
+        return ConfigDefaults.isConfigKey(key);
     }
 
     private void requestMissingScopeIfNeeded(XposedService service) {
@@ -1012,23 +909,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void applyExpandedFieldOrderHints() {
-        final int[][] orderedIds = {
-                {R.id.et_tpl_base_title_pre, R.id.et_tpl_hint_title_pre, R.id.et_tpl_hint_subtitle_pre, R.id.et_tpl_hint_content_pre, R.id.et_tpl_hint_subcontent_pre, R.id.et_tpl_base_content_pre, R.id.et_tpl_base_subcontent_pre},
-                {R.id.et_tpl_base_title_active, R.id.et_tpl_hint_title_active, R.id.et_tpl_hint_subtitle_active, R.id.et_tpl_hint_content_active, R.id.et_tpl_hint_subcontent_active, R.id.et_tpl_base_content_active, R.id.et_tpl_base_subcontent_active},
-                {R.id.et_tpl_base_title_post, R.id.et_tpl_hint_title_post, R.id.et_tpl_hint_subtitle_post, R.id.et_tpl_hint_content_post, R.id.et_tpl_hint_subcontent_post, R.id.et_tpl_base_content_post, R.id.et_tpl_base_subcontent_post}
-        };
-        final String[] hints = {
-                "主要标题",
-                "主要小文本1",
-                "主要小文本2",
-                "前置文本1",
-                "前置文本2",
-                "次要文本1",
-                "次要文本2"
-        };
-        for (int[] stage : orderedIds) {
-            for (int i = 0; i < stage.length && i < hints.length; i++) {
-                setTextInputLayoutHint(stage[i], hints[i]);
+        for (int stage = 0; stage < ConfigDefaults.STAGE_PHASES.length; stage++) {
+            for (int field = 0; field < ConfigDefaults.EXPANDED_TPL_EDIT_IDS.length
+                    && field < ConfigDefaults.EXPANDED_TPL_HINTS.length; field++) {
+                setTextInputLayoutHint(
+                        ConfigDefaults.EXPANDED_TPL_EDIT_IDS[field][stage],
+                        ConfigDefaults.EXPANDED_TPL_HINTS[field]);
             }
         }
     }
@@ -1045,20 +931,18 @@ public class MainActivity extends AppCompatActivity {
      * 检查「超时设置」卡片当前可见项是否与已保存值不同（表明存在未保存修改）
      */
     private boolean isTimeoutDirty() {
-        SharedPreferences sp = getConfigPrefs();
+        TimeoutConfig saved = TimeoutConfig.read(getConfigPrefs());
         // 岛：当前阶段
         MaterialButtonToggleGroup toggleIslandPhase = findViewById(R.id.toggle_island_phase);
-        int checkedIsland = toggleIslandPhase.getCheckedButtonId();
-        int idxIsland = (checkedIsland == R.id.btn_island_phase_active) ? 1
-                : (checkedIsland == R.id.btn_island_phase_post) ? 2 : 0;
+        int idxIsland = stageIndexFromButtonId(toggleIslandPhase.getCheckedButtonId(), ISLAND_PHASE_BUTTON_IDS);
         EditText etIsland = findViewById(R.id.et_island_to);
         String curIslandStr = etIsland.getText() != null ? etIsland.getText().toString().trim() : "";
-        int curIslandVal = curIslandStr.isEmpty() ? -1 : tryParseInt(curIslandStr, -1);
+        int curIslandVal = curIslandStr.isEmpty() ? ConfigDefaults.TIMEOUT_VALUE : tryParseInt(curIslandStr, ConfigDefaults.TIMEOUT_VALUE);
         MaterialButtonToggleGroup toggleIslandUnit = findViewById(R.id.toggle_island_unit);
         String curIslandUnit = (toggleIslandUnit.getCheckedButtonId() == R.id.btn_island_s) ? "s" : "m";
         SwitchMaterial swIslandDefault = findViewById(R.id.sw_island_to_default);
-        int savedIsVal = sp.getInt("to_island_val_" + TO_PHASES[idxIsland], -1);
-        String savedIsUnit = sp.getString("to_island_unit_" + TO_PHASES[idxIsland], "m");
+        int savedIsVal = saved.islandVals[idxIsland];
+        String savedIsUnit = saved.islandUnits[idxIsland];
         boolean savedIslandDefault = savedIsVal < 0;
         if (swIslandDefault.isChecked() != savedIslandDefault) return true;
         if (!swIslandDefault.isChecked()) {
@@ -1068,37 +952,18 @@ public class MainActivity extends AppCompatActivity {
 
         // 通知：仅允许单选一个触发阶段
         MaterialButtonToggleGroup toggleNotifPhase = findViewById(R.id.toggle_notif_phase);
-        int checkedNotif = toggleNotifPhase.getCheckedButtonId();
-        int idxNotif = (checkedNotif == R.id.btn_notif_phase_active) ? 1
-                : (checkedNotif == R.id.btn_notif_phase_post) ? 2 : 0;
+        int idxNotif = stageIndexFromButtonId(toggleNotifPhase.getCheckedButtonId(), NOTIF_PHASE_BUTTON_IDS);
         SwitchMaterial swNotifDefault  = findViewById(R.id.sw_notif_to_default);
         EditText etNotif = findViewById(R.id.et_notif_to);
         String curNotifStr = etNotif.getText() != null ? etNotif.getText().toString().trim() : "";
-        int curNotifVal = curNotifStr.isEmpty() ? -1 : tryParseInt(curNotifStr, -1);
+        int curNotifVal = curNotifStr.isEmpty() ? ConfigDefaults.TIMEOUT_VALUE : tryParseInt(curNotifStr, ConfigDefaults.TIMEOUT_VALUE);
         MaterialButtonToggleGroup toggleNotifUnit = findViewById(R.id.toggle_notif_unit);
         String curNotifUnit = (toggleNotifUnit.getCheckedButtonId() == R.id.btn_notif_s) ? "s" : "m";
-        String savedTrigger = sp.getString(KEY_NOTIF_DISMISS_TRIGGER, "pre");
-        int savedTriggerIdx = "active".equals(savedTrigger) ? 1 : ("post".equals(savedTrigger) ? 2 : 0);
-        if (sp.getInt("to_notif_val_" + TO_PHASES[savedTriggerIdx], -1) < 0) {
-            for (int i = 0; i < 3; i++) {
-                if (sp.getInt("to_notif_val_" + TO_PHASES[i], -1) >= 0) {
-                    savedTriggerIdx = i;
-                    break;
-                }
-            }
-        }
-        boolean savedDefault = true;
-        for (int i = 0; i < 3; i++) {
-            if (sp.getInt("to_notif_val_" + TO_PHASES[i], -1) >= 0) {
-                savedDefault = false;
-                break;
-            }
-        }
-        if (swNotifDefault.isChecked() != savedDefault) return true;
+        if (swNotifDefault.isChecked() != saved.notifGlobalDefault) return true;
         if (!swNotifDefault.isChecked()) {
-            if (idxNotif != savedTriggerIdx) return true;
-            int savedNoVal = sp.getInt("to_notif_val_" + TO_PHASES[savedTriggerIdx], -1);
-            String savedNoUnit = sp.getString("to_notif_unit_" + TO_PHASES[savedTriggerIdx], "m");
+            if (idxNotif != saved.notifTriggerStage) return true;
+            int savedNoVal = saved.notifVals[saved.notifTriggerStage];
+            String savedNoUnit = saved.notifUnits[saved.notifTriggerStage];
             if (curNotifVal != savedNoVal) return true;
             if (!curNotifUnit.equals(savedNoUnit)) return true;
         }
@@ -1146,9 +1011,7 @@ public class MainActivity extends AppCompatActivity {
     // 超时设置卡片
     // ─────────────────────────────────────────────────────────────
 
-    /** 三阶段 key 后缀（与 MainHook/SP 保持一致） */
-    private static final String[] TO_PHASES = {"pre", "active", "post"};
-    private static final String KEY_NOTIF_DISMISS_TRIGGER = "notif_dismiss_trigger";
+    private static final String KEY_NOTIF_DISMISS_TRIGGER = ConfigDefaults.KEY_NOTIF_DISMISS_TRIGGER;
 
     /**
      * 初始化「消失时间」卡片。
@@ -1157,41 +1020,18 @@ public class MainActivity extends AppCompatActivity {
      * val == -1 表示系统默认；val > 0 表示自定义。
      */
     private void initTimeoutCard() {
-        SharedPreferences sp = getConfigPrefs();
+        TimeoutConfig timeoutCfg = TimeoutConfig.read(getConfigPrefs());
 
         // ── 岛：三阶段独立设置 ─────────────────────────────────────────
-        final int[]    islandVals  = new int[3];
-        final String[] islandUnits = new String[3];
-        for (int i = 0; i < 3; i++) {
-            islandVals[i]  = sp.getInt   ("to_island_val_"  + TO_PHASES[i], -1);
-            islandUnits[i] = sp.getString("to_island_unit_" + TO_PHASES[i], "m");
-        }
+        final int[] islandVals = timeoutCfg.islandVals.clone();
+        final String[] islandUnits = timeoutCfg.islandUnits.clone();
         final int[] curIslandPhase = {0};
 
         // ── 通知：三阶段独立 ───────────────────────────────────────────
-        final int[]    notifVals  = new int[3];
-        final String[] notifUnits = new String[3];
-        for (int i = 0; i < 3; i++) {
-            notifVals[i]  = sp.getInt   ("to_notif_val_"  + TO_PHASES[i], -1);
-            notifUnits[i] = sp.getString("to_notif_unit_" + TO_PHASES[i], "m");
-        }
-        int initialNotifPhase = 0;
-        String savedTrigger = sp.getString(KEY_NOTIF_DISMISS_TRIGGER, "pre");
-        if ("active".equals(savedTrigger)) initialNotifPhase = 1;
-        else if ("post".equals(savedTrigger)) initialNotifPhase = 2;
-        if (notifVals[initialNotifPhase] < 0) {
-            for (int i = 0; i < 3; i++) {
-                if (notifVals[i] >= 0) {
-                    initialNotifPhase = i;
-                    break;
-                }
-            }
-        }
-        final int[] curNotifPhase = {initialNotifPhase};
-        // 通知默认为全局开关：当所有阶段均为 -1 时视为默认
-        boolean notifAllDefault = true;
-        for (int i = 0; i < 3; i++) if (notifVals[i] >= 0) { notifAllDefault = false; break; }
-        final boolean[] notifGlobalDefault = {notifAllDefault};
+        final int[] notifVals = timeoutCfg.notifVals.clone();
+        final String[] notifUnits = timeoutCfg.notifUnits.clone();
+        final int[] curNotifPhase = {timeoutCfg.notifTriggerStage};
+        final boolean[] notifGlobalDefault = {timeoutCfg.notifGlobalDefault};
         // ── View 引用 ──────────────────────────────────────────────────
         TextInputLayout  tilIsland       = findViewById(R.id.til_island_to);
         EditText         etIsland        = findViewById(R.id.et_island_to);
@@ -1226,7 +1066,9 @@ public class MainActivity extends AppCompatActivity {
             notifGlobalDefault[0] = checked;
             if (checked) {
                 // 全局默认：清空三个阶段的自定义值
-                for (int j = 0; j < 3; j++) notifVals[j] = -1;
+                for (int j = 0; j < ConfigDefaults.STAGE_PHASES.length; j++) {
+                    notifVals[j] = ConfigDefaults.TIMEOUT_VALUE;
+                }
                 etNotif.setText("");
             }
             boolean en = !checked;
@@ -1261,16 +1103,14 @@ public class MainActivity extends AppCompatActivity {
             islandUnits[idx] = (toggleIslandUnit.getCheckedButtonId() == R.id.btn_island_s) ? "s" : "m";
         };
 
-        toggleIslandPhase.check(R.id.btn_island_phase_pre);
+        toggleIslandPhase.check(buttonIdForStage(ISLAND_PHASE_BUTTON_IDS, curIslandPhase[0]));
         loadIslandUI.run();
 
         // ── 岛阶段切换 ───────────────────────────────────────────────
         toggleIslandPhase.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
             if (!isChecked) return;
             saveIslandUI.run();
-            if      (checkedId == R.id.btn_island_phase_pre)    curIslandPhase[0] = 0;
-            else if (checkedId == R.id.btn_island_phase_active) curIslandPhase[0] = 1;
-            else                                                curIslandPhase[0] = 2;
+            curIslandPhase[0] = stageIndexFromButtonId(checkedId, ISLAND_PHASE_BUTTON_IDS);
             loadIslandUI.run();
             updateTimeoutDirtyIndicator();
         });
@@ -1304,18 +1144,14 @@ public class MainActivity extends AppCompatActivity {
             notifUnits[idx] = (toggleNotifUnit.getCheckedButtonId() == R.id.btn_notif_s) ? "s" : "m";
         };
 
-        toggleNotifPhase.check(curNotifPhase[0] == 1
-                ? R.id.btn_notif_phase_active
-                : (curNotifPhase[0] == 2 ? R.id.btn_notif_phase_post : R.id.btn_notif_phase_pre));
+        toggleNotifPhase.check(buttonIdForStage(NOTIF_PHASE_BUTTON_IDS, curNotifPhase[0]));
         loadNotifUI.run();
 
         // ── 通知阶段切换 ──────────────────────────────────────────────
         toggleNotifPhase.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
             if (!isChecked) return;
             saveNotifUI.run();
-            if      (checkedId == R.id.btn_notif_phase_pre)    curNotifPhase[0] = 0;
-            else if (checkedId == R.id.btn_notif_phase_active) curNotifPhase[0] = 1;
-            else                                                curNotifPhase[0] = 2;
+            curNotifPhase[0] = stageIndexFromButtonId(checkedId, NOTIF_PHASE_BUTTON_IDS);
             loadNotifUI.run();
             updateTimeoutDirtyIndicator();
         });
@@ -1327,37 +1163,17 @@ public class MainActivity extends AppCompatActivity {
             // 读取并保存岛当前 UI 值（按三阶段写回）
             saveIslandUI.run();
 
-            // 若全局默认被选中，确保所有 notifVals 为 -1
             SharedPreferences.Editor ed = editConfigPrefs();
-
-            // 岛：三阶段键
-            for (int i = 0; i < 3; i++) {
-                ed.putInt   ("to_island_val_"  + TO_PHASES[i], islandVals[i]);
-                ed.putString("to_island_unit_" + TO_PHASES[i], islandUnits[i]);
+            TimeoutConfig saveCfg = TimeoutConfig.read(getConfigPrefs());
+            for (int i = 0; i < ConfigDefaults.STAGE_PHASES.length; i++) {
+                saveCfg.islandVals[i] = islandVals[i];
+                saveCfg.islandUnits[i] = islandUnits[i];
+                saveCfg.notifVals[i] = notifVals[i];
+                saveCfg.notifUnits[i] = notifUnits[i];
             }
-
-            // 通知：三阶段
-            int selectedNotifPhase = curNotifPhase[0];
-            String selectedNotifPhaseKey = TO_PHASES[selectedNotifPhase];
-            ed.putString(KEY_NOTIF_DISMISS_TRIGGER, selectedNotifPhaseKey);
-            for (int i = 0; i < 3; i++) {
-                ed.putInt("to_notif_val_" + TO_PHASES[i], -1);
-                ed.putString("to_notif_unit_" + TO_PHASES[i], notifUnits[i]);
-            }
-            if (!notifGlobalDefault[0] && notifVals[selectedNotifPhase] >= 0) {
-                ed.putInt("to_notif_val_" + selectedNotifPhaseKey, notifVals[selectedNotifPhase]);
-                ed.putString("to_notif_unit_" + selectedNotifPhaseKey, notifUnits[selectedNotifPhase]);
-            }
-
-            // 删除旧版/遗留键，避免模块内部 SharedPreferences 与目标进程不一致
-            ed.remove("to_island_val");
-            ed.remove("to_island_unit");
-            ed.remove("use_default_behavior");
-            ed.remove("notif_dismiss_value");
-            ed.remove("notif_dismiss_unit");
-            ed.remove("island_dismiss_value");
-            ed.remove("island_dismiss_unit");
-            ed.remove("island_dismiss_trigger");
+            saveCfg.notifTriggerStage = curNotifPhase[0];
+            saveCfg.notifGlobalDefault = notifGlobalDefault[0];
+            saveCfg.write(ed);
             ed.apply();
 
             tvHint.setText("已保存，下次通知生效");
@@ -1388,6 +1204,19 @@ public class MainActivity extends AppCompatActivity {
         unitToggle.setAlpha(enabled ? 1f : 0.4f);
     }
 
+    private int stageIndexFromButtonId(int checkedId, int[] stageButtons) {
+        if (stageButtons == null || stageButtons.length == 0) return ConfigDefaults.STAGE_PRE;
+        for (int i = 0; i < stageButtons.length; i++) {
+            if (stageButtons[i] == checkedId) return i;
+        }
+        return ConfigDefaults.STAGE_PRE;
+    }
+
+    private int buttonIdForStage(int[] stageButtons, int stageIndex) {
+        if (stageButtons == null || stageButtons.length == 0) return View.NO_ID;
+        return stageButtons[ConfigDefaults.normalizeStageIndex(stageIndex)];
+    }
+
     private static final String ALIAS = "com.xiaoai.islandnotify.MainActivityAlias";
 
     /**
@@ -1395,11 +1224,10 @@ public class MainActivity extends AppCompatActivity {
      * 仅开放提醒时间自定义，保存时同步 reminder_minutes_before 到 voiceassist 进程。
      */
     private void initReminderCard() {
-        SharedPreferences sp = getConfigPrefs();
         EditText etMinutes = findViewById(R.id.et_reminder_minutes);
         TextView tvHint    = findViewById(R.id.tv_reminder_hint);
 
-        int savedMinutes = sp.getInt("reminder_minutes_before", 15);
+        int savedMinutes = readConfigInt("reminder_minutes_before", ConfigDefaults.REMINDER_MINUTES);
         etMinutes.setText(String.valueOf(savedMinutes));
 
         // 保存分钟数并重新调度
@@ -1411,7 +1239,7 @@ public class MainActivity extends AppCompatActivity {
                 if (minutes < 1) minutes = 1;
                 if (minutes > 120) minutes = 120;
             } catch (NumberFormatException e) {
-                minutes = 15;
+                minutes = ConfigDefaults.REMINDER_MINUTES;
             }
             etMinutes.setText(String.valueOf(minutes));
             editConfigPrefs().putInt("reminder_minutes_before", minutes).apply();
@@ -1428,8 +1256,6 @@ public class MainActivity extends AppCompatActivity {
      * 静音与勿扰（DND）完全独立，可同时启用，各自独立配置触发时间。
      */
     private void initMuteCard() {
-        SharedPreferences sp = getConfigPrefs();
-
         SwitchMaterial swMute        = findViewById(R.id.sw_mute_enabled);
         SwitchMaterial swRepost      = findViewById(R.id.sw_repost_enabled);
         View           llMute        = findViewById(R.id.ll_mute_content);
@@ -1446,23 +1272,23 @@ public class MainActivity extends AppCompatActivity {
         TextView       tvMuteHint    = findViewById(R.id.tv_mute_hint);
 
         // 加载已保存状态
-        swRepost.setChecked(sp.getBoolean(KEY_REPOST_ENABLED, true));
+        swRepost.setChecked(readConfigBool(KEY_REPOST_ENABLED, ConfigDefaults.REPOST_ENABLED));
 
-        swMute.setChecked(sp.getBoolean("mute_enabled", false));
+        swMute.setChecked(readConfigBool("mute_enabled", ConfigDefaults.SWITCH_DISABLED));
         llMute.setVisibility(swMute.isChecked() ? View.VISIBLE : View.GONE);
-        etMuteBefore.setText(String.valueOf(sp.getInt("mute_mins_before", 0)));
+        etMuteBefore.setText(String.valueOf(readConfigInt("mute_mins_before", ConfigDefaults.MINUTES_OFFSET)));
 
-        swUnmute.setChecked(sp.getBoolean("unmute_enabled", false));
+        swUnmute.setChecked(readConfigBool("unmute_enabled", ConfigDefaults.SWITCH_DISABLED));
         llUnmute.setVisibility(swUnmute.isChecked() ? View.VISIBLE : View.GONE);
-        etUnmuteAfter.setText(String.valueOf(sp.getInt("unmute_mins_after", 0)));
+        etUnmuteAfter.setText(String.valueOf(readConfigInt("unmute_mins_after", ConfigDefaults.MINUTES_OFFSET)));
 
-        swDnd.setChecked(sp.getBoolean("dnd_enabled", false));
+        swDnd.setChecked(readConfigBool("dnd_enabled", ConfigDefaults.SWITCH_DISABLED));
         llDnd.setVisibility(swDnd.isChecked() ? View.VISIBLE : View.GONE);
-        etDndBefore.setText(String.valueOf(sp.getInt("dnd_mins_before", 0)));
+        etDndBefore.setText(String.valueOf(readConfigInt("dnd_mins_before", ConfigDefaults.MINUTES_OFFSET)));
 
-        swUnDnd.setChecked(sp.getBoolean("undnd_enabled", false));
+        swUnDnd.setChecked(readConfigBool("undnd_enabled", ConfigDefaults.SWITCH_DISABLED));
         llUnDnd.setVisibility(swUnDnd.isChecked() ? View.VISIBLE : View.GONE);
-        etUnDndAfter.setText(String.valueOf(sp.getInt("undnd_mins_after", 0)));
+        etUnDndAfter.setText(String.valueOf(readConfigInt("undnd_mins_after", ConfigDefaults.MINUTES_OFFSET)));
 
         // 全局补发开关
         swRepost.setOnCheckedChangeListener((btn, checked) -> {
@@ -1494,7 +1320,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         com.google.android.material.button.MaterialButtonToggleGroup toggleMode = findViewById(R.id.toggle_island_button_mode);
-        int savedMode = sp.getInt("island_button_mode", 0); // 0=Mute, 1=DND, 2=Both
+        int savedMode = readConfigInt("island_button_mode", ConfigDefaults.ISLAND_BUTTON_MODE); // 0=Mute, 1=DND, 2=Both
         if (savedMode == 0) toggleMode.check(R.id.btn_mode_mute);
         else if (savedMode == 1) toggleMode.check(R.id.btn_mode_dnd);
         else toggleMode.check(R.id.btn_mode_both);
@@ -1537,8 +1363,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void initWakeupCard() {
-        SharedPreferences sp = getConfigPrefs();
-
         com.google.android.material.switchmaterial.SwitchMaterial swMorning = findViewById(R.id.sw_wakeup_morning);
         View llMorning = findViewById(R.id.ll_wakeup_morning_content);
         android.widget.EditText etLastSec = findViewById(R.id.et_wakeup_morning_last_sec);
@@ -1550,18 +1374,20 @@ public class MainActivity extends AppCompatActivity {
         android.widget.TextView tvHint = findViewById(R.id.tv_wakeup_hint);
 
         // 加载已保存的规则行
-        loadRuleRows(llMorningRules, sp.getString("wakeup_morning_rules_json",
-                "[{\"sec\":1,\"hour\":7,\"minute\":0}]"));
-        loadRuleRows(llAfternoonRules, sp.getString("wakeup_afternoon_rules_json",
-                "[{\"sec\":5,\"hour\":12,\"minute\":0}]"));
+        loadRuleRows(llMorningRules, readConfigString(
+                "wakeup_morning_rules_json", ConfigDefaults.WAKEUP_MORNING_RULES_JSON));
+        loadRuleRows(llAfternoonRules, readConfigString(
+                "wakeup_afternoon_rules_json", ConfigDefaults.WAKEUP_AFTERNOON_RULES_JSON));
 
-        swMorning.setChecked(sp.getBoolean("wakeup_morning_enabled", false));
+        swMorning.setChecked(readConfigBool("wakeup_morning_enabled", ConfigDefaults.SWITCH_DISABLED));
         llMorning.setVisibility(swMorning.isChecked() ? View.VISIBLE : View.GONE);
-        etLastSec.setText(String.valueOf(sp.getInt("wakeup_morning_last_sec", 4)));
+        etLastSec.setText(String.valueOf(readConfigInt(
+                "wakeup_morning_last_sec", ConfigDefaults.WAKEUP_MORNING_LAST_SEC)));
 
-        swAfternoon.setChecked(sp.getBoolean("wakeup_afternoon_enabled", false));
+        swAfternoon.setChecked(readConfigBool("wakeup_afternoon_enabled", ConfigDefaults.SWITCH_DISABLED));
         llAfternoon.setVisibility(swAfternoon.isChecked() ? View.VISIBLE : View.GONE);
-        etFirstSec.setText(String.valueOf(sp.getInt("wakeup_afternoon_first_sec", 5)));
+        etFirstSec.setText(String.valueOf(readConfigInt(
+                "wakeup_afternoon_first_sec", ConfigDefaults.WAKEUP_AFTERNOON_FIRST_SEC)));
 
         swMorning.setOnCheckedChangeListener((btn, checked) -> {
             llMorning.setVisibility(checked ? View.VISIBLE : View.GONE);
@@ -1839,15 +1665,14 @@ public class MainActivity extends AppCompatActivity {
                 cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE));
 
         // 直接从 SP 读取当前静音设置一起带入 intent，避免 voiceassist 读 SP 缓存旧値
-        SharedPreferences sp = getConfigPrefs();
-        boolean muteEnabled   = sp.getBoolean("mute_enabled",   false);
-        int     muteBefore    = sp.getInt("mute_mins_before",    0);
-        boolean unmuteEnabled = sp.getBoolean("unmute_enabled", false);
-        int     unmuteAfter   = sp.getInt("unmute_mins_after",   0);
-        boolean dndEnabled    = sp.getBoolean("dnd_enabled",    false);
-        int     dndBefore     = sp.getInt("dnd_mins_before",    0);
-        boolean unDndEnabled  = sp.getBoolean("undnd_enabled",  false);
-        int     unDndAfter    = sp.getInt("undnd_mins_after",   0);
+        boolean muteEnabled   = readConfigBool("mute_enabled", ConfigDefaults.SWITCH_DISABLED);
+        int     muteBefore    = readConfigInt("mute_mins_before", ConfigDefaults.MINUTES_OFFSET);
+        boolean unmuteEnabled = readConfigBool("unmute_enabled", ConfigDefaults.SWITCH_DISABLED);
+        int     unmuteAfter   = readConfigInt("unmute_mins_after", ConfigDefaults.MINUTES_OFFSET);
+        boolean dndEnabled    = readConfigBool("dnd_enabled", ConfigDefaults.SWITCH_DISABLED);
+        int     dndBefore     = readConfigInt("dnd_mins_before", ConfigDefaults.MINUTES_OFFSET);
+        boolean unDndEnabled  = readConfigBool("undnd_enabled", ConfigDefaults.SWITCH_DISABLED);
+        int     unDndAfter    = readConfigInt("undnd_mins_after", ConfigDefaults.MINUTES_OFFSET);
 
         Intent intent = new Intent("com.xiaoai.islandnotify.ACTION_TEST_NOTIFY");
         intent.setPackage("com.miui.voiceassist");
@@ -2550,7 +2375,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void refreshTimeoutCardFromPrefs() {
-        SharedPreferences sp = getConfigPrefs();
+        TimeoutConfig cfg = TimeoutConfig.read(getConfigPrefs());
 
         MaterialButtonToggleGroup toggleIslandPhase = findViewById(R.id.toggle_island_phase);
         TextInputLayout tilIsland = findViewById(R.id.til_island_to);
@@ -2572,41 +2397,23 @@ public class MainActivity extends AppCompatActivity {
         }
 
         int checkedIsland = toggleIslandPhase.getCheckedButtonId();
-        int idxIsland = (checkedIsland == R.id.btn_island_phase_active) ? 1
-                : (checkedIsland == R.id.btn_island_phase_post) ? 2 : 0;
-        int savedIsVal = sp.getInt("to_island_val_" + TO_PHASES[idxIsland], -1);
-        String savedIsUnit = sp.getString("to_island_unit_" + TO_PHASES[idxIsland], "m");
+        int idxIsland = stageIndexFromButtonId(checkedIsland, ISLAND_PHASE_BUTTON_IDS);
+        int savedIsVal = cfg.islandVals[idxIsland];
+        String savedIsUnit = cfg.islandUnits[idxIsland];
         boolean islandDefault = savedIsVal < 0;
         swIslandDefault.setChecked(islandDefault);
         etIsland.setText(islandDefault ? "" : String.valueOf(savedIsVal));
         toggleIslandUnit.check("s".equals(savedIsUnit) ? R.id.btn_island_s : R.id.btn_island_m);
         setTimeoutRowEnabled(tilIsland, toggleIslandUnit, !islandDefault);
 
-        String savedTrigger = sp.getString(KEY_NOTIF_DISMISS_TRIGGER, "pre");
-        int triggerIdx = "active".equals(savedTrigger) ? 1 : ("post".equals(savedTrigger) ? 2 : 0);
-        if (sp.getInt("to_notif_val_" + TO_PHASES[triggerIdx], -1) < 0) {
-            for (int i = 0; i < 3; i++) {
-                if (sp.getInt("to_notif_val_" + TO_PHASES[i], -1) >= 0) {
-                    triggerIdx = i;
-                    break;
-                }
-            }
-        }
-        boolean notifAllDefault = true;
-        for (int i = 0; i < 3; i++) {
-            if (sp.getInt("to_notif_val_" + TO_PHASES[i], -1) >= 0) {
-                notifAllDefault = false;
-                break;
-            }
-        }
-        swNotifDefault.setChecked(notifAllDefault);
-        toggleNotifPhase.check(triggerIdx == 1 ? R.id.btn_notif_phase_active
-                : (triggerIdx == 2 ? R.id.btn_notif_phase_post : R.id.btn_notif_phase_pre));
-        int savedNoVal = sp.getInt("to_notif_val_" + TO_PHASES[triggerIdx], -1);
-        String savedNoUnit = sp.getString("to_notif_unit_" + TO_PHASES[triggerIdx], "m");
-        etNotif.setText(notifAllDefault || savedNoVal < 0 ? "" : String.valueOf(savedNoVal));
+        int triggerIdx = cfg.notifTriggerStage;
+        swNotifDefault.setChecked(cfg.notifGlobalDefault);
+        toggleNotifPhase.check(buttonIdForStage(NOTIF_PHASE_BUTTON_IDS, triggerIdx));
+        int savedNoVal = cfg.notifVals[triggerIdx];
+        String savedNoUnit = cfg.notifUnits[triggerIdx];
+        etNotif.setText(cfg.notifGlobalDefault || savedNoVal < 0 ? "" : String.valueOf(savedNoVal));
         toggleNotifUnit.check("s".equals(savedNoUnit) ? R.id.btn_notif_s : R.id.btn_notif_m);
-        boolean notifEnabled = !notifAllDefault;
+        boolean notifEnabled = !cfg.notifGlobalDefault;
         setTimeoutRowEnabled(tilNotif, toggleNotifUnit, notifEnabled);
         toggleNotifPhase.setEnabled(notifEnabled);
         toggleNotifPhase.setAlpha(notifEnabled ? 1f : 0.4f);

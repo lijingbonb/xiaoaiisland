@@ -4,10 +4,14 @@ final class ConfigDefaults {
 
     private ConfigDefaults() {}
 
+    static final int STAGE_PRE = 0;
+    static final int STAGE_ACTIVE = 1;
+    static final int STAGE_POST = 2;
     static final int REMINDER_MINUTES = 15;
     static final int MINUTES_OFFSET = 0;
     static final int TIMEOUT_VALUE = -1;
     static final String TIMEOUT_UNIT = "m";
+    static final String KEY_NOTIF_DISMISS_TRIGGER = "notif_dismiss_trigger";
     static final String NOTIF_TRIGGER = "pre";
     static final boolean SWITCH_DISABLED = false;
     static final boolean REPOST_ENABLED = true;
@@ -18,6 +22,7 @@ final class ConfigDefaults {
     static final String WAKEUP_AFTERNOON_RULES_JSON = "[{\"sec\":5,\"hour\":12,\"minute\":0}]";
     static final String[] TEMPLATE_BASE_KEYS = {"tpl_a", "tpl_b", "tpl_ticker"};
     static final String[] STAGE_SUFFIXES = {"_pre", "_active", "_post"};
+    static final String[] STAGE_PHASES = {"pre", "active", "post"};
     static final String[] DEFAULT_TPL_A = {
             "{\u6559\u5ba4}", "{\u8bfe\u540d}", "{\u8bfe\u540d}"
     };
@@ -37,6 +42,36 @@ final class ConfigDefaults {
             "tpl_hint_subcontent",
             "tpl_base_content",
             "tpl_base_subcontent"
+    };
+    static final String[] TEMPLATE_STAGE_MIGRATION_KEYS = {
+            "tpl_a",
+            "tpl_b",
+            "tpl_ticker",
+            "tpl_base_title",
+            "tpl_hint_title",
+            "tpl_hint_subtitle",
+            "tpl_hint_content",
+            "tpl_hint_subcontent",
+            "tpl_base_content",
+            "tpl_base_subcontent"
+    };
+    static final String[] EXPANDED_TPL_HINTS = {
+            "主要标题",
+            "主要小文本1",
+            "主要小文本2",
+            "前置文本1",
+            "前置文本2",
+            "次要文本1",
+            "次要文本2"
+    };
+    static final int[][] EXPANDED_TPL_EDIT_IDS = {
+            {R.id.et_tpl_base_title_pre, R.id.et_tpl_base_title_active, R.id.et_tpl_base_title_post},
+            {R.id.et_tpl_hint_title_pre, R.id.et_tpl_hint_title_active, R.id.et_tpl_hint_title_post},
+            {R.id.et_tpl_hint_subtitle_pre, R.id.et_tpl_hint_subtitle_active, R.id.et_tpl_hint_subtitle_post},
+            {R.id.et_tpl_hint_content_pre, R.id.et_tpl_hint_content_active, R.id.et_tpl_hint_content_post},
+            {R.id.et_tpl_hint_subcontent_pre, R.id.et_tpl_hint_subcontent_active, R.id.et_tpl_hint_subcontent_post},
+            {R.id.et_tpl_base_content_pre, R.id.et_tpl_base_content_active, R.id.et_tpl_base_content_post},
+            {R.id.et_tpl_base_subcontent_pre, R.id.et_tpl_base_subcontent_active, R.id.et_tpl_base_subcontent_post}
     };
     static final String[][] DEFAULT_EXPANDED_TPLS_V2 = {
             {"{\u8bfe\u540d}", "{\u5012\u8ba1\u65f6}", "{\u6559\u5ba4}", "\u5373\u5c06\u4e0a\u8bfe", "\u5730\u70b9", "{\u5f00\u59cb} | {\u7ed3\u675f}", ""},
@@ -109,6 +144,64 @@ final class ConfigDefaults {
         if (keyIndex == 0) return DEFAULT_TPL_A[stageIndex];
         if (keyIndex == 1) return DEFAULT_TPL_B[stageIndex];
         return DEFAULT_TPL_TICKER[stageIndex];
+    }
+
+    static int stageIndexBySuffix(String suffix) {
+        if (suffix == null) return STAGE_PRE;
+        for (int i = 0; i < STAGE_SUFFIXES.length; i++) {
+            if (STAGE_SUFFIXES[i].equals(suffix)) return i;
+        }
+        return STAGE_PRE;
+    }
+
+    static int stageIndexByPhase(String phase) {
+        if (phase == null) return STAGE_PRE;
+        for (int i = 0; i < STAGE_PHASES.length; i++) {
+            if (STAGE_PHASES[i].equals(phase)) return i;
+        }
+        return STAGE_PRE;
+    }
+
+    static String stageSuffix(int stageIndex) {
+        int idx = normalizeStageIndex(stageIndex);
+        return STAGE_SUFFIXES[idx];
+    }
+
+    static String stagePhase(int stageIndex) {
+        int idx = normalizeStageIndex(stageIndex);
+        return STAGE_PHASES[idx];
+    }
+
+    static int normalizeStageIndex(int stageIndex) {
+        if (stageIndex < STAGE_PRE || stageIndex >= STAGE_PHASES.length) return STAGE_PRE;
+        return stageIndex;
+    }
+
+    static boolean isConfigKey(String key) {
+        if (key == null || key.isEmpty()) return false;
+        if (key.startsWith("tpl_") || key.startsWith("to_island_") || key.startsWith("to_notif_")) return true;
+        if ("migration_config_v1_done".equals(key)
+                || "migration_config_v2_done".equals(key)
+                || KEY_NOTIF_DISMISS_TRIGGER.equals(key)) return true;
+        return "reminder_minutes_before".equals(key)
+                || "mute_enabled".equals(key)
+                || "mute_mins_before".equals(key)
+                || "unmute_enabled".equals(key)
+                || "unmute_mins_after".equals(key)
+                || "dnd_enabled".equals(key)
+                || "dnd_mins_before".equals(key)
+                || "undnd_enabled".equals(key)
+                || "undnd_mins_after".equals(key)
+                || "repost_enabled".equals(key)
+                || "active_countdown_to_end".equals(key)
+                || "island_button_mode".equals(key)
+                || "icon_a".equals(key)
+                || "wakeup_morning_enabled".equals(key)
+                || "wakeup_morning_last_sec".equals(key)
+                || "wakeup_morning_rules_json".equals(key)
+                || "wakeup_afternoon_enabled".equals(key)
+                || "wakeup_afternoon_first_sec".equals(key)
+                || "wakeup_afternoon_rules_json".equals(key);
     }
 
     static String expandedTemplateDefault(int stageIndex, int keyIndex, String fallback) {
