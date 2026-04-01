@@ -2,11 +2,9 @@ package com.xiaoai.islandnotify;
 
 import android.app.AlertDialog;
 import android.app.DatePickerDialog;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.os.Build;
 import android.util.Log;
 import android.content.res.ColorStateList;
@@ -973,20 +971,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void initHideIconSwitch() {
-        SwitchMaterial sw = findViewById(R.id.sw_hide_icon);
-        PackageManager pm = getPackageManager();
-        ComponentName alias = new ComponentName(this, ALIAS);
-
-        // 读取当前状态：第一次安装后为 DEFAULT（显示）或 ENABLED
-        int state = pm.getComponentEnabledSetting(alias);
-        sw.setChecked(state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED);
-
-        sw.setOnCheckedChangeListener((btn, checked) -> {
-            pm.setComponentEnabledSetting(alias,
-                    checked ? PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-                            : PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-                    PackageManager.DONT_KILL_APP);
-        });
+        HideIconController.bind(this, ALIAS);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -994,21 +979,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** 初始化关于页面，动态显示版本号、作者跳转 */
     private void initAboutSection() {
-        TextView versionText = findViewById(R.id.version_text);
-        if (versionText != null) versionText.setText(getAppVersionName());
-
-        TextView tvAuthor = findViewById(R.id.tv_author);
-        if (tvAuthor != null) {
-            tvAuthor.setOnClickListener(v -> {
-                try {
-                    android.content.Intent intent = new android.content.Intent(
-                            android.content.Intent.ACTION_VIEW,
-                            android.net.Uri.parse("https://www.coolapk.com/u/3336736"));
-                    startActivity(intent);
-                } catch (Exception ignored) {}
-            });
-        }
-
+        AboutSectionController.bind(this);
     }
 
     private String getTargetVersion(String pkg) {
@@ -1037,16 +1008,6 @@ public class MainActivity extends AppCompatActivity {
             return new org.json.JSONArray(json).length();
         } catch (Throwable t) {
             return -1;
-        }
-    }
-
-    /** 获取应用版本名称 */
-    private String getAppVersionName() {
-        try {
-            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-        } catch (Exception e) {
-            Log.e("MainActivity", "获取版本信息失败", e);
-            return "未知版本";
         }
     }
 
