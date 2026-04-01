@@ -569,42 +569,6 @@ public class MainHook {
                             applyIslandParams(context, crNotif, crInfo, crId, null);
                             crnm.notify(crId, crNotif);
                             XposedBridge.log(TAG + ": 课前提醒通知已发送 → " + crName + " @" + crStart);
-                        } else if (ACTION_DO_MUTE.equals(intent.getAction())) {
-                            applyMuteState(context, true, intent.getStringExtra("course_name"));
-                        } else if (ACTION_DO_UNMUTE.equals(intent.getAction())) {
-                            applyMuteState(context, false, intent.getStringExtra("course_name"));
-                        } else if (ACTION_DO_DND_ON.equals(intent.getAction())) {
-                            applyDndState(context, true, intent.getStringExtra("course_name"));
-                        } else if (ACTION_DO_DND_OFF.equals(intent.getAction())) {
-                            applyDndState(context, false, intent.getStringExtra("course_name"));
-                        } else if (ACTION_MANUAL_MUTE.equals(intent.getAction())) {
-                            String mn = intent.getStringExtra("course_name");
-                            // 按钮模式：0=仅静音, 1=仅勿扰, 2=两者
-                            if (sIslandButtonMode == 0 || sIslandButtonMode == 2) applyMuteState(context, true, mn);
-                            if (sIslandButtonMode == 1 || sIslandButtonMode == 2) applyDndState(context, true, mn);
-                        } else if (ACTION_MANUAL_UNMUTE.equals(intent.getAction())) {
-                            String mn = intent.getStringExtra("course_name");
-                            if (sIslandButtonMode == 0 || sIslandButtonMode == 2) applyMuteState(context, false, mn);
-                            if (sIslandButtonMode == 1 || sIslandButtonMode == 2) applyDndState(context, false, mn);
-                        } else if (ACTION_RESCHEDULE_DAILY.equals(intent.getAction())) {
-                            // 每日 00:01 跨日重调：触发主动更新，重新同步开关状态，重新调度当日 alarm
-                            XposedBridge.log(TAG + ": [跨日重调] 触发，同步配置并执行主动重调度");
-                            SharedPreferences dp = getConfigPrefs(context);
-                            refreshRuntimeSwitchesFromPrefs(dp);
-                            markDailyRescheduleRun(context);
-                            safeReschedule(context, "island_reschedule_daily", true);
-                        } else if (ACTION_NOTIF_CANCEL.equals(intent.getAction())) {
-                            // AlarmClock 触发通知定时取消
-                            int    cancelId  = intent.getIntExtra("notif_id", -1);
-                            String cancelTag = intent.getStringExtra("notif_tag");
-                            String phase     = safeStr(intent.getStringExtra("phase"));
-                            if (cancelId == -1) return;
-                            android.app.NotificationManager cnm =
-                                    context.getSystemService(android.app.NotificationManager.class);
-                            if (cancelTag != null) cnm.cancel(cancelTag, cancelId);
-                            else                   cnm.cancel(cancelId);
-                            mNotifCourseOwner.remove(cancelId); // 清除所有权，允许后续重建同 id 通知
-                            XposedBridge.log(TAG + ": 通知定时取消 [" + phase + "] id=" + cancelId);
                         }
                     }
                 };
@@ -672,20 +636,15 @@ public class MainHook {
             applyDndState(context, false, intent.getStringExtra("course_name"));
             return true;
         }
-        if (ACTION_MANUAL_MUTE.equals(action)) {
+        if (ACTION_MANUAL_MUTE.equals(action) || ACTION_MANUAL_UNMUTE.equals(action)) {
+            boolean enable = ACTION_MANUAL_MUTE.equals(action);
             String courseName = intent.getStringExtra("course_name");
-            if (sIslandButtonMode == 0 || sIslandButtonMode == 2) applyMuteState(context, true, courseName);
-            if (sIslandButtonMode == 1 || sIslandButtonMode == 2) applyDndState(context, true, courseName);
-            return true;
-        }
-        if (ACTION_MANUAL_UNMUTE.equals(action)) {
-            String courseName = intent.getStringExtra("course_name");
-            if (sIslandButtonMode == 0 || sIslandButtonMode == 2) applyMuteState(context, false, courseName);
-            if (sIslandButtonMode == 1 || sIslandButtonMode == 2) applyDndState(context, false, courseName);
+            if (sIslandButtonMode == 0 || sIslandButtonMode == 2) applyMuteState(context, enable, courseName);
+            if (sIslandButtonMode == 1 || sIslandButtonMode == 2) applyDndState(context, enable, courseName);
             return true;
         }
         if (ACTION_RESCHEDULE_DAILY.equals(action)) {
-            XposedBridge.log(TAG + ": [璺ㄦ棩閲嶈皟] 瑙﹀彂锛屽悓姝ラ厤缃苟鎵ц涓诲姩閲嶈皟搴?");
+            XposedBridge.log(TAG + ": [daily-reschedule] trigger");
             SharedPreferences prefs = getConfigPrefs(context);
             refreshRuntimeSwitchesFromPrefs(prefs);
             markDailyRescheduleRun(context);
@@ -702,7 +661,7 @@ public class MainHook {
             if (cancelTag != null) nm.cancel(cancelTag, cancelId);
             else                   nm.cancel(cancelId);
             mNotifCourseOwner.remove(cancelId);
-            XposedBridge.log(TAG + ": 閫氱煡瀹氭椂鍙栨秷 [" + phase + "] id=" + cancelId);
+            XposedBridge.log(TAG + ": notif-cancel [" + phase + "] id=" + cancelId);
             return true;
         }
         return false;
