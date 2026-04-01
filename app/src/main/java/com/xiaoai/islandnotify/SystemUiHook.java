@@ -169,6 +169,11 @@ public class SystemUiHook {
                 || lower.contains("systemui_component");
     }
 
+    private static void swallowOptionalHookFailure(Throwable t) {
+        // Optional hook points may not exist across ROM/plugin versions.
+        // Keep silent to avoid noisy logs when fallback paths still work.
+    }
+
     private void hookExactFirstLimitPoints(ClassLoader classLoader) {
         // 仅保留“主要小文本2(subTitle)”相关限制修正，避免影响未展开岛A区域宽度。
         hookFocusSmallSubtitleFirstLimit(classLoader);
@@ -217,7 +222,7 @@ public class SystemUiHook {
                 return;
             }
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook IslandSameWidthDigitViewHolder#bind failed -> " + t.getMessage());
+            swallowOptionalHookFailure(t);
         }
     }
 
@@ -300,7 +305,7 @@ public class SystemUiHook {
                 return;
             }
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook BaseIslandModuleViewHolder#setContentHighlightColor failed -> " + t.getMessage());
+            swallowOptionalHookFailure(t);
         }
     }
 
@@ -458,7 +463,7 @@ public class SystemUiHook {
                 });
             }
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook calculateMaxWidthWithSmall failed -> " + t.getMessage());
+            swallowOptionalHookFailure(t);
         }
     }
 
@@ -511,7 +516,7 @@ public class SystemUiHook {
                 });
             }
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook IslandRightTextViewHolder#updateWidth failed -> " + t.getMessage());
+            swallowOptionalHookFailure(t);
         }
     }
 
@@ -557,7 +562,7 @@ public class SystemUiHook {
                 return;
             }
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook " + className + "#bind failed -> " + t.getMessage());
+            swallowOptionalHookFailure(t);
         }
     }
 
@@ -628,7 +633,7 @@ public class SystemUiHook {
                 return;
             }
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook ModuleViewHolder#setViewWidth failed -> " + t.getMessage());
+            swallowOptionalHookFailure(t);
         }
     }
 
@@ -685,7 +690,7 @@ public class SystemUiHook {
                 });
             }
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook " + className + "#bind failed -> " + t.getMessage());
+            swallowOptionalHookFailure(t);
         }
     }
 
@@ -929,7 +934,7 @@ public class SystemUiHook {
                 });
             }
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook " + className + "#" + methodName + " failed -> " + t.getMessage());
+            swallowOptionalHookFailure(t);
         }
     }
 
@@ -959,7 +964,7 @@ public class SystemUiHook {
                         }
                     });
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook setIslandExpandedView failed -> " + t.getMessage());
+            swallowOptionalHookFailure(t);
         }
 
         try {
@@ -973,7 +978,7 @@ public class SystemUiHook {
                         }
                     });
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook setIslandExpandedViewFake failed -> " + t.getMessage());
+            swallowOptionalHookFailure(t);
         }
 
         hookFocusSetter(classLoader, "setFocusNotification");
@@ -999,7 +1004,7 @@ public class SystemUiHook {
                         }
                     });
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook handleDeviceNotification failed -> " + t.getMessage());
+            swallowOptionalHookFailure(t);
         }
     }
 
@@ -1015,7 +1020,7 @@ public class SystemUiHook {
                         }
                     });
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook " + methodName + " failed -> " + t.getMessage());
+            swallowOptionalHookFailure(t);
         }
     }
 
@@ -1040,7 +1045,7 @@ public class SystemUiHook {
                         }
                     });
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook setFocusNotificationViewMap failed -> " + t.getMessage());
+            swallowOptionalHookFailure(t);
         }
     }
 
@@ -1060,7 +1065,7 @@ public class SystemUiHook {
                         }
                     });
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook setKey failed -> " + t.getMessage());
+            swallowOptionalHookFailure(t);
         }
     }
 
@@ -1105,7 +1110,7 @@ public class SystemUiHook {
                 cur = cur.getSuperclass();
             }
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": installRuntimeIslandContentHook failed -> " + t.getMessage());
+            swallowOptionalHookFailure(t);
         }
     }
 
