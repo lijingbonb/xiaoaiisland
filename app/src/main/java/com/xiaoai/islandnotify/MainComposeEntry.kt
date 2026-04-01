@@ -15,15 +15,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -43,9 +42,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -54,10 +56,10 @@ import androidx.compose.ui.unit.dp
 import dev.lackluster.hyperx.compose.base.Card
 import dev.lackluster.hyperx.compose.base.CardDefaults
 import dev.lackluster.hyperx.compose.base.TabRow as HyperTabRow
-import dev.lackluster.hyperx.compose.preference.EditTextDialog
 import dev.lackluster.hyperx.compose.preference.SwitchPreference
 import dev.lackluster.hyperx.compose.preference.TextPreference
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -188,8 +190,8 @@ private fun TextButton(
         modifier = modifier,
         enabled = enabled,
         colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors(
-            color = MiuixTheme.colorScheme.secondaryContainer,
-            contentColor = MiuixTheme.colorScheme.onSecondaryContainer,
+            color = MiuixTheme.colorScheme.primaryContainer,
+            contentColor = MiuixTheme.colorScheme.onPrimaryContainer,
         ),
         content = content,
     )
@@ -224,7 +226,7 @@ private fun OutlinedTextField(
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     singleLine: Boolean = false,
 ) {
-    Column(modifier = modifier) {
+    Column {
         if (label != null) {
             Box(modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)) {
                 label()
@@ -233,7 +235,7 @@ private fun OutlinedTextField(
         top.yukonga.miuix.kmp.basic.TextField(
             value = value,
             onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = modifier.fillMaxWidth(),
             enabled = enabled,
             keyboardOptions = keyboardOptions,
             singleLine = singleLine,
@@ -327,19 +329,51 @@ private fun PreferenceSwitchRow(
 
 @Composable
 private fun EditValueDialog(spec: EditDialogSpec, onDismiss: () -> Unit) {
-    val visible = remember(spec) { mutableStateOf(true) }
-    LaunchedEffect(visible.value) {
-        if (!visible.value) onDismiss()
-    }
-    EditTextDialog(
-        visibility = visible,
+    var input by remember(spec) { mutableStateOf(spec.initialValue) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusRequester = remember(spec) { FocusRequester() }
+    WindowDialog(
+        show = true,
         title = spec.title,
-        value = spec.initialValue,
-        onInputConfirm = { raw ->
-            val parsed = if (spec.numberOnly) raw.filter(Char::isDigit) else raw
-            spec.onConfirm(parsed.trim())
-        },
-    )
+        onDismissRequest = onDismiss,
+    ) {
+        LaunchedEffect(spec.title, spec.initialValue) {
+            delay(100)
+            focusRequester.requestFocus()
+            keyboard?.show()
+        }
+        OutlinedTextField(
+            value = input,
+            onValueChange = {
+                input = if (spec.numberOnly) it.filter(Char::isDigit) else it
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = if (spec.numberOnly) KeyboardType.Number else KeyboardType.Text,
+            ),
+            singleLine = true,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(
+                onClick = {
+                    keyboard?.hide()
+                    onDismiss()
+                },
+                modifier = Modifier.weight(1f),
+            ) { Text("取消") }
+            TextButton(
+                onClick = {
+                    keyboard?.hide()
+                    spec.onConfirm(input.trim())
+                    onDismiss()
+                },
+                modifier = Modifier.weight(1f),
+            ) { Text("确定") }
+        }
+    }
 }
 
 @Composable
@@ -395,12 +429,12 @@ private fun MainComposeApp(activity: MainActivity) {
         topBar = {
             TopAppBar(title = "课程表超级岛")
         },
+        contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Vertical),
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+                .padding(innerPadding),
         ) {
             val tabs = listOf("设置", "假期/调休", "关于")
             HyperTabRow(
@@ -450,15 +484,10 @@ private class SettingsComposeState {
     var frameworkDesc by mutableStateOf("")
     var courseName by mutableStateOf("高等数学")
     var classroom by mutableStateOf("教科A-101")
-    var testHint by mutableStateOf("")
     val stageStates = mutableStateListOf(StageCustomState(), StageCustomState(), StageCustomState())
     var iconAEnabled by mutableStateOf(true)
-    var statusSaveHint by mutableStateOf("")
-    var expandedSaveHint by mutableStateOf("")
     var timeoutState by mutableStateOf(TimeoutUiState())
-    var timeoutHint by mutableStateOf("")
     var reminderMinutes by mutableStateOf("15")
-    var reminderHint by mutableStateOf("")
     var repostEnabled by mutableStateOf(true)
     var muteEnabled by mutableStateOf(false)
     var muteMinsBefore by mutableStateOf("0")
@@ -469,14 +498,12 @@ private class SettingsComposeState {
     var undndEnabled by mutableStateOf(false)
     var undndMinsAfter by mutableStateOf("0")
     var islandButtonMode by mutableIntStateOf(0)
-    var muteHint by mutableStateOf("")
     var wakeupMorningEnabled by mutableStateOf(false)
     var wakeupMorningLastSec by mutableStateOf("4")
     val wakeupMorningRules = mutableStateListOf<WakeRule>()
     var wakeupAfternoonEnabled by mutableStateOf(false)
     var wakeupAfternoonFirstSec by mutableStateOf("5")
     val wakeupAfternoonRules = mutableStateListOf<WakeRule>()
-    var wakeupHint by mutableStateOf("")
 
     fun loadFrom(activity: MainActivity) {
         frameworkActive = activity.uiFrameworkActive()
@@ -717,19 +744,15 @@ private fun TestNotifyCard(activity: MainActivity, state: SettingsComposeState) 
             Button(
                 onClick = {
                     activity.uiSendTestBroadcastToTarget(60_000L, state.courseName, state.classroom)
-                    state.testHint = "已发送测试通知（倒计时），请下拉通知栏查看超级岛效果"
+                    Toast.makeText(
+                        activity,
+                        "已发送测试通知（倒计时），请下拉通知栏查看超级岛效果",
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("发送测试通知")
-            }
-            if (state.testHint.isNotBlank()) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = state.testHint,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }
@@ -741,6 +764,20 @@ private fun TestNotifyCard(activity: MainActivity, state: SettingsComposeState) 
 @Composable
 private fun StatusCustomCard(activity: MainActivity, state: SettingsComposeState) {
     var editDialog by remember { mutableStateOf<EditDialogSpec?>(null) }
+    fun persistStatusConfig() {
+        alignExpandedTimerWithStatus(state.stageStates)
+        val editor = activity.uiEditConfigPrefs()
+        ConfigDefaults.STAGE_SUFFIXES.forEachIndexed { idx, suffix ->
+            val stageItem = state.stageStates[idx]
+            editor.putString("tpl_a$suffix", stageItem.tplA.trim())
+            editor.putString("tpl_b$suffix", stageItem.tplB.trim())
+            editor.putString("tpl_ticker$suffix", stageItem.tplTicker.trim())
+            editor.putString("tpl_hint_title$suffix", stageItem.hintTitle.trim())
+            editor.putString("tpl_hint_subtitle$suffix", stageItem.hintSubtitle.trim())
+        }
+        editor.putBoolean("icon_a", state.iconAEnabled)
+        editor.apply()
+    }
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -771,7 +808,10 @@ private fun StatusCustomCard(activity: MainActivity, state: SettingsComposeState
                         editDialog = EditDialogSpec(
                             title = "$label - 岛A（左侧文字）",
                             initialValue = stage.tplA,
-                            onConfirm = { state.stageStates[i] = stage.copy(tplA = it) },
+                            onConfirm = {
+                                state.stageStates[i] = state.stageStates[i].copy(tplA = it)
+                                persistStatusConfig()
+                            },
                         )
                     },
                 )
@@ -783,7 +823,10 @@ private fun StatusCustomCard(activity: MainActivity, state: SettingsComposeState
                         editDialog = EditDialogSpec(
                             title = "$label - 岛B（右侧文字）",
                             initialValue = stage.tplB,
-                            onConfirm = { state.stageStates[i] = stage.copy(tplB = it) },
+                            onConfirm = {
+                                state.stageStates[i] = state.stageStates[i].copy(tplB = it)
+                                persistStatusConfig()
+                            },
                         )
                     },
                 )
@@ -795,7 +838,10 @@ private fun StatusCustomCard(activity: MainActivity, state: SettingsComposeState
                         editDialog = EditDialogSpec(
                             title = "$label - 息屏显示",
                             initialValue = stage.tplTicker,
-                            onConfirm = { state.stageStates[i] = stage.copy(tplTicker = it) },
+                            onConfirm = {
+                                state.stageStates[i] = state.stageStates[i].copy(tplTicker = it)
+                                persistStatusConfig()
+                            },
                         )
                     },
                 )
@@ -805,43 +851,11 @@ private fun StatusCustomCard(activity: MainActivity, state: SettingsComposeState
             PreferenceSwitchRow(
                 title = "岛A显示图标",
                 checked = state.iconAEnabled,
-                onChecked = { state.iconAEnabled = it },
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-            Button(
-                onClick = {
-                    val alignedCount = alignExpandedTimerWithStatus(state.stageStates)
-                    val editor = activity.uiEditConfigPrefs()
-                    ConfigDefaults.STAGE_SUFFIXES.forEachIndexed { i, suffix ->
-                        val stage = state.stageStates[i]
-                        editor.putString("tpl_a$suffix", stage.tplA.trim())
-                        editor.putString("tpl_b$suffix", stage.tplB.trim())
-                        editor.putString("tpl_ticker$suffix", stage.tplTicker.trim())
-                        editor.putString("tpl_hint_title$suffix", stage.hintTitle.trim())
-                        editor.putString("tpl_hint_subtitle$suffix", stage.hintSubtitle.trim())
-                    }
-                    editor.putBoolean("icon_a", state.iconAEnabled)
-                    editor.apply()
-                    state.statusSaveHint = if (alignedCount > 0) {
-                        "已保存，下次通知生效（已自动对齐 $alignedCount 处计时方向）"
-                    } else {
-                        "已保存，下次通知生效"
-                    }
-                    activity.requestComposeRefresh()
+                onChecked = {
+                    state.iconAEnabled = it
+                    persistStatusConfig()
                 },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("保存")
-            }
-            if (state.statusSaveHint.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = state.statusSaveHint,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
+            )
         }
     }
     editDialog?.let { spec ->
@@ -852,6 +866,22 @@ private fun StatusCustomCard(activity: MainActivity, state: SettingsComposeState
 @Composable
 private fun ExpandedCustomCard(activity: MainActivity, state: SettingsComposeState) {
     var editDialog by remember { mutableStateOf<EditDialogSpec?>(null) }
+    fun persistExpandedConfig() {
+        alignStatusTimerWithExpanded(state.stageStates)
+        val editor = activity.uiEditConfigPrefs()
+        ConfigDefaults.STAGE_SUFFIXES.forEachIndexed { idx, suffix ->
+            val stageItem = state.stageStates[idx]
+            editor.putString("tpl_b$suffix", stageItem.tplB.trim())
+            editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[0]}$suffix", stageItem.baseTitle.trim())
+            editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[1]}$suffix", stageItem.hintTitle.trim())
+            editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[2]}$suffix", stageItem.hintSubtitle.trim())
+            editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[3]}$suffix", stageItem.hintContent.trim())
+            editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[4]}$suffix", stageItem.hintSubcontent.trim())
+            editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[5]}$suffix", stageItem.baseContent.trim())
+            editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[6]}$suffix", stageItem.baseSubcontent.trim())
+        }
+        editor.apply()
+    }
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -884,7 +914,10 @@ private fun ExpandedCustomCard(activity: MainActivity, state: SettingsComposeSta
                         editDialog = EditDialogSpec(
                             title = "$title - 主要标题",
                             initialValue = stage.baseTitle,
-                            onConfirm = { state.stageStates[i] = stage.copy(baseTitle = it) },
+                            onConfirm = {
+                                state.stageStates[i] = state.stageStates[i].copy(baseTitle = it)
+                                persistExpandedConfig()
+                            },
                         )
                     },
                 )
@@ -896,7 +929,10 @@ private fun ExpandedCustomCard(activity: MainActivity, state: SettingsComposeSta
                         editDialog = EditDialogSpec(
                             title = "$title - 次要文本1",
                             initialValue = stage.baseContent,
-                            onConfirm = { state.stageStates[i] = stage.copy(baseContent = it) },
+                            onConfirm = {
+                                state.stageStates[i] = state.stageStates[i].copy(baseContent = it)
+                                persistExpandedConfig()
+                            },
                         )
                     },
                 )
@@ -908,7 +944,10 @@ private fun ExpandedCustomCard(activity: MainActivity, state: SettingsComposeSta
                         editDialog = EditDialogSpec(
                             title = "$title - 次要文本2",
                             initialValue = stage.baseSubcontent,
-                            onConfirm = { state.stageStates[i] = stage.copy(baseSubcontent = it) },
+                            onConfirm = {
+                                state.stageStates[i] = state.stageStates[i].copy(baseSubcontent = it)
+                                persistExpandedConfig()
+                            },
                         )
                     },
                 )
@@ -920,7 +959,10 @@ private fun ExpandedCustomCard(activity: MainActivity, state: SettingsComposeSta
                         editDialog = EditDialogSpec(
                             title = "$title - 前置文本1",
                             initialValue = stage.hintContent,
-                            onConfirm = { state.stageStates[i] = stage.copy(hintContent = it) },
+                            onConfirm = {
+                                state.stageStates[i] = state.stageStates[i].copy(hintContent = it)
+                                persistExpandedConfig()
+                            },
                         )
                     },
                 )
@@ -932,7 +974,10 @@ private fun ExpandedCustomCard(activity: MainActivity, state: SettingsComposeSta
                         editDialog = EditDialogSpec(
                             title = "$title - 前置文本2",
                             initialValue = stage.hintSubcontent,
-                            onConfirm = { state.stageStates[i] = stage.copy(hintSubcontent = it) },
+                            onConfirm = {
+                                state.stageStates[i] = state.stageStates[i].copy(hintSubcontent = it)
+                                persistExpandedConfig()
+                            },
                         )
                     },
                 )
@@ -944,7 +989,10 @@ private fun ExpandedCustomCard(activity: MainActivity, state: SettingsComposeSta
                         editDialog = EditDialogSpec(
                             title = "$title - 主要小文本1",
                             initialValue = stage.hintTitle,
-                            onConfirm = { state.stageStates[i] = stage.copy(hintTitle = it) },
+                            onConfirm = {
+                                state.stageStates[i] = state.stageStates[i].copy(hintTitle = it)
+                                persistExpandedConfig()
+                            },
                         )
                     },
                 )
@@ -956,48 +1004,14 @@ private fun ExpandedCustomCard(activity: MainActivity, state: SettingsComposeSta
                         editDialog = EditDialogSpec(
                             title = "$title - 主要小文本2",
                             initialValue = stage.hintSubtitle,
-                            onConfirm = { state.stageStates[i] = stage.copy(hintSubtitle = it) },
+                            onConfirm = {
+                                state.stageStates[i] = state.stageStates[i].copy(hintSubtitle = it)
+                                persistExpandedConfig()
+                            },
                         )
                     },
                 )
                 Spacer(modifier = Modifier.height(if (i == 2) 0.dp else 14.dp))
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = {
-                    val alignedCount = alignStatusTimerWithExpanded(state.stageStates)
-                    val editor = activity.uiEditConfigPrefs()
-                    ConfigDefaults.STAGE_SUFFIXES.forEachIndexed { i, suffix ->
-                        val stage = state.stageStates[i]
-                        editor.putString("tpl_b$suffix", stage.tplB.trim())
-                        editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[0]}$suffix", stage.baseTitle.trim())
-                        editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[1]}$suffix", stage.hintTitle.trim())
-                        editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[2]}$suffix", stage.hintSubtitle.trim())
-                        editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[3]}$suffix", stage.hintContent.trim())
-                        editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[4]}$suffix", stage.hintSubcontent.trim())
-                        editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[5]}$suffix", stage.baseContent.trim())
-                        editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[6]}$suffix", stage.baseSubcontent.trim())
-                    }
-                    editor.apply()
-                    state.expandedSaveHint = if (alignedCount > 0) {
-                        "已保存，下次通知生效（已自动对齐 $alignedCount 处计时方向）"
-                    } else {
-                        "已保存，下次通知生效"
-                    }
-                    activity.requestComposeRefresh()
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("保存展开态自定义")
-            }
-            if (state.expandedSaveHint.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = state.expandedSaveHint,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
             }
         }
     }
@@ -1060,6 +1074,28 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
         islandUnit = if (islandUnits[idx] == "s") "s" else "m"
     }
 
+    fun persistTimeoutStateNow() {
+        persistIslandUi()
+        val notifVals = MutableList(3) { ConfigDefaults.TIMEOUT_VALUE }
+        val notifUnits = MutableList(3) { "m" }
+        if (!notifGlobalDefault) {
+            notifVals[notifStage] = parseTimeoutValue(notifInput)
+            notifUnits[notifStage] = if (notifUnit == "s") "s" else "m"
+        }
+        val saved = TimeoutUiState(
+            islandVals = islandVals.toMutableList(),
+            islandUnits = islandUnits.toMutableList(),
+            notifVals = notifVals,
+            notifUnits = notifUnits,
+            notifTriggerStage = notifStage,
+            notifGlobalDefault = notifGlobalDefault,
+        )
+        val editor = activity.uiEditConfigPrefs()
+        writeTimeoutState(editor, saved)
+        editor.apply()
+        state.timeoutState = saved
+    }
+
     Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
             Text("消失时间", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -1086,6 +1122,7 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
                         onConfirm = {
                             persistIslandUi()
                             loadIslandUi(it)
+                            persistTimeoutStateNow()
                         },
                     )
                 },
@@ -1101,7 +1138,10 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
                             title = "岛消失时长",
                             initialValue = islandInput,
                             numberOnly = true,
-                            onConfirm = { islandInput = it.filter(Char::isDigit) },
+                            onConfirm = {
+                                islandInput = it.filter(Char::isDigit)
+                                persistTimeoutStateNow()
+                            },
                         )
                     }
                 },
@@ -1117,7 +1157,10 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
                             title = "岛消失时长单位",
                             options = listOf("秒", "分"),
                             selectedIndex = if (islandUnit == "s") 0 else 1,
-                            onConfirm = { islandUnit = if (it == 0) "s" else "m" },
+                            onConfirm = {
+                                islandUnit = if (it == 0) "s" else "m"
+                                persistTimeoutStateNow()
+                            },
                         )
                     }
                 },
@@ -1132,6 +1175,7 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
                         islandVals[islandStage] = ConfigDefaults.TIMEOUT_VALUE
                         islandInput = ""
                     }
+                    persistTimeoutStateNow()
                 },
             )
 
@@ -1157,7 +1201,10 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
                             title = "通知消失触发阶段",
                             options = listOf("通知后", "上课后", "下课后"),
                             selectedIndex = notifStage,
-                            onConfirm = { notifStage = it },
+                            onConfirm = {
+                                notifStage = it
+                                persistTimeoutStateNow()
+                            },
                         )
                     }
                 },
@@ -1173,7 +1220,10 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
                             title = "通知消失时长",
                             initialValue = notifInput,
                             numberOnly = true,
-                            onConfirm = { notifInput = it.filter(Char::isDigit) },
+                            onConfirm = {
+                                notifInput = it.filter(Char::isDigit)
+                                persistTimeoutStateNow()
+                            },
                         )
                     }
                 },
@@ -1189,7 +1239,10 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
                             title = "通知消失时长单位",
                             options = listOf("秒", "分"),
                             selectedIndex = if (notifUnit == "s") 0 else 1,
-                            onConfirm = { notifUnit = if (it == 0) "s" else "m" },
+                            onConfirm = {
+                                notifUnit = if (it == 0) "s" else "m"
+                                persistTimeoutStateNow()
+                            },
                         )
                     }
                 },
@@ -1201,42 +1254,9 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
                 onChecked = {
                     notifGlobalDefault = it
                     if (it) notifInput = ""
+                    persistTimeoutStateNow()
                 },
             )
-
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = {
-                    persistIslandUi()
-                    val notifVals = MutableList(3) { ConfigDefaults.TIMEOUT_VALUE }
-                    val notifUnits = MutableList(3) { "m" }
-                    if (!notifGlobalDefault) {
-                        notifVals[notifStage] = parseTimeoutValue(notifInput)
-                        notifUnits[notifStage] = if (notifUnit == "s") "s" else "m"
-                    }
-                    val saved = TimeoutUiState(
-                        islandVals = islandVals.toMutableList(),
-                        islandUnits = islandUnits.toMutableList(),
-                        notifVals = notifVals,
-                        notifUnits = notifUnits,
-                        notifTriggerStage = notifStage,
-                        notifGlobalDefault = notifGlobalDefault,
-                    )
-                    val editor = activity.uiEditConfigPrefs()
-                    writeTimeoutState(editor, saved)
-                    editor.apply()
-                    state.timeoutState = saved
-                    state.timeoutHint = "已保存，下次通知生效"
-                    activity.requestComposeRefresh()
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("保存超时设置")
-            }
-            if (state.timeoutHint.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(state.timeoutHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-            }
         }
     }
     editDialog?.let { spec ->
@@ -1264,25 +1284,15 @@ private fun ReminderCard(activity: MainActivity, state: SettingsComposeState) {
                         title = "提前提醒（分钟）",
                         initialValue = state.reminderMinutes,
                         numberOnly = true,
-                        onConfirm = { state.reminderMinutes = it.filter(Char::isDigit) },
+                        onConfirm = {
+                            val minutes = it.toIntOrNull()?.coerceIn(1, 120) ?: 15
+                            state.reminderMinutes = minutes.toString()
+                            activity.uiEditConfigPrefs().putInt("reminder_minutes_before", minutes).apply()
+                            activity.requestComposeRefresh()
+                        },
                     )
                 },
             )
-            Spacer(modifier = Modifier.height(14.dp))
-            Button(
-                onClick = {
-                    val minutes = state.reminderMinutes.toIntOrNull()?.coerceIn(1, 120) ?: 15
-                    state.reminderMinutes = minutes.toString()
-                    activity.uiEditConfigPrefs().putInt("reminder_minutes_before", minutes).apply()
-                    state.reminderHint = "已保存，重新调度今日提醒（提前 $minutes 分钟）"
-                    activity.requestComposeRefresh()
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("保存并重新调度") }
-            if (state.reminderHint.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(state.reminderHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-            }
         }
     }
     editDialog?.let { spec ->
@@ -1293,6 +1303,29 @@ private fun ReminderCard(activity: MainActivity, state: SettingsComposeState) {
 @Composable
 private fun MuteCard(activity: MainActivity, state: SettingsComposeState) {
     var choiceDialog by remember { mutableStateOf<ChoiceDialogSpec?>(null) }
+    fun persistMuteConfigNow() {
+        val muteBefore = clamp0to60(state.muteMinsBefore)
+        val unmuteAfter = clamp0to60(state.unmuteMinsAfter)
+        val dndBefore = clamp0to60(state.dndMinsBefore)
+        val undndAfter = clamp0to60(state.undndMinsAfter)
+        state.muteMinsBefore = muteBefore.toString()
+        state.unmuteMinsAfter = unmuteAfter.toString()
+        state.dndMinsBefore = dndBefore.toString()
+        state.undndMinsAfter = undndAfter.toString()
+        activity.uiEditConfigPrefs()
+            .putBoolean("repost_enabled", state.repostEnabled)
+            .putBoolean("mute_enabled", state.muteEnabled)
+            .putBoolean("unmute_enabled", state.unmuteEnabled)
+            .putBoolean("dnd_enabled", state.dndEnabled)
+            .putBoolean("undnd_enabled", state.undndEnabled)
+            .putInt("mute_mins_before", muteBefore)
+            .putInt("unmute_mins_after", unmuteAfter)
+            .putInt("dnd_mins_before", dndBefore)
+            .putInt("undnd_mins_after", undndAfter)
+            .putInt("island_button_mode", state.islandButtonMode.coerceIn(0, 2))
+            .apply()
+        activity.requestComposeRefresh()
+    }
     Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
             Text("上课免打扰", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -1303,7 +1336,7 @@ private fun MuteCard(activity: MainActivity, state: SettingsComposeState) {
                 checked = state.repostEnabled,
                 onChecked = {
                     state.repostEnabled = it
-                    activity.uiEditConfigPrefs().putBoolean("repost_enabled", it).apply()
+                    persistMuteConfigNow()
                 },
             )
 
@@ -1314,11 +1347,14 @@ private fun MuteCard(activity: MainActivity, state: SettingsComposeState) {
                 checked = state.muteEnabled,
                 onChecked = {
                     state.muteEnabled = it
-                    activity.uiEditConfigPrefs().putBoolean("mute_enabled", it).apply()
+                    persistMuteConfigNow()
                 },
             )
             if (state.muteEnabled) {
-                MinuteEditor("上课前多少分钟静音", state.muteMinsBefore) { state.muteMinsBefore = it }
+                MinuteEditor("上课前多少分钟静音", state.muteMinsBefore) {
+                    state.muteMinsBefore = it
+                    persistMuteConfigNow()
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -1328,11 +1364,14 @@ private fun MuteCard(activity: MainActivity, state: SettingsComposeState) {
                 checked = state.unmuteEnabled,
                 onChecked = {
                     state.unmuteEnabled = it
-                    activity.uiEditConfigPrefs().putBoolean("unmute_enabled", it).apply()
+                    persistMuteConfigNow()
                 },
             )
             if (state.unmuteEnabled) {
-                MinuteEditor("下课后多少分钟恢复铃声", state.unmuteMinsAfter) { state.unmuteMinsAfter = it }
+                MinuteEditor("下课后多少分钟恢复铃声", state.unmuteMinsAfter) {
+                    state.unmuteMinsAfter = it
+                    persistMuteConfigNow()
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -1345,11 +1384,14 @@ private fun MuteCard(activity: MainActivity, state: SettingsComposeState) {
                 checked = state.dndEnabled,
                 onChecked = {
                     state.dndEnabled = it
-                    activity.uiEditConfigPrefs().putBoolean("dnd_enabled", it).apply()
+                    persistMuteConfigNow()
                 },
             )
             if (state.dndEnabled) {
-                MinuteEditor("上课前多少分钟开启勿扰", state.dndMinsBefore) { state.dndMinsBefore = it }
+                MinuteEditor("上课前多少分钟开启勿扰", state.dndMinsBefore) {
+                    state.dndMinsBefore = it
+                    persistMuteConfigNow()
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -1359,11 +1401,14 @@ private fun MuteCard(activity: MainActivity, state: SettingsComposeState) {
                 checked = state.undndEnabled,
                 onChecked = {
                     state.undndEnabled = it
-                    activity.uiEditConfigPrefs().putBoolean("undnd_enabled", it).apply()
+                    persistMuteConfigNow()
                 },
             )
             if (state.undndEnabled) {
-                MinuteEditor("下课后多少分钟关闭勿扰", state.undndMinsAfter) { state.undndMinsAfter = it }
+                MinuteEditor("下课后多少分钟关闭勿扰", state.undndMinsAfter) {
+                    state.undndMinsAfter = it
+                    persistMuteConfigNow()
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -1384,37 +1429,13 @@ private fun MuteCard(activity: MainActivity, state: SettingsComposeState) {
                         title = "超级岛按钮功能",
                         options = listOf("仅静音", "仅勿扰", "两者"),
                         selectedIndex = state.islandButtonMode.coerceIn(0, 2),
-                        onConfirm = { state.islandButtonMode = it },
+                        onConfirm = {
+                            state.islandButtonMode = it
+                            persistMuteConfigNow()
+                        },
                     )
                 },
             )
-            Spacer(modifier = Modifier.height(14.dp))
-            Button(
-                onClick = {
-                    val muteBefore = clamp0to60(state.muteMinsBefore)
-                    val unmuteAfter = clamp0to60(state.unmuteMinsAfter)
-                    val dndBefore = clamp0to60(state.dndMinsBefore)
-                    val undndAfter = clamp0to60(state.undndMinsAfter)
-                    state.muteMinsBefore = muteBefore.toString()
-                    state.unmuteMinsAfter = unmuteAfter.toString()
-                    state.dndMinsBefore = dndBefore.toString()
-                    state.undndMinsAfter = undndAfter.toString()
-                    activity.uiEditConfigPrefs()
-                        .putInt("mute_mins_before", muteBefore)
-                        .putInt("unmute_mins_after", unmuteAfter)
-                        .putInt("dnd_mins_before", dndBefore)
-                        .putInt("undnd_mins_after", undndAfter)
-                        .putInt("island_button_mode", state.islandButtonMode.coerceIn(0, 2))
-                        .apply()
-                    state.muteHint = "设置已保存并重新调度"
-                    activity.requestComposeRefresh()
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("保存设置") }
-            if (state.muteHint.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(state.muteHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-            }
         }
     }
     choiceDialog?.let { spec ->
@@ -1460,6 +1481,21 @@ private fun MinuteEditor(label: String, value: String, onValue: (String) -> Unit
 
 @Composable
 private fun WakeupCard(activity: MainActivity, state: SettingsComposeState) {
+    fun persistWakeupConfigNow() {
+        val morningLast = (state.wakeupMorningLastSec.toIntOrNull() ?: 4).coerceAtLeast(1)
+        val afternoonFirst = (state.wakeupAfternoonFirstSec.toIntOrNull() ?: 5).coerceAtLeast(1)
+        state.wakeupMorningLastSec = morningLast.toString()
+        state.wakeupAfternoonFirstSec = afternoonFirst.toString()
+        activity.uiEditConfigPrefs()
+            .putBoolean("wakeup_morning_enabled", state.wakeupMorningEnabled)
+            .putInt("wakeup_morning_last_sec", morningLast)
+            .putString("wakeup_morning_rules_json", toWakeRulesJson(state.wakeupMorningRules))
+            .putBoolean("wakeup_afternoon_enabled", state.wakeupAfternoonEnabled)
+            .putInt("wakeup_afternoon_first_sec", afternoonFirst)
+            .putString("wakeup_afternoon_rules_json", toWakeRulesJson(state.wakeupAfternoonRules))
+            .apply()
+        activity.requestComposeRefresh()
+    }
     Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
             Text("自动叫醒", style = MaterialTheme.typography.titleMedium)
@@ -1473,14 +1509,24 @@ private fun WakeupCard(activity: MainActivity, state: SettingsComposeState) {
                 checked = state.wakeupMorningEnabled,
                 onChecked = {
                     state.wakeupMorningEnabled = it
-                    activity.uiEditConfigPrefs().putBoolean("wakeup_morning_enabled", it).apply()
+                    persistWakeupConfigNow()
                 },
             )
             if (state.wakeupMorningEnabled) {
-                MinuteEditor("上午最大节次（≤此节为上午）", state.wakeupMorningLastSec) { state.wakeupMorningLastSec = it }
+                MinuteEditor("上午最大节次（≤此节为上午）", state.wakeupMorningLastSec) {
+                    state.wakeupMorningLastSec = it
+                    persistWakeupConfigNow()
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("叫醒规则：上午第一节是第X节时，定对应时间的闹钟", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                WakeRuleList(state.wakeupMorningRules, onAdd = { state.wakeupMorningRules += WakeRule("1", "7", "00") })
+                WakeRuleList(
+                    rules = state.wakeupMorningRules,
+                    onAdd = {
+                        state.wakeupMorningRules += WakeRule("1", "7", "00")
+                        persistWakeupConfigNow()
+                    },
+                    onChanged = { persistWakeupConfigNow() },
+                )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -1493,44 +1539,35 @@ private fun WakeupCard(activity: MainActivity, state: SettingsComposeState) {
                 checked = state.wakeupAfternoonEnabled,
                 onChecked = {
                     state.wakeupAfternoonEnabled = it
-                    activity.uiEditConfigPrefs().putBoolean("wakeup_afternoon_enabled", it).apply()
+                    persistWakeupConfigNow()
                 },
             )
             if (state.wakeupAfternoonEnabled) {
-                MinuteEditor("下午起始节次（≥此节为下午）", state.wakeupAfternoonFirstSec) { state.wakeupAfternoonFirstSec = it }
+                MinuteEditor("下午起始节次（≥此节为下午）", state.wakeupAfternoonFirstSec) {
+                    state.wakeupAfternoonFirstSec = it
+                    persistWakeupConfigNow()
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("叫醒规则：下午第一节是第X节时，定对应时间的闹钟", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                WakeRuleList(state.wakeupAfternoonRules, onAdd = { state.wakeupAfternoonRules += WakeRule("5", "12", "00") })
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-            Button(
-                onClick = {
-                    val morningLast = (state.wakeupMorningLastSec.toIntOrNull() ?: 4).coerceAtLeast(1)
-                    val afternoonFirst = (state.wakeupAfternoonFirstSec.toIntOrNull() ?: 5).coerceAtLeast(1)
-                    state.wakeupMorningLastSec = morningLast.toString()
-                    state.wakeupAfternoonFirstSec = afternoonFirst.toString()
-                    activity.uiEditConfigPrefs()
-                        .putInt("wakeup_morning_last_sec", morningLast)
-                        .putInt("wakeup_afternoon_first_sec", afternoonFirst)
-                        .putString("wakeup_morning_rules_json", toWakeRulesJson(state.wakeupMorningRules))
-                        .putString("wakeup_afternoon_rules_json", toWakeRulesJson(state.wakeupAfternoonRules))
-                        .apply()
-                    state.wakeupHint = "设置已保存并重新调度叫醒闹钟"
-                    activity.requestComposeRefresh()
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("保存叫醒设置") }
-            if (state.wakeupHint.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(state.wakeupHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                WakeRuleList(
+                    rules = state.wakeupAfternoonRules,
+                    onAdd = {
+                        state.wakeupAfternoonRules += WakeRule("5", "12", "00")
+                        persistWakeupConfigNow()
+                    },
+                    onChanged = { persistWakeupConfigNow() },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun WakeRuleList(rules: MutableList<WakeRule>, onAdd: () -> Unit) {
+private fun WakeRuleList(
+    rules: MutableList<WakeRule>,
+    onAdd: () -> Unit,
+    onChanged: () -> Unit,
+) {
     var editingIndex by remember { mutableIntStateOf(-1) }
     Column {
         rules.forEachIndexed { index, rule ->
@@ -1543,7 +1580,10 @@ private fun WakeRuleList(rules: MutableList<WakeRule>, onAdd: () -> Unit) {
             )
             PreferenceRow(
                 title = "删除规则 ${index + 1}",
-                onClick = { rules.removeAt(index) },
+                onClick = {
+                    rules.removeAt(index)
+                    onChanged()
+                },
             )
             if (index != rules.lastIndex) {
                 HorizontalDivider()
@@ -1602,6 +1642,7 @@ private fun WakeRuleList(rules: MutableList<WakeRule>, onAdd: () -> Unit) {
                                     (minute.toIntOrNull() ?: 0).coerceIn(0, 59),
                                 ),
                             )
+                            onChanged()
                         }
                         editingIndex = -1
                     },
