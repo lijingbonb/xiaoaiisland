@@ -1,7 +1,5 @@
-package com.xiaoai.islandnotify
+﻿package com.xiaoai.islandnotify
 
-import android.app.DatePickerDialog
-import android.widget.NumberPicker
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -10,9 +8,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -31,25 +31,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -66,7 +49,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import dev.lackluster.hyperx.compose.base.Card
+import dev.lackluster.hyperx.compose.base.CardDefaults
+import dev.lackluster.hyperx.compose.base.TabRow as HyperTabRow
+import dev.lackluster.hyperx.compose.preference.EditTextDialog
+import dev.lackluster.hyperx.compose.preference.SwitchPreference
+import dev.lackluster.hyperx.compose.preference.TextPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,13 +69,35 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.NumberPicker
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.extra.WindowDialog
+import top.yukonga.miuix.kmp.theme.ColorSchemeMode
+import top.yukonga.miuix.kmp.theme.Colors
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.theme.TextStyles
+import top.yukonga.miuix.kmp.theme.ThemeController
 
 object MainComposeEntry {
 
     @JvmStatic
     fun install(activity: MainActivity) {
         activity.setContent {
-            MainComposeApp(activity)
+            val themeController = remember {
+                ThemeController(
+                    colorSchemeMode = ColorSchemeMode.System,
+                )
+            }
+            MiuixTheme(
+                controller = themeController,
+                smoothRounding = true,
+            ) {
+                MainComposeApp(activity)
+            }
         }
     }
 }
@@ -134,8 +146,236 @@ private data class WorkSwapDraft(
     var followWeekday: Int = 1,
 )
 
+private object MaterialTheme {
+    val colorScheme: ColorSchemeCompat
+        @Composable get() = ColorSchemeCompat(MiuixTheme.colorScheme)
+
+    val typography: TypographyCompat
+        @Composable get() = TypographyCompat(MiuixTheme.textStyles)
+}
+
+private class ColorSchemeCompat(private val colors: Colors) {
+    val primary: Color get() = colors.primary
+    val primaryContainer: Color get() = colors.primaryContainer
+    val onPrimaryContainer: Color get() = colors.onPrimaryContainer
+    val secondaryContainer: Color get() = colors.secondaryContainer
+    val onSecondaryContainer: Color get() = colors.onSecondaryContainer
+    val errorContainer: Color get() = colors.errorContainer
+    val onErrorContainer: Color get() = colors.onErrorContainer
+    val surfaceContainer: Color get() = colors.surfaceContainer
+    val onSurfaceContainer: Color get() = colors.onSurfaceContainer
+    val surfaceContainerHigh: Color get() = colors.surfaceContainerHigh
+    val onSurfaceVariant: Color get() = colors.onSurfaceContainerVariant
+}
+
+private class TypographyCompat(private val styles: TextStyles) {
+    val titleMedium: TextStyle get() = styles.title4
+    val labelLarge: TextStyle get() = styles.subtitle
+    val labelMedium: TextStyle get() = styles.body2.copy(fontWeight = FontWeight.SemiBold)
+    val bodyMedium: TextStyle get() = styles.main
+    val bodySmall: TextStyle get() = styles.body2
+}
+
 @Composable
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+private fun TextButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit,
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors(
+            color = MiuixTheme.colorScheme.secondaryContainer,
+            contentColor = MiuixTheme.colorScheme.onSecondaryContainer,
+        ),
+        content = content,
+    )
+}
+
+@Composable
+private fun OutlinedButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit,
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors(
+            color = MiuixTheme.colorScheme.surfaceContainerHighest,
+            contentColor = MiuixTheme.colorScheme.onSurfaceContainerHighest,
+        ),
+        content = content,
+    )
+}
+
+@Composable
+private fun OutlinedTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    label: (@Composable (() -> Unit))? = null,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    singleLine: Boolean = false,
+) {
+    Column(modifier = modifier) {
+        if (label != null) {
+            Box(modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)) {
+                label()
+            }
+        }
+        top.yukonga.miuix.kmp.basic.TextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = enabled,
+            keyboardOptions = keyboardOptions,
+            singleLine = singleLine,
+        )
+    }
+}
+
+@Composable
+private fun AlertDialog(
+    onDismissRequest: () -> Unit,
+    title: (@Composable () -> Unit)? = null,
+    text: (@Composable () -> Unit)? = null,
+    confirmButton: @Composable () -> Unit,
+    dismissButton: (@Composable () -> Unit)? = null,
+) {
+    WindowDialog(
+        show = true,
+        onDismissRequest = onDismissRequest,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp),
+        ) {
+            title?.invoke()
+            if (text != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                text()
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                dismissButton?.invoke()
+                if (dismissButton != null) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                confirmButton()
+            }
+        }
+    }
+}
+
+private data class EditDialogSpec(
+    val title: String,
+    val initialValue: String,
+    val numberOnly: Boolean = false,
+    val onConfirm: (String) -> Unit,
+)
+
+private data class ChoiceDialogSpec(
+    val title: String,
+    val options: List<String>,
+    val selectedIndex: Int,
+    val onConfirm: (Int) -> Unit,
+)
+
+@Composable
+private fun PreferenceRow(
+    title: String,
+    value: String? = null,
+    subtitle: String? = null,
+    enabled: Boolean = true,
+    onClick: (() -> Unit)? = null,
+) {
+    TextPreference(
+        title = title,
+        summary = subtitle,
+        value = value,
+        enabled = enabled,
+        onClick = onClick,
+    )
+}
+
+@Composable
+private fun PreferenceSwitchRow(
+    title: String,
+    subtitle: String = "",
+    checked: Boolean,
+    onChecked: (Boolean) -> Unit,
+) {
+    SwitchPreference(
+        title = title,
+        summary = subtitle.ifBlank { null },
+        value = checked,
+        onCheckedChange = onChecked,
+    )
+}
+
+@Composable
+private fun EditValueDialog(spec: EditDialogSpec, onDismiss: () -> Unit) {
+    val visible = remember(spec) { mutableStateOf(true) }
+    LaunchedEffect(visible.value) {
+        if (!visible.value) onDismiss()
+    }
+    EditTextDialog(
+        visibility = visible,
+        title = spec.title,
+        value = spec.initialValue,
+        onInputConfirm = { raw ->
+            val parsed = if (spec.numberOnly) raw.filter(Char::isDigit) else raw
+            spec.onConfirm(parsed.trim())
+        },
+    )
+}
+
+@Composable
+private fun ChoiceDialog(spec: ChoiceDialogSpec, onDismiss: () -> Unit) {
+    val safeOptions = if (spec.options.isEmpty()) listOf("无选项") else spec.options
+    var selected by remember(spec) { mutableIntStateOf(spec.selectedIndex.coerceIn(0, safeOptions.lastIndex)) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(spec.title) },
+        text = {
+            Column {
+                safeOptions.forEachIndexed { idx, label ->
+                    PreferenceRow(
+                        title = label,
+                        value = if (selected == idx) "已选择" else null,
+                        onClick = { selected = idx },
+                    )
+                    if (idx != safeOptions.lastIndex) {
+                        HorizontalDivider()
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    spec.onConfirm(selected)
+                    onDismiss()
+                },
+            ) { Text("确定") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+@Composable
 private fun MainComposeApp(activity: MainActivity) {
     val refreshTick by ComposeRefreshBus.tick.collectAsStateCompat()
     var tabIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -153,34 +393,34 @@ private fun MainComposeApp(activity: MainActivity) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("课程表超级岛") },
-                modifier = Modifier.padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
-            )
-        },
-        bottomBar = {
-            val tabs = listOf("设置", "假期/调休", "关于")
-            TabRow(selectedTabIndex = tabIndex) {
-                tabs.forEachIndexed { index, title ->
-                    Tab(
-                        selected = tabIndex == index,
-                        onClick = { tabIndex = index },
-                        text = { Text(title) },
-                    )
-                }
-            }
+            TopAppBar(title = "课程表超级岛")
         },
     ) { innerPadding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
         ) {
-            when (tabIndex) {
-                0 -> SettingsTab(activity = activity, state = settingsState, onReset = { showResetDialog = true })
-                1 -> HolidayTab(activity = activity, state = holidayState)
-                else -> AboutTab(activity = activity, state = aboutState)
+            val tabs = listOf("设置", "假期/调休", "关于")
+            HyperTabRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                tabs = tabs,
+                selectedTabIndex = tabIndex,
+                onTabSelected = { tabIndex = it },
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .weight(1f),
+            ) {
+                when (tabIndex) {
+                    0 -> SettingsTab(activity = activity, state = settingsState, onReset = { showResetDialog = true })
+                    1 -> HolidayTab(activity = activity, state = holidayState)
+                    else -> AboutTab(activity = activity, state = aboutState)
+                }
             }
         }
     }
@@ -428,8 +668,9 @@ private fun StatusCardView(active: Boolean, frameworkDesc: String) {
 
 @Composable
 private fun TestNotifyCard(activity: MainActivity, state: SettingsComposeState) {
+    var editDialog by remember { mutableStateOf<EditDialogSpec?>(null) }
     Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         shape = RoundedCornerShape(16.dp),
     ) {
         Column(
@@ -440,31 +681,39 @@ private fun TestNotifyCard(activity: MainActivity, state: SettingsComposeState) 
             Text(
                 text = "测试通知",
                 style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                color = MaterialTheme.colorScheme.onSurfaceContainer,
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = "发送一条模拟课程提醒，验证超级岛效果是否正常。如果未发送，请强制停止作用域和模块重试。存在测试通知不发出的情况，但不影响实际通知。",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
             )
             Spacer(modifier = Modifier.height(14.dp))
-            OutlinedTextField(
-                value = state.courseName,
-                onValueChange = { state.courseName = it },
-                label = { Text("课程名称") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
+            PreferenceRow(
+                title = "课程名称",
+                value = state.courseName.ifBlank { "未设置" },
+                onClick = {
+                    editDialog = EditDialogSpec(
+                        title = "课程名称",
+                        initialValue = state.courseName,
+                        onConfirm = { state.courseName = it },
+                    )
+                },
             )
-            Spacer(modifier = Modifier.height(10.dp))
-            OutlinedTextField(
-                value = state.classroom,
-                onValueChange = { state.classroom = it },
-                label = { Text("教室") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
+            HorizontalDivider()
+            PreferenceRow(
+                title = "教室",
+                value = state.classroom.ifBlank { "未设置" },
+                onClick = {
+                    editDialog = EditDialogSpec(
+                        title = "教室",
+                        initialValue = state.classroom,
+                        onConfirm = { state.classroom = it },
+                    )
+                },
             )
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             Button(
                 onClick = {
                     activity.uiSendTestBroadcastToTarget(60_000L, state.courseName, state.classroom)
@@ -479,18 +728,22 @@ private fun TestNotifyCard(activity: MainActivity, state: SettingsComposeState) 
                 Text(
                     text = state.testHint,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
+    }
+    editDialog?.let { spec ->
+        EditValueDialog(spec = spec, onDismiss = { editDialog = null })
     }
 }
 
 @Composable
 private fun StatusCustomCard(activity: MainActivity, state: SettingsComposeState) {
+    var editDialog by remember { mutableStateOf<EditDialogSpec?>(null) }
     Card(
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     ) {
         Column(
             modifier = Modifier
@@ -511,46 +764,49 @@ private fun StatusCustomCard(activity: MainActivity, state: SettingsComposeState
                 val stage = state.stageStates[i]
                 Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = stage.tplA,
-                    onValueChange = { stage.tplA = it },
-                    label = { Text("岛A（左侧文字）") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
+                PreferenceRow(
+                    title = "岛A（左侧文字）",
+                    value = stage.tplA.ifBlank { "未设置" },
+                    onClick = {
+                        editDialog = EditDialogSpec(
+                            title = "$label - 岛A（左侧文字）",
+                            initialValue = stage.tplA,
+                            onConfirm = { state.stageStates[i] = stage.copy(tplA = it) },
+                        )
+                    },
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = stage.tplB,
-                    onValueChange = { stage.tplB = it },
-                    label = { Text("岛B（右侧文字）") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
+                HorizontalDivider()
+                PreferenceRow(
+                    title = "岛B（右侧文字）",
+                    value = stage.tplB.ifBlank { "未设置" },
+                    onClick = {
+                        editDialog = EditDialogSpec(
+                            title = "$label - 岛B（右侧文字）",
+                            initialValue = stage.tplB,
+                            onConfirm = { state.stageStates[i] = stage.copy(tplB = it) },
+                        )
+                    },
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = stage.tplTicker,
-                    onValueChange = { stage.tplTicker = it },
-                    label = { Text("息屏显示") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
+                HorizontalDivider()
+                PreferenceRow(
+                    title = "息屏显示",
+                    value = stage.tplTicker.ifBlank { "未设置" },
+                    onClick = {
+                        editDialog = EditDialogSpec(
+                            title = "$label - 息屏显示",
+                            initialValue = stage.tplTicker,
+                            onConfirm = { state.stageStates[i] = stage.copy(tplTicker = it) },
+                        )
+                    },
                 )
                 Spacer(modifier = Modifier.height(if (i == 2) 14.dp else 10.dp))
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "岛A显示图标",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Switch(
-                    checked = state.iconAEnabled,
-                    onCheckedChange = { state.iconAEnabled = it },
-                )
-            }
+            PreferenceSwitchRow(
+                title = "岛A显示图标",
+                checked = state.iconAEnabled,
+                onChecked = { state.iconAEnabled = it },
+            )
 
             Spacer(modifier = Modifier.height(14.dp))
             Button(
@@ -588,13 +844,17 @@ private fun StatusCustomCard(activity: MainActivity, state: SettingsComposeState
             }
         }
     }
+    editDialog?.let { spec ->
+        EditValueDialog(spec = spec, onDismiss = { editDialog = null })
+    }
 }
 
 @Composable
 private fun ExpandedCustomCard(activity: MainActivity, state: SettingsComposeState) {
+    var editDialog by remember { mutableStateOf<EditDialogSpec?>(null) }
     Card(
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     ) {
         Column(
             modifier = Modifier
@@ -617,19 +877,89 @@ private fun ExpandedCustomCard(activity: MainActivity, state: SettingsComposeSta
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(stage.baseTitle, { stage.baseTitle = it }, label = { Text("主要标题") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(stage.baseContent, { stage.baseContent = it }, label = { Text("次要文本1") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(stage.baseSubcontent, { stage.baseSubcontent = it }, label = { Text("次要文本2") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(stage.hintContent, { stage.hintContent = it }, label = { Text("前置文本1") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(stage.hintSubcontent, { stage.hintSubcontent = it }, label = { Text("前置文本2") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(stage.hintTitle, { stage.hintTitle = it }, label = { Text("主要小文本1") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(stage.hintSubtitle, { stage.hintSubtitle = it }, label = { Text("主要小文本2") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                PreferenceRow(
+                    title = "主要标题",
+                    value = stage.baseTitle.ifBlank { "未设置" },
+                    onClick = {
+                        editDialog = EditDialogSpec(
+                            title = "$title - 主要标题",
+                            initialValue = stage.baseTitle,
+                            onConfirm = { state.stageStates[i] = stage.copy(baseTitle = it) },
+                        )
+                    },
+                )
+                HorizontalDivider()
+                PreferenceRow(
+                    title = "次要文本1",
+                    value = stage.baseContent.ifBlank { "未设置" },
+                    onClick = {
+                        editDialog = EditDialogSpec(
+                            title = "$title - 次要文本1",
+                            initialValue = stage.baseContent,
+                            onConfirm = { state.stageStates[i] = stage.copy(baseContent = it) },
+                        )
+                    },
+                )
+                HorizontalDivider()
+                PreferenceRow(
+                    title = "次要文本2",
+                    value = stage.baseSubcontent.ifBlank { "未设置" },
+                    onClick = {
+                        editDialog = EditDialogSpec(
+                            title = "$title - 次要文本2",
+                            initialValue = stage.baseSubcontent,
+                            onConfirm = { state.stageStates[i] = stage.copy(baseSubcontent = it) },
+                        )
+                    },
+                )
+                HorizontalDivider()
+                PreferenceRow(
+                    title = "前置文本1",
+                    value = stage.hintContent.ifBlank { "未设置" },
+                    onClick = {
+                        editDialog = EditDialogSpec(
+                            title = "$title - 前置文本1",
+                            initialValue = stage.hintContent,
+                            onConfirm = { state.stageStates[i] = stage.copy(hintContent = it) },
+                        )
+                    },
+                )
+                HorizontalDivider()
+                PreferenceRow(
+                    title = "前置文本2",
+                    value = stage.hintSubcontent.ifBlank { "未设置" },
+                    onClick = {
+                        editDialog = EditDialogSpec(
+                            title = "$title - 前置文本2",
+                            initialValue = stage.hintSubcontent,
+                            onConfirm = { state.stageStates[i] = stage.copy(hintSubcontent = it) },
+                        )
+                    },
+                )
+                HorizontalDivider()
+                PreferenceRow(
+                    title = "主要小文本1",
+                    value = stage.hintTitle.ifBlank { "未设置" },
+                    onClick = {
+                        editDialog = EditDialogSpec(
+                            title = "$title - 主要小文本1",
+                            initialValue = stage.hintTitle,
+                            onConfirm = { state.stageStates[i] = stage.copy(hintTitle = it) },
+                        )
+                    },
+                )
+                HorizontalDivider()
+                PreferenceRow(
+                    title = "主要小文本2",
+                    value = stage.hintSubtitle.ifBlank { "未设置" },
+                    onClick = {
+                        editDialog = EditDialogSpec(
+                            title = "$title - 主要小文本2",
+                            initialValue = stage.hintSubtitle,
+                            onConfirm = { state.stageStates[i] = stage.copy(hintSubtitle = it) },
+                        )
+                    },
+                )
                 Spacer(modifier = Modifier.height(if (i == 2) 0.dp else 14.dp))
             }
 
@@ -671,6 +1001,9 @@ private fun ExpandedCustomCard(activity: MainActivity, state: SettingsComposeSta
             }
         }
     }
+    editDialog?.let { spec ->
+        EditValueDialog(spec = spec, onDismiss = { editDialog = null })
+    }
 }
 
 @Composable
@@ -684,38 +1017,50 @@ private fun MutedText(text: String) {
 
 @Composable
 private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
+    var editDialog by remember { mutableStateOf<EditDialogSpec?>(null) }
+    var choiceDialog by remember { mutableStateOf<ChoiceDialogSpec?>(null) }
+
+    val islandVals = remember(state.timeoutState) { state.timeoutState.islandVals.toMutableList() }
+    val islandUnits = remember(state.timeoutState) { state.timeoutState.islandUnits.toMutableList() }
     var islandStage by remember(state.timeoutState) { mutableIntStateOf(0) }
-    var notifStage by remember(state.timeoutState) {
-        mutableIntStateOf(state.timeoutState.notifTriggerStage.coerceIn(0, 2))
+    var islandDefault by remember(state.timeoutState) { mutableStateOf(islandVals[0] < 0) }
+    var islandInput by remember(state.timeoutState) {
+        mutableStateOf(if (islandVals[0] < 0) "" else islandVals[0].toString())
+    }
+    var islandUnit by remember(state.timeoutState) {
+        mutableStateOf(if (islandUnits[0] == "s") "s" else "m")
     }
 
-    val islandDefault = state.timeoutState.islandVals[islandStage] < 0
-    var islandInput by remember(state.timeoutState, islandStage) {
-        mutableStateOf(if (islandDefault) "" else state.timeoutState.islandVals[islandStage].toString())
+    var notifStage by remember(state.timeoutState) { mutableIntStateOf(state.timeoutState.notifTriggerStage.coerceIn(0, 2)) }
+    var notifGlobalDefault by remember(state.timeoutState) { mutableStateOf(state.timeoutState.notifGlobalDefault) }
+    var notifInput by remember(state.timeoutState) {
+        val idx = state.timeoutState.notifTriggerStage.coerceIn(0, 2)
+        val value = state.timeoutState.notifVals[idx]
+        mutableStateOf(if (!state.timeoutState.notifGlobalDefault && value > 0) value.toString() else "")
     }
-    LaunchedEffect(state.timeoutState, islandStage, islandDefault, state.timeoutState.islandVals[islandStage]) {
-        islandInput = if (islandDefault) "" else state.timeoutState.islandVals[islandStage].toString()
+    var notifUnit by remember(state.timeoutState) {
+        val idx = state.timeoutState.notifTriggerStage.coerceIn(0, 2)
+        mutableStateOf(if (state.timeoutState.notifUnits[idx] == "s") "s" else "m")
     }
 
-    val notifDefault = state.timeoutState.notifGlobalDefault
-    var notifInput by remember(state.timeoutState, notifStage) {
-        mutableStateOf(
-            if (notifDefault || state.timeoutState.notifVals[notifStage] < 0) {
-                ""
-            } else {
-                state.timeoutState.notifVals[notifStage].toString()
-            },
-        )
-    }
-    LaunchedEffect(state.timeoutState, notifStage, notifDefault, state.timeoutState.notifVals[notifStage]) {
-        notifInput = if (notifDefault || state.timeoutState.notifVals[notifStage] < 0) {
-            ""
+    fun persistIslandUi() {
+        islandVals[islandStage] = if (islandDefault) {
+            ConfigDefaults.TIMEOUT_VALUE
         } else {
-            state.timeoutState.notifVals[notifStage].toString()
+            parseTimeoutValue(islandInput)
         }
+        islandUnits[islandStage] = if (islandUnit == "s") "s" else "m"
     }
 
-    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+    fun loadIslandUi(stage: Int) {
+        val idx = stage.coerceIn(0, 2)
+        islandStage = idx
+        islandDefault = islandVals[idx] < 0
+        islandInput = if (islandDefault) "" else islandVals[idx].toString()
+        islandUnit = if (islandUnits[idx] == "s") "s" else "m"
+    }
+
+    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
             Text("消失时间", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(4.dp))
@@ -729,49 +1074,66 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
             )
-            Spacer(modifier = Modifier.height(10.dp))
-            StageToggle(
-                labels = listOf("通知后", "上课后", "下课后"),
-                selected = islandStage,
-                onSelect = { islandStage = it },
+            Spacer(modifier = Modifier.height(8.dp))
+            PreferenceRow(
+                title = "触发阶段",
+                value = listOf("通知后", "上课后", "下课后")[islandStage],
+                onClick = {
+                    choiceDialog = ChoiceDialogSpec(
+                        title = "岛消失触发阶段",
+                        options = listOf("通知后", "上课后", "下课后"),
+                        selectedIndex = islandStage,
+                        onConfirm = {
+                            persistIslandUi()
+                            loadIslandUi(it)
+                        },
+                    )
+                },
             )
-            Spacer(modifier = Modifier.height(10.dp))
-            OutlinedTextField(
-                value = islandInput,
-                onValueChange = {
-                    val digits = it.filter(Char::isDigit)
-                    islandInput = digits
-                    if (digits.isNotEmpty()) {
-                        state.timeoutState.islandVals[islandStage] = parseIntOrDefault(digits, 1).coerceAtLeast(1)
+            HorizontalDivider()
+            PreferenceRow(
+                title = "时长",
+                value = if (islandDefault) "默认" else islandInput.ifBlank { "默认" },
+                enabled = !islandDefault,
+                onClick = {
+                    if (!islandDefault) {
+                        editDialog = EditDialogSpec(
+                            title = "岛消失时长",
+                            initialValue = islandInput,
+                            numberOnly = true,
+                            onConfirm = { islandInput = it.filter(Char::isDigit) },
+                        )
                     }
                 },
-                enabled = !islandDefault,
-                label = { Text("时长") },
-                modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                UnitToggle(
-                    selected = state.timeoutState.islandUnits[islandStage],
-                    enabled = !islandDefault,
-                    onSelect = { state.timeoutState.islandUnits[islandStage] = it },
-                )
-                Spacer(modifier = Modifier.weight(1f))
-                Text("默认", style = MaterialTheme.typography.bodySmall)
-                Spacer(modifier = Modifier.width(8.dp))
-                Switch(
-                    checked = islandDefault,
-                    onCheckedChange = {
-                        state.timeoutState.islandVals[islandStage] = if (it) -1 else 1
-                        islandInput = if (it) "" else "1"
-                    },
-                )
-            }
+            HorizontalDivider()
+            PreferenceRow(
+                title = "单位",
+                value = if (islandUnit == "s") "秒" else "分",
+                enabled = !islandDefault,
+                onClick = {
+                    if (!islandDefault) {
+                        choiceDialog = ChoiceDialogSpec(
+                            title = "岛消失时长单位",
+                            options = listOf("秒", "分"),
+                            selectedIndex = if (islandUnit == "s") 0 else 1,
+                            onConfirm = { islandUnit = if (it == 0) "s" else "m" },
+                        )
+                    }
+                },
+            )
+            HorizontalDivider()
+            PreferenceSwitchRow(
+                title = "默认",
+                checked = islandDefault,
+                onChecked = {
+                    islandDefault = it
+                    if (it) {
+                        islandVals[islandStage] = ConfigDefaults.TIMEOUT_VALUE
+                        islandInput = ""
+                    }
+                },
+            )
 
             Spacer(modifier = Modifier.height(14.dp))
             HorizontalDivider()
@@ -784,65 +1146,86 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )
-            Spacer(modifier = Modifier.height(10.dp))
-            StageToggle(
-                labels = listOf("通知后", "上课后", "下课后"),
-                selected = notifStage,
-                enabled = !state.timeoutState.notifGlobalDefault,
-                onSelect = {
-                    notifStage = it
-                    state.timeoutState.notifTriggerStage = it
-                },
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            OutlinedTextField(
-                value = notifInput,
-                onValueChange = {
-                    val digits = it.filter(Char::isDigit)
-                    notifInput = digits
-                    if (digits.isNotEmpty()) {
-                        state.timeoutState.notifVals[notifStage] = parseIntOrDefault(digits, 1).coerceAtLeast(1)
+            Spacer(modifier = Modifier.height(8.dp))
+            PreferenceRow(
+                title = "触发阶段",
+                value = listOf("通知后", "上课后", "下课后")[notifStage],
+                enabled = !notifGlobalDefault,
+                onClick = {
+                    if (!notifGlobalDefault) {
+                        choiceDialog = ChoiceDialogSpec(
+                            title = "通知消失触发阶段",
+                            options = listOf("通知后", "上课后", "下课后"),
+                            selectedIndex = notifStage,
+                            onConfirm = { notifStage = it },
+                        )
                     }
                 },
-                enabled = !notifDefault,
-                label = { Text("时长") },
-                modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                UnitToggle(
-                    selected = state.timeoutState.notifUnits[notifStage],
-                    enabled = !notifDefault,
-                    onSelect = { state.timeoutState.notifUnits[notifStage] = it },
-                )
-                Spacer(modifier = Modifier.weight(1f))
-                Text("默认", style = MaterialTheme.typography.bodySmall)
-                Spacer(modifier = Modifier.width(8.dp))
-                Switch(
-                    checked = notifDefault,
-                    onCheckedChange = {
-                        state.timeoutState.notifGlobalDefault = it
-                        if (it) {
-                            for (i in state.timeoutState.notifVals.indices) {
-                                state.timeoutState.notifVals[i] = -1
-                            }
-                            notifInput = ""
-                        } else if (state.timeoutState.notifVals[notifStage] < 0) {
-                            state.timeoutState.notifVals[notifStage] = 1
-                            notifInput = "1"
-                        }
-                    },
-                )
-            }
+            HorizontalDivider()
+            PreferenceRow(
+                title = "时长",
+                value = if (notifGlobalDefault) "默认" else notifInput.ifBlank { "默认" },
+                enabled = !notifGlobalDefault,
+                onClick = {
+                    if (!notifGlobalDefault) {
+                        editDialog = EditDialogSpec(
+                            title = "通知消失时长",
+                            initialValue = notifInput,
+                            numberOnly = true,
+                            onConfirm = { notifInput = it.filter(Char::isDigit) },
+                        )
+                    }
+                },
+            )
+            HorizontalDivider()
+            PreferenceRow(
+                title = "单位",
+                value = if (notifUnit == "s") "秒" else "分",
+                enabled = !notifGlobalDefault,
+                onClick = {
+                    if (!notifGlobalDefault) {
+                        choiceDialog = ChoiceDialogSpec(
+                            title = "通知消失时长单位",
+                            options = listOf("秒", "分"),
+                            selectedIndex = if (notifUnit == "s") 0 else 1,
+                            onConfirm = { notifUnit = if (it == 0) "s" else "m" },
+                        )
+                    }
+                },
+            )
+            HorizontalDivider()
+            PreferenceSwitchRow(
+                title = "默认",
+                checked = notifGlobalDefault,
+                onChecked = {
+                    notifGlobalDefault = it
+                    if (it) notifInput = ""
+                },
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
             Button(
                 onClick = {
+                    persistIslandUi()
+                    val notifVals = MutableList(3) { ConfigDefaults.TIMEOUT_VALUE }
+                    val notifUnits = MutableList(3) { "m" }
+                    if (!notifGlobalDefault) {
+                        notifVals[notifStage] = parseTimeoutValue(notifInput)
+                        notifUnits[notifStage] = if (notifUnit == "s") "s" else "m"
+                    }
+                    val saved = TimeoutUiState(
+                        islandVals = islandVals.toMutableList(),
+                        islandUnits = islandUnits.toMutableList(),
+                        notifVals = notifVals,
+                        notifUnits = notifUnits,
+                        notifTriggerStage = notifStage,
+                        notifGlobalDefault = notifGlobalDefault,
+                    )
                     val editor = activity.uiEditConfigPrefs()
-                    writeTimeoutState(editor, state.timeoutState)
+                    writeTimeoutState(editor, saved)
                     editor.apply()
+                    state.timeoutState = saved
                     state.timeoutHint = "已保存，下次通知生效"
                     activity.requestComposeRefresh()
                 },
@@ -856,73 +1239,35 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
             }
         }
     }
-}
-
-@Composable
-private fun StageToggle(
-    labels: List<String>,
-    selected: Int,
-    enabled: Boolean = true,
-    onSelect: (Int) -> Unit,
-) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-        labels.forEachIndexed { idx, label ->
-            if (selected == idx) {
-                Button(
-                    onClick = { onSelect(idx) },
-                    enabled = enabled,
-                    modifier = Modifier.weight(1f),
-                ) { Text(label) }
-            } else {
-                OutlinedButton(
-                    onClick = { onSelect(idx) },
-                    enabled = enabled,
-                    modifier = Modifier.weight(1f),
-                ) { Text(label) }
-            }
-        }
+    editDialog?.let { spec ->
+        EditValueDialog(spec = spec, onDismiss = { editDialog = null })
     }
-}
-
-@Composable
-private fun UnitToggle(selected: String, enabled: Boolean, onSelect: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (selected == "s") {
-            Button(onClick = { onSelect("s") }, enabled = enabled) { Text("秒") }
-        } else {
-            OutlinedButton(onClick = { onSelect("s") }, enabled = enabled) { Text("秒") }
-        }
-        if (selected != "s") {
-            Button(onClick = { onSelect("m") }, enabled = enabled) { Text("分") }
-        } else {
-            OutlinedButton(onClick = { onSelect("m") }, enabled = enabled) { Text("分") }
-        }
+    choiceDialog?.let { spec ->
+        ChoiceDialog(spec = spec, onDismiss = { choiceDialog = null })
     }
 }
 
 @Composable
 private fun ReminderCard(activity: MainActivity, state: SettingsComposeState) {
-    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+    var editDialog by remember { mutableStateOf<EditDialogSpec?>(null) }
+    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
             Text("课前提醒", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(10.dp))
             Text("自定义设置通知发送时机", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(modifier = Modifier.height(14.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "提前提醒（分钟）",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    value = state.reminderMinutes,
-                    onValueChange = { state.reminderMinutes = it.filter(Char::isDigit) },
-                    modifier = Modifier.width(96.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                )
-            }
+            Spacer(modifier = Modifier.height(8.dp))
+            PreferenceRow(
+                title = "提前提醒（分钟）",
+                value = state.reminderMinutes.ifBlank { "15" },
+                onClick = {
+                    editDialog = EditDialogSpec(
+                        title = "提前提醒（分钟）",
+                        initialValue = state.reminderMinutes,
+                        numberOnly = true,
+                        onConfirm = { state.reminderMinutes = it.filter(Char::isDigit) },
+                    )
+                },
+            )
             Spacer(modifier = Modifier.height(14.dp))
             Button(
                 onClick = {
@@ -940,11 +1285,15 @@ private fun ReminderCard(activity: MainActivity, state: SettingsComposeState) {
             }
         }
     }
+    editDialog?.let { spec ->
+        EditValueDialog(spec = spec, onDismiss = { editDialog = null })
+    }
 }
 
 @Composable
 private fun MuteCard(activity: MainActivity, state: SettingsComposeState) {
-    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+    var choiceDialog by remember { mutableStateOf<ChoiceDialogSpec?>(null) }
+    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
             Text("上课免打扰", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(10.dp))
@@ -1026,11 +1375,18 @@ private fun MuteCard(activity: MainActivity, state: SettingsComposeState) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(modifier = Modifier.height(12.dp))
-            StageToggle(
-                labels = listOf("仅静音", "仅勿扰", "两者"),
-                selected = state.islandButtonMode.coerceIn(0, 2),
-                onSelect = { state.islandButtonMode = it },
+            Spacer(modifier = Modifier.height(8.dp))
+            PreferenceRow(
+                title = "按钮模式",
+                value = listOf("仅静音", "仅勿扰", "两者")[state.islandButtonMode.coerceIn(0, 2)],
+                onClick = {
+                    choiceDialog = ChoiceDialogSpec(
+                        title = "超级岛按钮功能",
+                        options = listOf("仅静音", "仅勿扰", "两者"),
+                        selectedIndex = state.islandButtonMode.coerceIn(0, 2),
+                        onConfirm = { state.islandButtonMode = it },
+                    )
+                },
             )
             Spacer(modifier = Modifier.height(14.dp))
             Button(
@@ -1061,6 +1417,9 @@ private fun MuteCard(activity: MainActivity, state: SettingsComposeState) {
             }
         }
     }
+    choiceDialog?.let { spec ->
+        ChoiceDialog(spec = spec, onDismiss = { choiceDialog = null })
+    }
 }
 
 @Composable
@@ -1070,38 +1429,38 @@ private fun SwitchRow(
     checked: Boolean,
     onChecked: (Boolean) -> Unit,
 ) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyMedium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Switch(checked = checked, onCheckedChange = onChecked)
-    }
+    PreferenceSwitchRow(
+        title = title,
+        subtitle = subtitle,
+        checked = checked,
+        onChecked = onChecked,
+    )
 }
 
 @Composable
 private fun MinuteEditor(label: String, value: String, onValue: (String) -> Unit) {
+    var editDialog by remember(label) { mutableStateOf<EditDialogSpec?>(null) }
     Spacer(modifier = Modifier.height(8.dp))
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = label,
-            modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        OutlinedTextField(
-            value = value,
-            onValueChange = { onValue(it.filter(Char::isDigit)) },
-            modifier = Modifier.width(96.dp),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            singleLine = true,
-        )
+    PreferenceRow(
+        title = label,
+        value = value.ifBlank { "0" },
+        onClick = {
+            editDialog = EditDialogSpec(
+                title = label,
+                initialValue = value,
+                numberOnly = true,
+                onConfirm = { onValue(it.filter(Char::isDigit)) },
+            )
+        },
+    )
+    editDialog?.let { spec ->
+        EditValueDialog(spec = spec, onDismiss = { editDialog = null })
     }
 }
 
 @Composable
 private fun WakeupCard(activity: MainActivity, state: SettingsComposeState) {
-    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
             Text("自动叫醒", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(4.dp))
@@ -1172,47 +1531,90 @@ private fun WakeupCard(activity: MainActivity, state: SettingsComposeState) {
 
 @Composable
 private fun WakeRuleList(rules: MutableList<WakeRule>, onAdd: () -> Unit) {
+    var editingIndex by remember { mutableIntStateOf(-1) }
     Column {
         rules.forEachIndexed { index, rule ->
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = rule.sec,
-                    onValueChange = { rules[index] = rule.copy(sec = it.filter(Char::isDigit)) },
-                    label = { Text("第X节") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                OutlinedTextField(
-                    value = rule.hour,
-                    onValueChange = { rules[index] = rule.copy(hour = it.filter(Char::isDigit)) },
-                    label = { Text("时") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                OutlinedTextField(
-                    value = rule.minute,
-                    onValueChange = { rules[index] = rule.copy(minute = it.filter(Char::isDigit)) },
-                    label = { Text("分") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                OutlinedButton(onClick = { rules.removeAt(index) }) { Text("删除") }
+            val hour = rule.hour.toIntOrNull()?.coerceIn(0, 23) ?: 0
+            val minute = rule.minute.toIntOrNull()?.coerceIn(0, 59) ?: 0
+            PreferenceRow(
+                title = "规则 ${index + 1}",
+                value = "第${rule.sec.ifBlank { "1" }}节 -> $hour:${String.format(Locale.getDefault(), "%02d", minute)}",
+                onClick = { editingIndex = index },
+            )
+            PreferenceRow(
+                title = "删除规则 ${index + 1}",
+                onClick = { rules.removeAt(index) },
+            )
+            if (index != rules.lastIndex) {
+                HorizontalDivider()
             }
-            Spacer(modifier = Modifier.height(6.dp))
         }
+        Spacer(modifier = Modifier.height(10.dp))
         OutlinedButton(onClick = onAdd) { Text("＋ 添加规则") }
+    }
+    if (editingIndex in rules.indices) {
+        var sec by remember(editingIndex) { mutableStateOf(rules[editingIndex].sec) }
+        var hour by remember(editingIndex) { mutableStateOf(rules[editingIndex].hour) }
+        var minute by remember(editingIndex) { mutableStateOf(rules[editingIndex].minute) }
+        AlertDialog(
+            onDismissRequest = { editingIndex = -1 },
+            title = { Text("编辑规则") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = sec,
+                        onValueChange = { sec = it.filter(Char::isDigit) },
+                        label = { Text("第X节") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = hour,
+                        onValueChange = { hour = it.filter(Char::isDigit) },
+                        label = { Text("时") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = minute,
+                        onValueChange = { minute = it.filter(Char::isDigit) },
+                        label = { Text("分") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (editingIndex in rules.indices) {
+                            rules[editingIndex] = rules[editingIndex].copy(
+                                sec = (sec.toIntOrNull() ?: 1).coerceAtLeast(1).toString(),
+                                hour = (hour.toIntOrNull() ?: 0).coerceIn(0, 23).toString(),
+                                minute = String.format(
+                                    Locale.getDefault(),
+                                    "%02d",
+                                    (minute.toIntOrNull() ?: 0).coerceIn(0, 59),
+                                ),
+                            )
+                        }
+                        editingIndex = -1
+                    },
+                ) { Text("确定") }
+            },
+            dismissButton = { TextButton(onClick = { editingIndex = -1 }) { Text("取消") } },
+        )
     }
 }
 
 @Composable
 private fun ResetCard(onReset: () -> Unit) {
-    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
             Text("全局恢复默认", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(4.dp))
@@ -1225,10 +1627,10 @@ private fun ResetCard(onReset: () -> Unit) {
 
 private fun clamp0to60(value: String): Int = value.toIntOrNull()?.coerceIn(0, 60) ?: 0
 
-private fun parseIntOrDefault(value: String, default: Int): Int {
+private fun parseTimeoutValue(value: String): Int {
     val text = value.trim()
-    if (text.isEmpty()) return default
-    return text.toIntOrNull() ?: default
+    if (text.isEmpty()) return ConfigDefaults.TIMEOUT_VALUE
+    return text.toIntOrNull() ?: ConfigDefaults.TIMEOUT_VALUE
 }
 
 private fun readTimeoutState(prefs: android.content.SharedPreferences): TimeoutUiState {
@@ -1297,33 +1699,37 @@ private fun toWakeRulesJson(rules: List<WakeRule>): String {
 private const val TOKEN_COUNTDOWN = "{倒计时}"
 private const val TOKEN_ELAPSED = "{正计时}"
 
-private fun alignExpandedTimerWithStatus(stages: List<StageCustomState>): Int {
+private fun alignExpandedTimerWithStatus(stages: MutableList<StageCustomState>): Int {
     var changed = 0
-    stages.forEach { stage ->
+    stages.indices.forEach { index ->
+        val stage = stages[index]
         val statusKind = detectTimerKind(stage.tplB.trim())
         val title = stage.hintTitle.trim()
         val subtitle = stage.hintSubtitle.trim()
         val titleKind = detectTimerKind(title)
         val subtitleKind = detectTimerKind(subtitle)
+        var updated = stage
         if ((statusKind == -1 || statusKind == 1) && (titleKind == -1 || titleKind == 1) && statusKind != titleKind) {
-            stage.hintTitle = forceTimerKind(title, statusKind)
+            updated = updated.copy(hintTitle = forceTimerKind(title, statusKind))
             changed++
         }
         if ((statusKind == -1 || statusKind == 1) && (subtitleKind == -1 || subtitleKind == 1) && statusKind != subtitleKind) {
-            stage.hintSubtitle = forceTimerKind(subtitle, statusKind)
+            updated = updated.copy(hintSubtitle = forceTimerKind(subtitle, statusKind))
             changed++
         }
+        if (updated != stage) stages[index] = updated
     }
     return changed
 }
 
-private fun alignStatusTimerWithExpanded(stages: List<StageCustomState>): Int {
+private fun alignStatusTimerWithExpanded(stages: MutableList<StageCustomState>): Int {
     var changed = 0
-    stages.forEach { stage ->
+    stages.indices.forEach { index ->
+        val stage = stages[index]
         val expandedKind = detectExpandedTimerKind(stage.hintTitle.trim(), stage.hintSubtitle.trim())
         val statusKind = detectTimerKind(stage.tplB.trim())
         if ((expandedKind == -1 || expandedKind == 1) && (statusKind == -1 || statusKind == 1) && expandedKind != statusKind) {
-            stage.tplB = forceTimerKind(stage.tplB.trim(), expandedKind)
+            stages[index] = stage.copy(tplB = forceTimerKind(stage.tplB.trim(), expandedKind))
             changed++
         }
     }
@@ -1373,23 +1779,23 @@ private fun HolidayTab(activity: MainActivity, state: HolidayComposeState) {
     ) {
         Card(
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
                 Text(
                     text = "假期 / 调休管理",
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    color = MaterialTheme.colorScheme.onSurfaceContainer,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "节假日当天不发课前提醒；调休工作日按指定周次/星期发提醒。",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
                 )
                 Spacer(modifier = Modifier.height(14.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("年份", color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Text("年份", color = MaterialTheme.colorScheme.onSurfaceContainer)
                     Spacer(modifier = Modifier.width(8.dp))
                     OutlinedButton(onClick = { showYearDialog = true }) { Text(state.year.toString()) }
                     Spacer(modifier = Modifier.width(8.dp))
@@ -1427,13 +1833,13 @@ private fun HolidayTab(activity: MainActivity, state: HolidayComposeState) {
                     Text(
                         text = state.fetchHint,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         }
 
-        Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+        Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
             Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("节假日", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -1486,7 +1892,7 @@ private fun HolidayTab(activity: MainActivity, state: HolidayComposeState) {
             }
         }
 
-        Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+        Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
             Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("调休工作日", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -1573,6 +1979,7 @@ private fun HolidayTab(activity: MainActivity, state: HolidayComposeState) {
 
     holidayDraft?.let { draft ->
         HolidayEditDialog(
+            activity = activity,
             title = if (holidayEditEntry == null) "新增节假日" else "编辑节假日",
             draft = draft,
             onDismiss = { holidayDraft = null },
@@ -1610,6 +2017,7 @@ private fun HolidayTab(activity: MainActivity, state: HolidayComposeState) {
 
     workswapDraft?.let { draft ->
         WorkswapEditDialog(
+            activity = activity,
             title = if (workswapEditEntry == null) "新增调休工作日" else "编辑调休工作日",
             draft = draft,
             maxWeek = maxWeek,
@@ -1742,83 +2150,186 @@ private fun YearPickerDialog(
     onDismiss: () -> Unit,
     onConfirm: (Int) -> Unit,
 ) {
-    var year by remember { mutableIntStateOf(currentYear) }
-    AlertDialog(
+    var year by remember(currentYear) { mutableIntStateOf(currentYear.coerceIn(2020, 2099)) }
+    WindowDialog(
+        show = true,
+        title = "选择年份",
         onDismissRequest = onDismiss,
-        title = { Text("选择年份") },
-        text = {
-            androidx.compose.ui.viewinterop.AndroidView(factory = { context ->
-                NumberPicker(context).apply {
-                    minValue = 2020
-                    maxValue = 2099
-                    value = currentYear
-                    wrapSelectorWheel = false
-                    setOnValueChangedListener { _, _, newVal -> year = newVal }
-                }
-            })
-        },
-        confirmButton = { TextButton(onClick = { onConfirm(year) }) { Text("确定") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
+    ) {
+        NumberPicker(
+            value = year,
+            onValueChange = { year = it },
+            range = 2020..2099,
+            label = { it.toString() },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
+            TextButton(
+                onClick = { onConfirm(year) },
+                modifier = Modifier.weight(1f),
+            ) { Text("确定") }
+        }
+    }
+}
+
+private fun parseIsoDate(isoDate: String): Triple<Int, Int, Int> {
+    val now = Calendar.getInstance()
+    val defaultY = now.get(Calendar.YEAR)
+    val defaultM = now.get(Calendar.MONTH) + 1
+    val defaultD = now.get(Calendar.DAY_OF_MONTH)
+    val parts = isoDate.split("-")
+    val y = parts.getOrNull(0)?.toIntOrNull() ?: defaultY
+    val m = (parts.getOrNull(1)?.toIntOrNull() ?: defaultM).coerceIn(1, 12)
+    val d = (parts.getOrNull(2)?.toIntOrNull() ?: defaultD).coerceAtLeast(1)
+    return Triple(y, m, d)
+}
+
+private fun formatIsoDate(year: Int, month: Int, day: Int): String {
+    return "%04d-%02d-%02d".format(year, month, day)
+}
+
+private fun daysInMonth(year: Int, month: Int): Int {
+    val cal = Calendar.getInstance()
+    cal.set(Calendar.YEAR, year)
+    cal.set(Calendar.MONTH, month - 1)
+    cal.set(Calendar.DAY_OF_MONTH, 1)
+    return cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+}
+
+@Composable
+private fun MiuixDatePickerDialog(
+    title: String,
+    initialDate: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    val parsed = remember(initialDate) { parseIsoDate(initialDate) }
+    var year by remember(initialDate) { mutableIntStateOf(parsed.first.coerceIn(2020, 2099)) }
+    var month by remember(initialDate) { mutableIntStateOf(parsed.second.coerceIn(1, 12)) }
+    var day by remember(initialDate) { mutableIntStateOf(parsed.third) }
+    val maxDay = remember(year, month) { daysInMonth(year, month) }
+    if (day > maxDay) day = maxDay
+
+    WindowDialog(
+        show = true,
+        title = title,
+        onDismissRequest = onDismiss,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            NumberPicker(
+                value = year,
+                onValueChange = { year = it },
+                range = 2020..2099,
+                label = { it.toString() },
+                modifier = Modifier.weight(1f),
+            )
+            NumberPicker(
+                value = month,
+                onValueChange = { month = it },
+                range = 1..12,
+                label = { "%02d".format(it) },
+                modifier = Modifier.weight(1f),
+            )
+            NumberPicker(
+                value = day.coerceIn(1, maxDay),
+                onValueChange = { day = it.coerceIn(1, maxDay) },
+                range = 1..maxDay,
+                label = { "%02d".format(it) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
+            TextButton(
+                onClick = { onConfirm(formatIsoDate(year, month, day.coerceIn(1, maxDay))) },
+                modifier = Modifier.weight(1f),
+            ) { Text("确定") }
+        }
+    }
 }
 
 @Composable
 private fun HolidayEditDialog(
+    activity: MainActivity,
     title: String,
     draft: HolidayDraft,
     onDismiss: () -> Unit,
     onSave: (HolidayDraft) -> Unit,
 ) {
     var form by remember(draft) { mutableStateOf(draft.copy()) }
-    val context = androidx.compose.ui.platform.LocalContext.current
+    var editDialog by remember { mutableStateOf<EditDialogSpec?>(null) }
+    var showStartPicker by remember { mutableStateOf(false) }
+    var showEndPicker by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column {
                 OutlinedButton(onClick = {
-                    val parts = form.date.split("-")
-                    DatePickerDialog(
-                        context,
-                        { _, y, m, d -> form = form.copy(date = "%04d-%02d-%02d".format(y, m + 1, d)) },
-                        parts.getOrNull(0)?.toIntOrNull() ?: Calendar.getInstance().get(Calendar.YEAR),
-                        (parts.getOrNull(1)?.toIntOrNull() ?: 1) - 1,
-                        parts.getOrNull(2)?.toIntOrNull() ?: 1,
-                    ).show()
+                    showStartPicker = true
                 }, modifier = Modifier.fillMaxWidth()) {
                     Text("开始日期: ${form.date}")
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(onClick = {
-                    val base = if (form.endDate.isBlank()) form.date else form.endDate
-                    val parts = base.split("-")
-                    DatePickerDialog(
-                        context,
-                        { _, y, m, d -> form = form.copy(endDate = "%04d-%02d-%02d".format(y, m + 1, d)) },
-                        parts.getOrNull(0)?.toIntOrNull() ?: Calendar.getInstance().get(Calendar.YEAR),
-                        (parts.getOrNull(1)?.toIntOrNull() ?: 1) - 1,
-                        parts.getOrNull(2)?.toIntOrNull() ?: 1,
-                    ).show()
+                    showEndPicker = true
                 }, modifier = Modifier.fillMaxWidth()) {
                     Text("结束日期: ${if (form.endDate.isBlank()) "仅当天" else form.endDate}")
                 }
                 Spacer(modifier = Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = form.name,
-                    onValueChange = { form = form.copy(name = it) },
-                    label = { Text("名称（如：春节、放假）") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
+                PreferenceRow(
+                    title = "名称（如：春节、放假）",
+                    value = form.name.ifBlank { "未设置" },
+                    onClick = {
+                        editDialog = EditDialogSpec(
+                            title = "名称（如：春节、放假）",
+                            initialValue = form.name,
+                            onConfirm = { form = form.copy(name = it) },
+                        )
+                    },
                 )
             }
         },
         confirmButton = { TextButton(onClick = { onSave(form) }) { Text("确定") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
+    editDialog?.let { spec ->
+        EditValueDialog(spec = spec, onDismiss = { editDialog = null })
+    }
+    if (showStartPicker) {
+        MiuixDatePickerDialog(
+            title = "选择开始日期",
+            initialDate = form.date,
+            onDismiss = { showStartPicker = false },
+            onConfirm = {
+                form = form.copy(date = it)
+                showStartPicker = false
+            },
+        )
+    }
+    if (showEndPicker) {
+        MiuixDatePickerDialog(
+            title = "选择结束日期",
+            initialDate = if (form.endDate.isBlank()) form.date else form.endDate,
+            onDismiss = { showEndPicker = false },
+            onConfirm = {
+                form = form.copy(endDate = it)
+                showEndPicker = false
+            },
+        )
+    }
 }
 
 @Composable
 private fun WorkswapEditDialog(
+    activity: MainActivity,
     title: String,
     draft: WorkSwapDraft,
     maxWeek: Int,
@@ -1826,59 +2337,83 @@ private fun WorkswapEditDialog(
     onSave: (WorkSwapDraft) -> Unit,
 ) {
     var form by remember(draft) { mutableStateOf(draft.copy()) }
-    val context = androidx.compose.ui.platform.LocalContext.current
+    var editDialog by remember { mutableStateOf<EditDialogSpec?>(null) }
+    var choiceDialog by remember { mutableStateOf<ChoiceDialogSpec?>(null) }
+    var showDatePicker by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column {
                 OutlinedButton(onClick = {
-                    val parts = form.date.split("-")
-                    DatePickerDialog(
-                        context,
-                        { _, y, m, d -> form = form.copy(date = "%04d-%02d-%02d".format(y, m + 1, d)) },
-                        parts.getOrNull(0)?.toIntOrNull() ?: Calendar.getInstance().get(Calendar.YEAR),
-                        (parts.getOrNull(1)?.toIntOrNull() ?: 1) - 1,
-                        parts.getOrNull(2)?.toIntOrNull() ?: 1,
-                    ).show()
+                    showDatePicker = true
                 }, modifier = Modifier.fillMaxWidth()) {
                     Text("选择日期: ${form.date}")
                 }
                 Spacer(modifier = Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = form.name,
-                    onValueChange = { form = form.copy(name = it) },
-                    label = { Text("名称（如：补周一课）") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
+                PreferenceRow(
+                    title = "名称（如：补周一课）",
+                    value = form.name.ifBlank { "未设置" },
+                    onClick = {
+                        editDialog = EditDialogSpec(
+                            title = "名称（如：补周一课）",
+                            initialValue = form.name,
+                            onConfirm = { form = form.copy(name = it) },
+                        )
+                    },
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Text("当天按以下周次/星期的课表上课：", style = MaterialTheme.typography.bodySmall)
                 Spacer(modifier = Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("第 ")
-                    OutlinedTextField(
-                        value = form.followWeek.toString(),
-                        onValueChange = {
-                            form = form.copy(followWeek = (it.toIntOrNull() ?: 1).coerceIn(1, maxWeek))
-                        },
-                        modifier = Modifier.width(72.dp),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    )
-                    Text(" 周")
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                StageToggle(
-                    labels = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日"),
-                    selected = form.followWeekday.coerceIn(1, 7) - 1,
-                    onSelect = { form = form.copy(followWeekday = it + 1) },
+                PreferenceRow(
+                    title = "周次",
+                    value = "第 ${form.followWeek} 周",
+                    onClick = {
+                        editDialog = EditDialogSpec(
+                            title = "周次（1-$maxWeek）",
+                            initialValue = form.followWeek.toString(),
+                            numberOnly = true,
+                            onConfirm = {
+                                form = form.copy(followWeek = (it.toIntOrNull() ?: 1).coerceIn(1, maxWeek))
+                            },
+                        )
+                    },
+                )
+                HorizontalDivider()
+                PreferenceRow(
+                    title = "星期",
+                    value = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")[form.followWeekday.coerceIn(1, 7) - 1],
+                    onClick = {
+                        choiceDialog = ChoiceDialogSpec(
+                            title = "星期",
+                            options = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日"),
+                            selectedIndex = form.followWeekday.coerceIn(1, 7) - 1,
+                            onConfirm = { form = form.copy(followWeekday = it + 1) },
+                        )
+                    },
                 )
             }
         },
         confirmButton = { TextButton(onClick = { onSave(form) }) { Text("确定") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
+    editDialog?.let { spec ->
+        EditValueDialog(spec = spec, onDismiss = { editDialog = null })
+    }
+    choiceDialog?.let { spec ->
+        ChoiceDialog(spec = spec, onDismiss = { choiceDialog = null })
+    }
+    if (showDatePicker) {
+        MiuixDatePickerDialog(
+            title = "选择日期",
+            initialDate = form.date,
+            onDismiss = { showDatePicker = false },
+            onConfirm = {
+                form = form.copy(date = it)
+                showDatePicker = false
+            },
+        )
+    }
 }
 
 private fun formatShortDate(isoDate: String?): String {
@@ -1899,34 +2434,65 @@ private fun AboutTab(activity: MainActivity, state: AboutComposeState) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
-                Text("关于", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("版本", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(state.version, style = MaterialTheme.typography.bodyMedium)
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("作者", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = { activity.uiOpenAuthorPage() }) { Text("Mercury") }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("隐藏桌面图标", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Switch(
-                        checked = state.hideIcon,
-                        onCheckedChange = {
-                            state.hideIcon = it
-                            activity.uiSetHideIconEnabled(it)
-                        },
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.foundation.Image(
+                    painter = painterResource(R.mipmap.ic_launcher),
+                    contentDescription = null,
+                    modifier = Modifier.size(52.dp),
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "课程表超级岛",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceContainer,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = state.version,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         }
+        Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
+                Text("关于", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.height(8.dp))
+                PreferenceRow(
+                    title = "版本",
+                    value = state.version,
+                )
+                HorizontalDivider()
+                PreferenceRow(
+                    title = "作者",
+                    value = "Mercury",
+                    onClick = { activity.uiOpenAuthorPage() },
+                )
+                HorizontalDivider()
+                PreferenceSwitchRow(
+                    title = "隐藏桌面图标",
+                    checked = state.hideIcon,
+                    onChecked = {
+                        state.hideIcon = it
+                        activity.uiSetHideIconEnabled(it)
+                    },
+                )
+            }
+        }
     }
 }
+

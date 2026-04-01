@@ -18,8 +18,11 @@ dependencyResolutionManagement {
         maven { url 'https://maven.aliyun.com/repository/google' }
         google()
         mavenCentral()
+        maven { url 'https://jitpack.io' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
     }
 }
 
 rootProject.name = "IslandNotify"
 include ':app'
+include ':hyperx-compose'

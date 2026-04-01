@@ -248,17 +248,17 @@ dependencies {
     // UI：Material Design 3 + AppCompat
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.google.android.material:material:1.12.0'
-    implementation 'androidx.activity:activity:1.9.3'
-    implementation 'androidx.activity:activity-compose:1.9.3'
+    implementation 'androidx.activity:activity:1.13.0'
+    implementation 'androidx.activity:activity-compose:1.13.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
 
     // Compose
-    implementation platform('androidx.compose:compose-bom:2024.06.00')
-    implementation 'androidx.compose.foundation:foundation'
-    implementation 'androidx.compose.material3:material3'
-    implementation 'androidx.compose.ui:ui'
-    implementation 'androidx.compose.ui:ui-tooling-preview'
-    debugImplementation 'androidx.compose.ui:ui-tooling'
+    implementation 'androidx.compose.foundation:foundation:1.10.5'
+    implementation 'top.yukonga.miuix.kmp:miuix:0.8.8'
+    implementation 'androidx.compose.ui:ui:1.10.5'
+    implementation 'androidx.compose.ui:ui-tooling-preview:1.10.5'
+    implementation project(':hyperx-compose')
+    debugImplementation 'androidx.compose.ui:ui-tooling:1.10.5'
 }
 
 // 强制禁用APK列表文件重定向任务
