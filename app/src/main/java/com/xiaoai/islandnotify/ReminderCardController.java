@@ -25,7 +25,11 @@ final class ReminderCardController {
             int minutes = clampMinutes(etMinutes, fallbackMinutes);
             etMinutes.setText(String.valueOf(minutes));
             if (onSave != null) onSave.run(minutes);
-            CardUiController.showHint(tvHint, "已保存，重新调度今日提醒（提前 " + minutes + " 分钟）");
+            CardUiController.showHint(
+                    tvHint,
+                    "\u5df2\u4fdd\u5b58\uff0c\u91cd\u65b0\u8c03\u5ea6\u4eca\u65e5\u63d0\u9192\uff08\u63d0\u524d "
+                            + minutes
+                            + " \u5206\u949f\uff09");
         });
     }
 

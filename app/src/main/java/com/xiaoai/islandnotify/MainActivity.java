@@ -537,7 +537,6 @@ public class MainActivity extends AppCompatActivity {
 
     /** SharedPreferences 名称（与 MainHook 保持一致） */
     static final String PREFS_NAME = "island_custom";
-    private static final String KEY_REPOST_ENABLED = "repost_enabled";
     private static final String KEY_ACTIVE_COUNTDOWN_TO_END = "active_countdown_to_end";
 
     private void initCustomCard() {
@@ -1159,93 +1158,7 @@ public class MainActivity extends AppCompatActivity {
      * 静音与勿扰（DND）完全独立，可同时启用，各自独立配置触发时间。
      */
     private void initMuteCard() {
-        SwitchMaterial swMute        = findViewById(R.id.sw_mute_enabled);
-        SwitchMaterial swRepost      = findViewById(R.id.sw_repost_enabled);
-        View           llMute        = findViewById(R.id.ll_mute_content);
-        EditText       etMuteBefore  = findViewById(R.id.et_mute_mins_before);
-        SwitchMaterial swUnmute      = findViewById(R.id.sw_unmute_enabled);
-        View           llUnmute      = findViewById(R.id.ll_unmute_content);
-        EditText       etUnmuteAfter = findViewById(R.id.et_unmute_mins_after);
-        SwitchMaterial swDnd         = findViewById(R.id.sw_dnd_enabled);
-        View           llDnd         = findViewById(R.id.ll_dnd_content);
-        EditText       etDndBefore   = findViewById(R.id.et_dnd_mins_before);
-        SwitchMaterial swUnDnd       = findViewById(R.id.sw_undnd_enabled);
-        View           llUnDnd       = findViewById(R.id.ll_undnd_content);
-        EditText       etUnDndAfter  = findViewById(R.id.et_undnd_mins_after);
-        TextView       tvMuteHint    = findViewById(R.id.tv_mute_hint);
-
-        // 加载已保存状态
-        CardUiController.bindSwitch(
-                swRepost,
-                readConfigBool(KEY_REPOST_ENABLED, ConfigDefaults.REPOST_ENABLED),
-                checked -> editConfigPrefs().putBoolean(KEY_REPOST_ENABLED, checked).apply());
-
-        etMuteBefore.setText(String.valueOf(readConfigInt("mute_mins_before", ConfigDefaults.MINUTES_OFFSET)));
-        etUnmuteAfter.setText(String.valueOf(readConfigInt("unmute_mins_after", ConfigDefaults.MINUTES_OFFSET)));
-        etDndBefore.setText(String.valueOf(readConfigInt("dnd_mins_before", ConfigDefaults.MINUTES_OFFSET)));
-        etUnDndAfter.setText(String.valueOf(readConfigInt("undnd_mins_after", ConfigDefaults.MINUTES_OFFSET)));
-
-        CardUiController.bindSwitchContent(
-                swMute,
-                llMute,
-                readConfigBool("mute_enabled", ConfigDefaults.SWITCH_DISABLED),
-                checked -> editConfigPrefs().putBoolean("mute_enabled", checked).apply());
-        CardUiController.bindSwitchContent(
-                swUnmute,
-                llUnmute,
-                readConfigBool("unmute_enabled", ConfigDefaults.SWITCH_DISABLED),
-                checked -> editConfigPrefs().putBoolean("unmute_enabled", checked).apply());
-        CardUiController.bindSwitchContent(
-                swDnd,
-                llDnd,
-                readConfigBool("dnd_enabled", ConfigDefaults.SWITCH_DISABLED),
-                checked -> editConfigPrefs().putBoolean("dnd_enabled", checked).apply());
-        CardUiController.bindSwitchContent(
-                swUnDnd,
-                llUnDnd,
-                readConfigBool("undnd_enabled", ConfigDefaults.SWITCH_DISABLED),
-                checked -> editConfigPrefs().putBoolean("undnd_enabled", checked).apply());
-
-        com.google.android.material.button.MaterialButtonToggleGroup toggleMode = findViewById(R.id.toggle_island_button_mode);
-        int savedMode = readConfigInt("island_button_mode", ConfigDefaults.ISLAND_BUTTON_MODE); // 0=Mute, 1=DND, 2=Both
-        if (savedMode == 0) toggleMode.check(R.id.btn_mode_mute);
-        else if (savedMode == 1) toggleMode.check(R.id.btn_mode_dnd);
-        else toggleMode.check(R.id.btn_mode_both);
-
-        // 保存时间设置（静音 + 勿扰共 4 个字段 + 按钮模式）
-        findViewById(R.id.btn_save_mute).setOnClickListener(v -> {
-            int muteBefore  = parseMinutes(etMuteBefore);
-            int unmuteAfter = parseMinutes(etUnmuteAfter);
-            int dndBefore   = parseMinutes(etDndBefore);
-            int unDndAfter  = parseMinutes(etUnDndAfter);
-
-            int selectedId = toggleMode.getCheckedButtonId();
-            int buttonMode = (selectedId == R.id.btn_mode_mute) ? 0 : (selectedId == R.id.btn_mode_dnd ? 1 : 2);
-
-            etMuteBefore.setText(String.valueOf(muteBefore));
-            etUnmuteAfter.setText(String.valueOf(unmuteAfter));
-            etDndBefore.setText(String.valueOf(dndBefore));
-            etUnDndAfter.setText(String.valueOf(unDndAfter));
-
-            editConfigPrefs()
-              .putInt("mute_mins_before",  muteBefore)
-              .putInt("unmute_mins_after", unmuteAfter)
-              .putInt("dnd_mins_before",   dndBefore)
-              .putInt("undnd_mins_after",  unDndAfter)
-              .putInt("island_button_mode", buttonMode)
-              .apply();
-
-
-            CardUiController.showHint(tvMuteHint, "设置已保存并重新调度");
-        });
-    }
-
-    /** 解析 EditText 中的分钟数（0–60），非法输入返回 0 */
-    private static int parseMinutes(EditText et) {
-        try {
-            int v = Integer.parseInt(et.getText() != null ? et.getText().toString().trim() : "0");
-            return Math.max(0, Math.min(60, v));
-        } catch (NumberFormatException e) { return 0; }
+        MuteCardController.bind(this, getConfigPrefs());
     }
 
     private void initWakeupCard() {
