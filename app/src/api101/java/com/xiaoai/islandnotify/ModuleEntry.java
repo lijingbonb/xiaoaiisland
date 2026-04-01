@@ -29,13 +29,15 @@ public class ModuleEntry extends XposedModule {
     @RequiresApi(Build.VERSION_CODES.Q)
     public void onPackageLoaded(@NonNull PackageLoadedParam param) {
         XposedBridge.init(this);
-
         String packageName = param.getPackageName();
         String resolvedProcessName = processName == null || processName.isEmpty()
-                ? param.getPackageName()
+                ? packageName
                 : processName;
         ClassLoader classLoader = param.getDefaultClassLoader();
+        dispatchHooks(packageName, resolvedProcessName, classLoader);
+    }
 
+    private void dispatchHooks(String packageName, String resolvedProcessName, ClassLoader classLoader) {
         try {
             mainHook.handleLoadPackage(packageName, resolvedProcessName, classLoader);
         } catch (Throwable t) {
@@ -58,4 +60,3 @@ public class ModuleEntry extends XposedModule {
         }
     }
 }
-
