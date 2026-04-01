@@ -190,6 +190,109 @@ final class TimeoutCardController {
         notifyDirty(onDirtyChanged);
     }
 
+    static boolean isDirty(
+            AppCompatActivity activity,
+            SharedPreferences prefs,
+            int[] islandStageButtons,
+            int[] notifStageButtons) {
+        TimeoutConfig saved = TimeoutConfig.read(PrefsAccess.resolve(prefs));
+
+        MaterialButtonToggleGroup toggleIslandPhase = activity.findViewById(R.id.toggle_island_phase);
+        EditText etIsland = activity.findViewById(R.id.et_island_to);
+        MaterialButtonToggleGroup toggleIslandUnit = activity.findViewById(R.id.toggle_island_unit);
+        SwitchMaterial swIslandDefault = activity.findViewById(R.id.sw_island_to_default);
+        MaterialButtonToggleGroup toggleNotifPhase = activity.findViewById(R.id.toggle_notif_phase);
+        SwitchMaterial swNotifDefault = activity.findViewById(R.id.sw_notif_to_default);
+        EditText etNotif = activity.findViewById(R.id.et_notif_to);
+        MaterialButtonToggleGroup toggleNotifUnit = activity.findViewById(R.id.toggle_notif_unit);
+        if (toggleIslandPhase == null || etIsland == null || toggleIslandUnit == null
+                || swIslandDefault == null || toggleNotifPhase == null || swNotifDefault == null
+                || etNotif == null || toggleNotifUnit == null) {
+            return false;
+        }
+
+        int idxIsland = stageIndexFromButtonId(
+                toggleIslandPhase.getCheckedButtonId(), islandStageButtons);
+        String curIslandStr = etIsland.getText() != null ? etIsland.getText().toString().trim() : "";
+        int curIslandVal = curIslandStr.isEmpty()
+                ? ConfigDefaults.TIMEOUT_VALUE
+                : tryParseInt(curIslandStr, ConfigDefaults.TIMEOUT_VALUE);
+        String curIslandUnit = toggleIslandUnit.getCheckedButtonId() == R.id.btn_island_s ? "s" : "m";
+        int savedIsVal = saved.islandVals[idxIsland];
+        String savedIsUnit = saved.islandUnits[idxIsland];
+        boolean savedIslandDefault = savedIsVal < 0;
+        if (swIslandDefault.isChecked() != savedIslandDefault) return true;
+        if (!swIslandDefault.isChecked()) {
+            if (curIslandVal != savedIsVal) return true;
+            if (!curIslandUnit.equals(savedIsUnit)) return true;
+        }
+
+        int idxNotif = stageIndexFromButtonId(toggleNotifPhase.getCheckedButtonId(), notifStageButtons);
+        String curNotifStr = etNotif.getText() != null ? etNotif.getText().toString().trim() : "";
+        int curNotifVal = curNotifStr.isEmpty()
+                ? ConfigDefaults.TIMEOUT_VALUE
+                : tryParseInt(curNotifStr, ConfigDefaults.TIMEOUT_VALUE);
+        String curNotifUnit = toggleNotifUnit.getCheckedButtonId() == R.id.btn_notif_s ? "s" : "m";
+        if (swNotifDefault.isChecked() != saved.notifGlobalDefault) return true;
+        if (!swNotifDefault.isChecked()) {
+            if (idxNotif != saved.notifTriggerStage) return true;
+            int savedNoVal = saved.notifVals[saved.notifTriggerStage];
+            String savedNoUnit = saved.notifUnits[saved.notifTriggerStage];
+            if (curNotifVal != savedNoVal) return true;
+            if (!curNotifUnit.equals(savedNoUnit)) return true;
+        }
+        return false;
+    }
+
+    static void refreshFromPrefs(
+            AppCompatActivity activity,
+            SharedPreferences prefs,
+            int[] islandStageButtons,
+            int[] notifStageButtons) {
+        TimeoutConfig cfg = TimeoutConfig.read(PrefsAccess.resolve(prefs));
+
+        MaterialButtonToggleGroup toggleIslandPhase = activity.findViewById(R.id.toggle_island_phase);
+        TextInputLayout tilIsland = activity.findViewById(R.id.til_island_to);
+        EditText etIsland = activity.findViewById(R.id.et_island_to);
+        MaterialButtonToggleGroup toggleIslandUnit = activity.findViewById(R.id.toggle_island_unit);
+        SwitchMaterial swIslandDefault = activity.findViewById(R.id.sw_island_to_default);
+
+        MaterialButtonToggleGroup toggleNotifPhase = activity.findViewById(R.id.toggle_notif_phase);
+        TextInputLayout tilNotif = activity.findViewById(R.id.til_notif_to);
+        EditText etNotif = activity.findViewById(R.id.et_notif_to);
+        MaterialButtonToggleGroup toggleNotifUnit = activity.findViewById(R.id.toggle_notif_unit);
+        SwitchMaterial swNotifDefault = activity.findViewById(R.id.sw_notif_to_default);
+
+        if (toggleIslandPhase == null || tilIsland == null || etIsland == null
+                || toggleIslandUnit == null || swIslandDefault == null
+                || toggleNotifPhase == null || tilNotif == null || etNotif == null
+                || toggleNotifUnit == null || swNotifDefault == null) {
+            return;
+        }
+
+        int checkedIsland = toggleIslandPhase.getCheckedButtonId();
+        int idxIsland = stageIndexFromButtonId(checkedIsland, islandStageButtons);
+        int savedIsVal = cfg.islandVals[idxIsland];
+        String savedIsUnit = cfg.islandUnits[idxIsland];
+        boolean islandDefault = savedIsVal < 0;
+        swIslandDefault.setChecked(islandDefault);
+        etIsland.setText(islandDefault ? "" : String.valueOf(savedIsVal));
+        toggleIslandUnit.check("s".equals(savedIsUnit) ? R.id.btn_island_s : R.id.btn_island_m);
+        setTimeoutRowEnabled(tilIsland, toggleIslandUnit, !islandDefault);
+
+        int triggerIdx = cfg.notifTriggerStage;
+        swNotifDefault.setChecked(cfg.notifGlobalDefault);
+        toggleNotifPhase.check(buttonIdForStage(notifStageButtons, triggerIdx));
+        int savedNoVal = cfg.notifVals[triggerIdx];
+        String savedNoUnit = cfg.notifUnits[triggerIdx];
+        etNotif.setText(cfg.notifGlobalDefault || savedNoVal < 0 ? "" : String.valueOf(savedNoVal));
+        toggleNotifUnit.check("s".equals(savedNoUnit) ? R.id.btn_notif_s : R.id.btn_notif_m);
+        boolean notifEnabled = !cfg.notifGlobalDefault;
+        setTimeoutRowEnabled(tilNotif, toggleNotifUnit, notifEnabled);
+        toggleNotifPhase.setEnabled(notifEnabled);
+        toggleNotifPhase.setAlpha(notifEnabled ? 1f : 0.4f);
+    }
+
     static void setTimeoutRowEnabled(
             TextInputLayout til, MaterialButtonToggleGroup unitToggle, boolean enabled) {
         til.setEnabled(enabled);
@@ -228,5 +331,13 @@ final class TimeoutCardController {
 
     private static void notifyDirty(Runnable onDirtyChanged) {
         if (onDirtyChanged != null) onDirtyChanged.run();
+    }
+
+    private static int tryParseInt(String value, int fallback) {
+        try {
+            return Integer.parseInt(value);
+        } catch (Exception ignored) {
+            return fallback;
+        }
     }
 }

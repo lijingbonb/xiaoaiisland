@@ -850,51 +850,8 @@ public class MainActivity extends AppCompatActivity {
      * 检查「超时设置」卡片当前可见项是否与已保存值不同（表明存在未保存修改）
      */
     private boolean isTimeoutDirty() {
-        TimeoutConfig saved = TimeoutConfig.read(getConfigPrefs());
-        // 岛：当前阶段
-        MaterialButtonToggleGroup toggleIslandPhase = findViewById(R.id.toggle_island_phase);
-        int idxIsland = TimeoutCardController.stageIndexFromButtonId(
-                toggleIslandPhase.getCheckedButtonId(), ISLAND_PHASE_BUTTON_IDS);
-        EditText etIsland = findViewById(R.id.et_island_to);
-        String curIslandStr = etIsland.getText() != null ? etIsland.getText().toString().trim() : "";
-        int curIslandVal = curIslandStr.isEmpty() ? ConfigDefaults.TIMEOUT_VALUE : tryParseInt(curIslandStr, ConfigDefaults.TIMEOUT_VALUE);
-        MaterialButtonToggleGroup toggleIslandUnit = findViewById(R.id.toggle_island_unit);
-        String curIslandUnit = (toggleIslandUnit.getCheckedButtonId() == R.id.btn_island_s) ? "s" : "m";
-        SwitchMaterial swIslandDefault = findViewById(R.id.sw_island_to_default);
-        int savedIsVal = saved.islandVals[idxIsland];
-        String savedIsUnit = saved.islandUnits[idxIsland];
-        boolean savedIslandDefault = savedIsVal < 0;
-        if (swIslandDefault.isChecked() != savedIslandDefault) return true;
-        if (!swIslandDefault.isChecked()) {
-            if (curIslandVal != savedIsVal) return true;
-            if (!curIslandUnit.equals(savedIsUnit)) return true;
-        }
-
-        // 通知：仅允许单选一个触发阶段
-        MaterialButtonToggleGroup toggleNotifPhase = findViewById(R.id.toggle_notif_phase);
-        int idxNotif = TimeoutCardController.stageIndexFromButtonId(
-                toggleNotifPhase.getCheckedButtonId(), NOTIF_PHASE_BUTTON_IDS);
-        SwitchMaterial swNotifDefault  = findViewById(R.id.sw_notif_to_default);
-        EditText etNotif = findViewById(R.id.et_notif_to);
-        String curNotifStr = etNotif.getText() != null ? etNotif.getText().toString().trim() : "";
-        int curNotifVal = curNotifStr.isEmpty() ? ConfigDefaults.TIMEOUT_VALUE : tryParseInt(curNotifStr, ConfigDefaults.TIMEOUT_VALUE);
-        MaterialButtonToggleGroup toggleNotifUnit = findViewById(R.id.toggle_notif_unit);
-        String curNotifUnit = (toggleNotifUnit.getCheckedButtonId() == R.id.btn_notif_s) ? "s" : "m";
-        if (swNotifDefault.isChecked() != saved.notifGlobalDefault) return true;
-        if (!swNotifDefault.isChecked()) {
-            if (idxNotif != saved.notifTriggerStage) return true;
-            int savedNoVal = saved.notifVals[saved.notifTriggerStage];
-            String savedNoUnit = saved.notifUnits[saved.notifTriggerStage];
-            if (curNotifVal != savedNoVal) return true;
-            if (!curNotifUnit.equals(savedNoUnit)) return true;
-        }
-
-        // 若都一致，则无未保存项
-        return false;
-    }
-
-    private int tryParseInt(String s, int def) {
-        try { return Integer.parseInt(s); } catch (Exception e) { return def; }
+        return TimeoutCardController.isDirty(
+                this, getConfigPrefs(), ISLAND_PHASE_BUTTON_IDS, NOTIF_PHASE_BUTTON_IDS);
     }
 
     private void updateCustomDirtyIndicator() {
@@ -1752,50 +1709,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void refreshTimeoutCardFromPrefs() {
-        TimeoutConfig cfg = TimeoutConfig.read(getConfigPrefs());
-
-        MaterialButtonToggleGroup toggleIslandPhase = findViewById(R.id.toggle_island_phase);
-        TextInputLayout tilIsland = findViewById(R.id.til_island_to);
-        EditText etIsland = findViewById(R.id.et_island_to);
-        MaterialButtonToggleGroup toggleIslandUnit = findViewById(R.id.toggle_island_unit);
-        SwitchMaterial swIslandDefault = findViewById(R.id.sw_island_to_default);
-
-        MaterialButtonToggleGroup toggleNotifPhase = findViewById(R.id.toggle_notif_phase);
-        TextInputLayout tilNotif = findViewById(R.id.til_notif_to);
-        EditText etNotif = findViewById(R.id.et_notif_to);
-        MaterialButtonToggleGroup toggleNotifUnit = findViewById(R.id.toggle_notif_unit);
-        SwitchMaterial swNotifDefault = findViewById(R.id.sw_notif_to_default);
-
-        if (toggleIslandPhase == null || tilIsland == null || etIsland == null
-                || toggleIslandUnit == null || swIslandDefault == null
-                || toggleNotifPhase == null || tilNotif == null || etNotif == null
-                || toggleNotifUnit == null || swNotifDefault == null) {
-            return;
-        }
-
-        int checkedIsland = toggleIslandPhase.getCheckedButtonId();
-        int idxIsland = TimeoutCardController.stageIndexFromButtonId(
-                checkedIsland, ISLAND_PHASE_BUTTON_IDS);
-        int savedIsVal = cfg.islandVals[idxIsland];
-        String savedIsUnit = cfg.islandUnits[idxIsland];
-        boolean islandDefault = savedIsVal < 0;
-        swIslandDefault.setChecked(islandDefault);
-        etIsland.setText(islandDefault ? "" : String.valueOf(savedIsVal));
-        toggleIslandUnit.check("s".equals(savedIsUnit) ? R.id.btn_island_s : R.id.btn_island_m);
-        TimeoutCardController.setTimeoutRowEnabled(tilIsland, toggleIslandUnit, !islandDefault);
-
-        int triggerIdx = cfg.notifTriggerStage;
-        swNotifDefault.setChecked(cfg.notifGlobalDefault);
-        toggleNotifPhase.check(
-                TimeoutCardController.buttonIdForStage(NOTIF_PHASE_BUTTON_IDS, triggerIdx));
-        int savedNoVal = cfg.notifVals[triggerIdx];
-        String savedNoUnit = cfg.notifUnits[triggerIdx];
-        etNotif.setText(cfg.notifGlobalDefault || savedNoVal < 0 ? "" : String.valueOf(savedNoVal));
-        toggleNotifUnit.check("s".equals(savedNoUnit) ? R.id.btn_notif_s : R.id.btn_notif_m);
-        boolean notifEnabled = !cfg.notifGlobalDefault;
-        TimeoutCardController.setTimeoutRowEnabled(tilNotif, toggleNotifUnit, notifEnabled);
-        toggleNotifPhase.setEnabled(notifEnabled);
-        toggleNotifPhase.setAlpha(notifEnabled ? 1f : 0.4f);
+        TimeoutCardController.refreshFromPrefs(
+                this, getConfigPrefs(), ISLAND_PHASE_BUTTON_IDS, NOTIF_PHASE_BUTTON_IDS);
     }
 
     private void refreshAfterConfigSynced() {
