@@ -2461,11 +2461,19 @@ private fun YearPickerDialog(
         )
         Spacer(modifier = Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
-            Button(
-                onClick = { onConfirm(year) },
+            TextButton(
                 modifier = Modifier.weight(1f),
-            ) { Text("确定") }
+                text = "取消",
+                minHeight = 50.dp,
+                onClick = onDismiss,
+            )
+            TextButton(
+                modifier = Modifier.weight(1f),
+                text = "确定",
+                minHeight = 50.dp,
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+                onClick = { onConfirm(year) },
+            )
         }
     }
 }
@@ -2549,11 +2557,19 @@ private fun MiuixDatePickerDialog(
         }
         Spacer(modifier = Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
-            Button(
-                onClick = { onConfirm(formatIsoDate(year, month, day.coerceIn(1, maxDay))) },
+            TextButton(
                 modifier = Modifier.weight(1f),
-            ) { Text("确定") }
+                text = "取消",
+                minHeight = 50.dp,
+                onClick = onDismiss,
+            )
+            TextButton(
+                modifier = Modifier.weight(1f),
+                text = "确定",
+                minHeight = 50.dp,
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+                onClick = { onConfirm(formatIsoDate(year, month, day.coerceIn(1, maxDay))) },
+            )
         }
     }
 }
@@ -2601,8 +2617,19 @@ private fun MiuixTimePickerDialog(
         }
         Spacer(modifier = Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
-            Button(onClick = { onConfirm(hour, minute) }, modifier = Modifier.weight(1f)) { Text("确定") }
+            TextButton(
+                modifier = Modifier.weight(1f),
+                text = "取消",
+                minHeight = 50.dp,
+                onClick = onDismiss,
+            )
+            TextButton(
+                modifier = Modifier.weight(1f),
+                text = "确定",
+                minHeight = 50.dp,
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+                onClick = { onConfirm(hour, minute) },
+            )
         }
     }
 }
@@ -2638,11 +2665,19 @@ private fun MiuixSectionPickerDialog(
         )
         Spacer(modifier = Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
-            Button(
-                onClick = { onConfirm(section) },
+            TextButton(
                 modifier = Modifier.weight(1f),
-            ) { Text("确定") }
+                text = "取消",
+                minHeight = 50.dp,
+                onClick = onDismiss,
+            )
+            TextButton(
+                modifier = Modifier.weight(1f),
+                text = "确定",
+                minHeight = 50.dp,
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+                onClick = { onConfirm(section) },
+            )
         }
     }
 }
@@ -2693,11 +2728,19 @@ private fun MiuixDurationPickerDialog(
         }
         Spacer(modifier = Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
-            Button(
-                onClick = { onConfirm(value, unitEntries[unitIndex].second) },
+            TextButton(
                 modifier = Modifier.weight(1f),
-            ) { Text("确定") }
+                text = "取消",
+                minHeight = 50.dp,
+                onClick = onDismiss,
+            )
+            TextButton(
+                modifier = Modifier.weight(1f),
+                text = "确定",
+                minHeight = 50.dp,
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+                onClick = { onConfirm(value, unitEntries[unitIndex].second) },
+            )
         }
     }
 }
