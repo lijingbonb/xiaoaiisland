@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.XiaoaiIsland" parent="Theme.Material3.DayNight.NoActionBar">
+    <style name="Theme.XiaoaiIsland" parent="Theme.AppCompat.DayNight.NoActionBar">
         <!-- 夜间模式：状态栏背景深色，图标用白色（不反色） -->
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:statusBarColor">@android:color/transparent</item>

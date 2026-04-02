@@ -9,7 +9,6 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.google.android.material.color.DynamicColors;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -189,7 +188,6 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        DynamicColors.applyToActivityIfAvailable(this);
         super.onCreate(savedInstanceState);
         MainComposeEntry.install(this);
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
