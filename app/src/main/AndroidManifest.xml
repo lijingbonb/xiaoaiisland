@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 获取节假日数据 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <queries>
         <package android:name="com.miui.voiceassist" />
@@ -15,18 +14,17 @@
         android:allowBackup="false"
         android:theme="@style/Theme.XiaoaiIsland">
 
-        <!-- 模块主界面（MODULE_SETTINGS 供 LSPosed 打开，与桌面图标无关） -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name">
+            android:label="@string/app_name"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
             </intent-filter>
         </activity>
 
-        <!-- 桌面图标别名入口（禁用此项即可隐藏桌面图标） -->
         <activity-alias
             android:name=".MainActivityAlias"
             android:targetActivity=".MainActivity"
@@ -39,7 +37,6 @@
             </intent-filter>
         </activity-alias>
 
-        <!-- 接收目标进程发来的总周数更新 -->
         <receiver android:name=".TotalWeekReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="com.xiaoai.islandnotify.ACTION_UPDATE_TOTAL_WEEK" />

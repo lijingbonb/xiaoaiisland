@@ -1,15 +1,11 @@
 package dev.lackluster.hyperx.compose.preference
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -250,21 +246,19 @@ fun EditTextDialog(
                     focusRequester.requestFocus()
                 }
             }
-            Box(
-                modifier = Modifier.verticalScroll(rememberScrollState()) // 防空间不够崩溃
-            ) {
-                TextField(
-                    modifier = Modifier
-                        .padding(bottom = 12.dp)
-                        .heightIn(min = 50.dp)
-                        .focusRequester(focusRequester),
-                    value = textState.value,
-                    singleLine = true,
-                    label = placeholder ?: "",
-                    useLabelAsPlaceholder = true,
-                    onValueChange = { textState.value = it }
-                )
-            }
+            TextField(
+                modifier = Modifier
+                    .padding(bottom = 12.dp)
+                    .focusRequester(focusRequester),
+                value = textState.value,
+                textStyle = MiuixTheme.textStyles.main.copy(
+                    color = MiuixTheme.colorScheme.onPrimaryContainer
+                ),
+                singleLine = true,
+                label = placeholder ?: "",
+                useLabelAsPlaceholder = true,
+                onValueChange = { textState.value = it }
+            )
             Row(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
