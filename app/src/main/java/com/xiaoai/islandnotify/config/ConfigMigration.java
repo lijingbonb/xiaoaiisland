@@ -12,6 +12,7 @@ final class ConfigMigration {
         changed |= migrateSingleTimeoutKey(sp, ed, "to_island", "island_dismiss_trigger");
         changed |= migrateSingleTimeoutKey(sp, ed, "to_notif", notifTriggerKey);
         changed |= normalizeSingleNotifPhase(sp, ed, notifTriggerKey);
+        changed |= migrateTimeoutConfigV3(sp, ed, notifTriggerKey);
         changed |= purgeLegacyConfigKeys(ed);
         return changed;
     }
@@ -100,6 +101,58 @@ final class ConfigMigration {
         ed.remove("island_dismiss_trigger");
         ed.remove("use_default_behavior");
         return true;
+    }
+
+    static boolean migrateTimeoutConfigV3(SharedPreferences sp, SharedPreferences.Editor ed, String notifTriggerKey) {
+        boolean changed = false;
+        int selectedIdx = ConfigDefaults.stageIndexByPhase(
+                safeString(sp.getString(notifTriggerKey, ConfigDefaults.NOTIF_TRIGGER)));
+        boolean hasConfiguredNotifStage = false;
+        for (int i = 0; i < ConfigDefaults.STAGE_PHASES.length; i++) {
+            String phase = ConfigDefaults.stagePhase(i);
+            if (sp.getInt("to_notif_val_" + phase, ConfigDefaults.TIMEOUT_VALUE) >= 0) {
+                hasConfiguredNotifStage = true;
+            }
+            String islandUnitKey = "to_island_unit_" + phase;
+            String notifUnitKey = "to_notif_unit_" + phase;
+            String islandUnit = safeString(sp.getString(islandUnitKey, ConfigDefaults.TIMEOUT_UNIT));
+            String notifUnit = safeString(sp.getString(notifUnitKey, ConfigDefaults.TIMEOUT_UNIT));
+            String islandNorm = normalizeTimeoutUnit(islandUnit);
+            String notifNorm = normalizeTimeoutUnit(notifUnit);
+            if (!islandNorm.equals(islandUnit)) {
+                ed.putString(islandUnitKey, islandNorm);
+                changed = true;
+            }
+            if (!notifNorm.equals(notifUnit)) {
+                ed.putString(notifUnitKey, notifNorm);
+                changed = true;
+            }
+        }
+
+        if (!sp.contains(ConfigDefaults.KEY_NOTIF_GLOBAL_DEFAULT)) {
+            ed.putBoolean(ConfigDefaults.KEY_NOTIF_GLOBAL_DEFAULT, !hasConfiguredNotifStage);
+            changed = true;
+        }
+
+        boolean notifDefault = sp.contains(ConfigDefaults.KEY_NOTIF_GLOBAL_DEFAULT)
+                ? sp.getBoolean(ConfigDefaults.KEY_NOTIF_GLOBAL_DEFAULT, true)
+                : !hasConfiguredNotifStage;
+        if (!notifDefault) {
+            String selectedPhase = ConfigDefaults.stagePhase(selectedIdx);
+            String selectedValKey = "to_notif_val_" + selectedPhase;
+            int selectedVal = sp.getInt(selectedValKey, ConfigDefaults.TIMEOUT_VALUE);
+            if (selectedVal <= 0) {
+                ed.putInt(selectedValKey, 1);
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    private static String normalizeTimeoutUnit(String unit) {
+        if ("s".equals(unit)) return "s";
+        if ("h".equals(unit)) return "h";
+        return ConfigDefaults.TIMEOUT_UNIT;
     }
 
     static String safeString(String value) {

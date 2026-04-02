@@ -12,6 +12,7 @@ final class ConfigDefaults {
     static final int TIMEOUT_VALUE = -1;
     static final String TIMEOUT_UNIT = "m";
     static final String KEY_NOTIF_DISMISS_TRIGGER = "notif_dismiss_trigger";
+    static final String KEY_NOTIF_GLOBAL_DEFAULT = "to_notif_global_default";
     static final String NOTIF_TRIGGER = "pre";
     static final boolean SWITCH_DISABLED = false;
     static final boolean REPOST_ENABLED = true;
@@ -92,6 +93,7 @@ final class ConfigDefaults {
         if (key == null) return fallback;
         switch (key) {
             case "repost_enabled": return REPOST_ENABLED;
+            case KEY_NOTIF_GLOBAL_DEFAULT: return true;
             case "mute_enabled":
             case "unmute_enabled":
             case "dnd_enabled":

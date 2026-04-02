@@ -244,7 +244,13 @@ final class IslandContentBuilder {
                     prefs, "to_island_unit_" + phase, ConfigDefaults.TIMEOUT_UNIT);
             int islandTimeoutSec = -1;
             if (islandToVal > 0) {
-                islandTimeoutSec = "m".equals(islandToUnit) ? islandToVal * 60 : islandToVal;
+                if ("s".equals(islandToUnit)) {
+                    islandTimeoutSec = islandToVal;
+                } else if ("h".equals(islandToUnit)) {
+                    islandTimeoutSec = islandToVal * 3600;
+                } else {
+                    islandTimeoutSec = islandToVal * 60;
+                }
             }
             final int finalIslandTimeoutSec = islandTimeoutSec;
             final long finalTimerMs = timerMs;

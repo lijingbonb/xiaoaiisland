@@ -42,11 +42,15 @@ final class TimeoutConfig {
                 }
             }
         }
-        cfg.notifGlobalDefault = true;
-        for (int i = 0; i < ConfigDefaults.STAGE_PHASES.length; i++) {
-            if (cfg.notifVals[i] >= 0) {
-                cfg.notifGlobalDefault = false;
-                break;
+        if (sp.contains(ConfigDefaults.KEY_NOTIF_GLOBAL_DEFAULT)) {
+            cfg.notifGlobalDefault = sp.getBoolean(ConfigDefaults.KEY_NOTIF_GLOBAL_DEFAULT, true);
+        } else {
+            cfg.notifGlobalDefault = true;
+            for (int i = 0; i < ConfigDefaults.STAGE_PHASES.length; i++) {
+                if (cfg.notifVals[i] >= 0) {
+                    cfg.notifGlobalDefault = false;
+                    break;
+                }
             }
         }
         return cfg;
@@ -62,6 +66,7 @@ final class TimeoutConfig {
         }
 
         ed.putString(ConfigDefaults.KEY_NOTIF_DISMISS_TRIGGER, ConfigDefaults.stagePhase(selectedStage));
+        ed.putBoolean(ConfigDefaults.KEY_NOTIF_GLOBAL_DEFAULT, notifGlobalDefault);
         for (int i = 0; i < ConfigDefaults.STAGE_PHASES.length; i++) {
             String phase = ConfigDefaults.stagePhase(i);
             ed.putInt("to_notif_val_" + phase, ConfigDefaults.TIMEOUT_VALUE);
@@ -76,7 +81,8 @@ final class TimeoutConfig {
     }
 
     private static String safeUnit(String unit) {
-        return "s".equals(unit) ? "s" : ConfigDefaults.TIMEOUT_UNIT;
+        if ("s".equals(unit)) return "s";
+        if ("h".equals(unit)) return "h";
+        return ConfigDefaults.TIMEOUT_UNIT;
     }
 }
-

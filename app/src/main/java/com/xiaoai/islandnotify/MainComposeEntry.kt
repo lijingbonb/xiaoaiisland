@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -189,6 +190,7 @@ private data class EditDialogSpec(
     val title: String,
     val initialValue: String,
     val numberOnly: Boolean = false,
+    val successToast: String? = "已保存",
     val onConfirm: (String) -> Unit,
 )
 
@@ -206,6 +208,7 @@ private sealed interface AppRoute : androidx.navigation3.runtime.NavKey {
 
 @Composable
 private fun EditValueDialog(spec: EditDialogSpec, onDismiss: () -> Unit) {
+    val context = LocalContext.current
     var closed by remember(spec) { mutableStateOf(false) }
     val visibility = remember(spec) { mutableStateOf(true) }
     EditTextDialog(
@@ -215,6 +218,9 @@ private fun EditValueDialog(spec: EditDialogSpec, onDismiss: () -> Unit) {
         onInputConfirm = { raw ->
             val text = if (spec.numberOnly) raw.filter(Char::isDigit) else raw
             spec.onConfirm(text.trim())
+            spec.successToast?.takeIf { it.isNotBlank() }?.let {
+                Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+            }
             if (!closed) {
                 closed = true
                 onDismiss()
@@ -1124,13 +1130,16 @@ private fun DismissibleHint(
 
 @Composable
 private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
-    var editDialog by remember { mutableStateOf<EditDialogSpec?>(null) }
+    val context = LocalContext.current
     val stageLabels = remember { listOf("通知后", "上课后", "下课后") }
-    val unitEntries = remember { listOf(DropDownEntry(title = "秒"), DropDownEntry(title = "分")) }
     val stageEntries = remember(stageLabels) { stageLabels.map { DropDownEntry(title = it) } }
 
     val islandVals = remember(state.timeoutState) { state.timeoutState.islandVals.toMutableList() }
-    val islandUnits = remember(state.timeoutState) { state.timeoutState.islandUnits.toMutableList() }
+    val islandUnits = remember(state.timeoutState) {
+        state.timeoutState.islandUnits.toMutableList().apply {
+            indices.forEach { idx -> this[idx] = normalizeTimeoutUnit(this[idx]) }
+        }
+    }
     val islandDefaults = remember(state.timeoutState) {
         mutableStateListOf<Boolean>().apply {
             repeat(stageLabels.size) { idx ->
@@ -1138,67 +1147,41 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
             }
         }
     }
-    val islandInputs = remember(state.timeoutState) {
-        mutableStateListOf<String>().apply {
-            repeat(stageLabels.size) { idx ->
-                add(if (islandVals[idx] < 0) "" else islandVals[idx].toString())
-            }
-        }
-    }
-    val islandUnitStates = remember(state.timeoutState) {
-        mutableStateListOf<String>().apply {
-            repeat(stageLabels.size) { idx ->
-                add(if (islandUnits[idx] == "s") "s" else "m")
-            }
-        }
-    }
 
     val notifVals = remember(state.timeoutState) { state.timeoutState.notifVals.toMutableList() }
-    val notifUnits = remember(state.timeoutState) { state.timeoutState.notifUnits.toMutableList() }
+    val notifUnits = remember(state.timeoutState) {
+        state.timeoutState.notifUnits.toMutableList().apply {
+            indices.forEach { idx -> this[idx] = normalizeTimeoutUnit(this[idx]) }
+        }
+    }
     var notifStage by remember(state.timeoutState) {
         mutableIntStateOf(state.timeoutState.notifTriggerStage.coerceIn(0, 2))
     }
     var notifGlobalDefault by remember(state.timeoutState) {
         mutableStateOf(state.timeoutState.notifGlobalDefault)
     }
-    var notifInput by remember(state.timeoutState) {
-        val idx = state.timeoutState.notifTriggerStage.coerceIn(0, 2)
-        val value = state.timeoutState.notifVals[idx]
-        mutableStateOf(if (!state.timeoutState.notifGlobalDefault && value > 0) value.toString() else "")
-    }
-    var notifUnit by remember(state.timeoutState) {
-        val idx = state.timeoutState.notifTriggerStage.coerceIn(0, 2)
-        mutableStateOf(if (state.timeoutState.notifUnits[idx] == "s") "s" else "m")
-    }
-
-    fun persistCurrentNotifUiToCache() {
-        if (notifGlobalDefault) return
-        notifVals[notifStage] = parseTimeoutValue(notifInput)
-        notifUnits[notifStage] = if (notifUnit == "s") "s" else "m"
-    }
+    var islandPickerStage by remember(state.timeoutState) { mutableIntStateOf(-1) }
+    var showNotifPicker by remember(state.timeoutState) { mutableStateOf(false) }
 
     fun persistTimeoutStateNow() {
         repeat(stageLabels.size) { idx ->
             islandVals[idx] = if (islandDefaults[idx]) {
                 ConfigDefaults.TIMEOUT_VALUE
             } else {
-                parseTimeoutValue(islandInputs[idx])
+                islandVals[idx].coerceAtLeast(1)
             }
-            islandUnits[idx] = if (islandUnitStates[idx] == "s") "s" else "m"
+            islandUnits[idx] = normalizeTimeoutUnit(islandUnits[idx])
         }
 
+        repeat(stageLabels.size) { idx ->
+            notifVals[idx] = ConfigDefaults.TIMEOUT_VALUE
+            notifUnits[idx] = normalizeTimeoutUnit(notifUnits[idx])
+        }
         if (notifGlobalDefault) {
-            repeat(stageLabels.size) { idx ->
-                notifVals[idx] = ConfigDefaults.TIMEOUT_VALUE
-                notifUnits[idx] = "m"
-            }
+            // keep default
         } else {
-            repeat(stageLabels.size) { idx ->
-                notifVals[idx] = ConfigDefaults.TIMEOUT_VALUE
-                notifUnits[idx] = "m"
-            }
-            notifVals[notifStage] = parseTimeoutValue(notifInput)
-            notifUnits[notifStage] = if (notifUnit == "s") "s" else "m"
+            notifVals[notifStage] = notifVals[notifStage].coerceAtLeast(1)
+            notifUnits[notifStage] = normalizeTimeoutUnit(notifUnits[notifStage])
         }
 
         val saved = TimeoutUiState(
@@ -1227,48 +1210,25 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
             first = idx == 0,
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
-                TextPreference(
-                    title = "时长",
-                    value = if (islandDefaults[idx]) "默认" else islandInputs[idx].ifBlank { "默认" },
-                    enabled = !islandDefaults[idx],
-                    onClick = {
-                        if (!islandDefaults[idx]) {
-                            editDialog = EditDialogSpec(
-                                title = "岛消失时长（$label）",
-                                initialValue = islandInputs[idx],
-                                numberOnly = true,
-                                onConfirm = {
-                                    islandInputs[idx] = it.filter(Char::isDigit)
-                                    persistTimeoutStateNow()
-                                },
-                            )
-                        }
-                    },
-                )
-                HorizontalDivider()
-                DropDownPreference(
-                    title = "单位",
-                    entries = unitEntries,
-                    value = if (islandUnitStates[idx] == "s") 0 else 1,
-                    enabled = !islandDefaults[idx],
-                    mode = DropDownMode.Dialog,
-                    onSelectedIndexChange = {
-                        islandUnitStates[idx] = if (it == 0) "s" else "m"
-                        persistTimeoutStateNow()
-                    },
-                )
-                HorizontalDivider()
                 SwitchPreference(
                     title = "默认",
                     value = islandDefaults[idx],
                     onCheckedChange = {
                         islandDefaults[idx] = it
-                        if (it) {
-                            islandInputs[idx] = ""
+                        if (!it && islandVals[idx] <= 0) {
+                            islandVals[idx] = 1
                         }
                         persistTimeoutStateNow()
                     },
                 )
+                if (!islandDefaults[idx]) {
+                    HorizontalDivider()
+                    TextPreference(
+                        title = "时长",
+                        value = formatTimeoutDuration(islandVals[idx], islandUnits[idx]),
+                        onClick = { islandPickerStage = idx },
+                    )
+                }
             }
         }
     }
@@ -1289,67 +1249,69 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
                 value = notifGlobalDefault,
                 onCheckedChange = {
                     notifGlobalDefault = it
-                    if (it) {
-                        notifInput = ""
-                    } else {
-                        notifInput = if (notifVals[notifStage] < 0) "" else notifVals[notifStage].toString()
-                        notifUnit = if (notifUnits[notifStage] == "s") "s" else "m"
+                    if (!it && notifVals[notifStage] <= 0) {
+                        notifVals[notifStage] = 1
                     }
                     persistTimeoutStateNow()
                 },
             )
-            HorizontalDivider()
-            DropDownPreference(
-                title = "触发阶段",
-                entries = stageEntries,
-                value = notifStage,
-                enabled = !notifGlobalDefault,
-                mode = DropDownMode.Dialog,
-                onSelectedIndexChange = { newIndex ->
-                    if (!notifGlobalDefault) {
-                        persistCurrentNotifUiToCache()
+            if (!notifGlobalDefault) {
+                HorizontalDivider()
+                DropDownPreference(
+                    title = "触发阶段",
+                    entries = stageEntries,
+                    value = notifStage,
+                    mode = DropDownMode.Dialog,
+                    onSelectedIndexChange = { newIndex ->
                         notifStage = newIndex.coerceIn(0, stageLabels.lastIndex)
-                        notifInput = if (notifVals[notifStage] < 0) "" else notifVals[notifStage].toString()
-                        notifUnit = if (notifUnits[notifStage] == "s") "s" else "m"
+                        if (notifVals[notifStage] <= 0) {
+                            notifVals[notifStage] = 1
+                        }
                         persistTimeoutStateNow()
-                    }
-                },
-            )
-            HorizontalDivider()
-            TextPreference(
-                title = "时长",
-                value = if (notifGlobalDefault) "默认" else notifInput.ifBlank { "默认" },
-                enabled = !notifGlobalDefault,
-                onClick = {
-                    if (!notifGlobalDefault) {
-                        editDialog = EditDialogSpec(
-                            title = "通知消失时长",
-                            initialValue = notifInput,
-                            numberOnly = true,
-                            onConfirm = {
-                                notifInput = it.filter(Char::isDigit)
-                                persistTimeoutStateNow()
-                            },
-                        )
-                    }
-                },
-            )
-            HorizontalDivider()
-            DropDownPreference(
-                title = "单位",
-                entries = unitEntries,
-                value = if (notifUnit == "s") 0 else 1,
-                enabled = !notifGlobalDefault,
-                mode = DropDownMode.Dialog,
-                onSelectedIndexChange = {
-                    notifUnit = if (it == 0) "s" else "m"
-                    persistTimeoutStateNow()
-                },
-            )
+                    },
+                )
+                HorizontalDivider()
+                TextPreference(
+                    title = "时长",
+                    value = formatTimeoutDuration(notifVals[notifStage], notifUnits[notifStage]),
+                    onClick = { showNotifPicker = true },
+                )
+            }
         }
     }
-    editDialog?.let { spec ->
-        EditValueDialog(spec = spec, onDismiss = { editDialog = null })
+
+    if (islandPickerStage in stageLabels.indices) {
+        val stage = islandPickerStage
+        MiuixDurationPickerDialog(
+            title = "岛消失时长（${stageLabels[stage]}）",
+            initialValue = islandVals[stage].takeIf { it > 0 } ?: 1,
+            initialUnit = islandUnits[stage],
+            onDismiss = { islandPickerStage = -1 },
+            onConfirm = { value, unit ->
+                islandVals[stage] = value
+                islandUnits[stage] = unit
+                islandDefaults[stage] = false
+                persistTimeoutStateNow()
+                Toast.makeText(context, "已保存岛消失时长", Toast.LENGTH_SHORT).show()
+                islandPickerStage = -1
+            },
+        )
+    }
+    if (showNotifPicker && !notifGlobalDefault) {
+        MiuixDurationPickerDialog(
+            title = "通知消失时长",
+            initialValue = notifVals[notifStage].takeIf { it > 0 } ?: 1,
+            initialUnit = notifUnits[notifStage],
+            onDismiss = { showNotifPicker = false },
+            onConfirm = { value, unit ->
+                notifVals[notifStage] = value
+                notifUnits[notifStage] = unit
+                notifGlobalDefault = false
+                persistTimeoutStateNow()
+                Toast.makeText(context, "已保存通知消失时长", Toast.LENGTH_SHORT).show()
+                showNotifPicker = false
+            },
+        )
     }
 }
 
@@ -1546,10 +1508,64 @@ private fun MinuteEditor(label: String, value: String, onValue: (String) -> Unit
 }
 
 @Composable
+private fun SectionEditor(
+    label: String,
+    value: String,
+    minSec: Int = 1,
+    maxSec: Int = 30,
+    onValue: (String) -> Unit,
+) {
+    var showPicker by remember(label) { mutableStateOf(false) }
+    val safeMin = minSec.coerceAtLeast(1)
+    val safeMax = maxOf(safeMin, maxSec)
+    val currentSec = (value.toIntOrNull() ?: safeMin).coerceIn(safeMin, safeMax)
+    Spacer(modifier = Modifier.height(8.dp))
+    TextPreference(
+        title = label,
+        value = "第${currentSec}节",
+        onClick = { showPicker = true },
+    )
+    if (showPicker) {
+        MiuixSectionPickerDialog(
+            title = label,
+            initialSec = currentSec,
+            minSec = safeMin,
+            maxSec = safeMax,
+            onDismiss = { showPicker = false },
+            onConfirm = {
+                onValue(it.toString())
+                showPicker = false
+            },
+        )
+    }
+}
+
+@Composable
 private fun WakeupCard(activity: MainActivity, state: SettingsComposeState) {
+    val morningBoundary = (state.wakeupMorningLastSec.toIntOrNull() ?: 4).coerceAtLeast(1)
+    val afternoonBoundary = (state.wakeupAfternoonFirstSec.toIntOrNull() ?: (morningBoundary + 1))
+        .coerceAtLeast(morningBoundary + 1)
+    val morningRuleMax = morningBoundary
+    val knownMaxSec = maxOf(
+        afternoonBoundary,
+        state.wakeupMorningRules.maxOfOrNull { (it.sec.toIntOrNull() ?: 1).coerceAtLeast(1) } ?: 1,
+        state.wakeupAfternoonRules.maxOfOrNull { (it.sec.toIntOrNull() ?: afternoonBoundary).coerceAtLeast(afternoonBoundary) } ?: afternoonBoundary,
+    )
+
     fun persistWakeupConfigNow() {
         val morningLast = (state.wakeupMorningLastSec.toIntOrNull() ?: 4).coerceAtLeast(1)
-        val afternoonFirst = (state.wakeupAfternoonFirstSec.toIntOrNull() ?: 5).coerceAtLeast(1)
+        val afternoonFirst = (state.wakeupAfternoonFirstSec.toIntOrNull() ?: (morningLast + 1))
+            .coerceAtLeast(morningLast + 1)
+        state.wakeupMorningRules.replaceAll { rule ->
+            rule.copy(
+                sec = (rule.sec.toIntOrNull() ?: 1).coerceIn(1, morningLast).toString(),
+            )
+        }
+        state.wakeupAfternoonRules.replaceAll { rule ->
+            rule.copy(
+                sec = (rule.sec.toIntOrNull() ?: afternoonFirst).coerceAtLeast(afternoonFirst).toString(),
+            )
+        }
         state.wakeupMorningLastSec = morningLast.toString()
         state.wakeupAfternoonFirstSec = afternoonFirst.toString()
         activity.uiEditConfigPrefs()
@@ -1588,10 +1604,9 @@ private fun WakeupCard(activity: MainActivity, state: SettingsComposeState) {
                 Spacer(modifier = Modifier.height(6.dp))
                 WakeRuleList(
                     rules = state.wakeupMorningRules,
-                    onAdd = {
-                        state.wakeupMorningRules += WakeRule("1", "7", "00")
-                        persistWakeupConfigNow()
-                    },
+                    defaultRule = WakeRule("1", "7", "00"),
+                    minSec = 1,
+                    maxSec = morningRuleMax,
                     onChanged = { persistWakeupConfigNow() },
                 )
             }
@@ -1619,10 +1634,9 @@ private fun WakeupCard(activity: MainActivity, state: SettingsComposeState) {
                 Spacer(modifier = Modifier.height(6.dp))
                 WakeRuleList(
                     rules = state.wakeupAfternoonRules,
-                    onAdd = {
-                        state.wakeupAfternoonRules += WakeRule("5", "12", "00")
-                        persistWakeupConfigNow()
-                    },
+                    defaultRule = WakeRule("5", "12", "00"),
+                    minSec = afternoonBoundary,
+                    maxSec = maxOf(30, afternoonBoundary, knownMaxSec),
                     onChanged = { persistWakeupConfigNow() },
                 )
             }
@@ -1636,11 +1650,21 @@ private fun WakeupCard(activity: MainActivity, state: SettingsComposeState) {
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
             Text("用于区分上午/下午课程边界", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            MinuteEditor("上午最大节次（≤此节为上午）", state.wakeupMorningLastSec) {
+            SectionEditor(
+                label = "上午最大节次（≤此节为上午）",
+                value = state.wakeupMorningLastSec,
+                minSec = 1,
+                maxSec = maxOf(1, afternoonBoundary - 1),
+            ) {
                 state.wakeupMorningLastSec = it
                 persistWakeupConfigNow()
             }
-            MinuteEditor("下午起始节次（≥此节为下午）", state.wakeupAfternoonFirstSec) {
+            SectionEditor(
+                label = "下午起始节次（≥此节为下午）",
+                value = state.wakeupAfternoonFirstSec,
+                minSec = (state.wakeupMorningLastSec.toIntOrNull() ?: 4).coerceAtLeast(1) + 1,
+                maxSec = maxOf(30, knownMaxSec),
+            ) {
                 state.wakeupAfternoonFirstSec = it
                 persistWakeupConfigNow()
             }
@@ -1651,9 +1675,14 @@ private fun WakeupCard(activity: MainActivity, state: SettingsComposeState) {
 @Composable
 private fun WakeRuleList(
     rules: MutableList<WakeRule>,
-    onAdd: () -> Unit,
+    defaultRule: WakeRule,
+    minSec: Int = 1,
+    maxSec: Int = 30,
     onChanged: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val safeMin = minSec.coerceAtLeast(1)
+    val safeMax = maxOf(safeMin, maxSec)
     var editingIndex by remember { mutableIntStateOf(-1) }
     var pendingDeleteIndex by remember { mutableIntStateOf(-1) }
     Column {
@@ -1670,16 +1699,26 @@ private fun WakeRuleList(
             }
         }
         Spacer(modifier = Modifier.height(10.dp))
-        Button(onClick = onAdd) { Text("＋ 添加规则") }
+        Button(
+            onClick = {
+                val sec = (defaultRule.sec.toIntOrNull() ?: safeMin).coerceIn(safeMin, safeMax)
+                rules += defaultRule.copy(sec = sec.toString())
+                onChanged()
+                editingIndex = rules.lastIndex
+            },
+        ) { Text("＋ 添加规则") }
     }
     if (editingIndex in rules.indices) {
-        var sec by remember(editingIndex) { mutableStateOf(rules[editingIndex].sec) }
+        var sec by remember(editingIndex) {
+            mutableIntStateOf((rules[editingIndex].sec.toIntOrNull() ?: safeMin).coerceIn(safeMin, safeMax))
+        }
         var hour by remember(editingIndex) {
             mutableIntStateOf((rules[editingIndex].hour.toIntOrNull() ?: 0).coerceIn(0, 23))
         }
         var minute by remember(editingIndex) {
             mutableIntStateOf((rules[editingIndex].minute.toIntOrNull() ?: 0).coerceIn(0, 59))
         }
+        var showSecPicker by remember(editingIndex) { mutableStateOf(false) }
         var showTimePicker by remember(editingIndex) { mutableStateOf(false) }
         SuperDialog(
             show = true,
@@ -1687,14 +1726,10 @@ private fun WakeRuleList(
             onDismissRequest = { editingIndex = -1 },
         ) {
             Column {
-                top.yukonga.miuix.kmp.basic.TextField(
-                    value = sec,
-                    onValueChange = { sec = it.filter(Char::isDigit) },
-                    label = "第X节",
+                SelectorEntryButton(
+                    text = "节次: 第${sec}节",
+                    onClick = { showSecPicker = true },
                     modifier = Modifier.fillMaxWidth(),
-                    textStyle = MiuixTheme.textStyles.main.copy(color = MiuixTheme.colorScheme.onSurface),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 SelectorEntryButton(
@@ -1731,7 +1766,7 @@ private fun WakeRuleList(
                     onClick = {
                         if (editingIndex in rules.indices) {
                             rules[editingIndex] = rules[editingIndex].copy(
-                                sec = (sec.toIntOrNull() ?: 1).coerceAtLeast(1).toString(),
+                                sec = sec.toString(),
                                 hour = hour.toString(),
                                 minute = String.format(
                                     Locale.getDefault(),
@@ -1740,11 +1775,29 @@ private fun WakeRuleList(
                                 ),
                             )
                             onChanged()
+                            Toast.makeText(
+                                context,
+                                "已保存规则 ${editingIndex + 1}",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                         editingIndex = -1
                     },
                 )
             }
+        }
+        if (showSecPicker) {
+            MiuixSectionPickerDialog(
+                title = "选择节次",
+                initialSec = sec,
+                minSec = safeMin,
+                maxSec = safeMax,
+                onDismiss = { showSecPicker = false },
+                onConfirm = {
+                    sec = it
+                    showSecPicker = false
+                },
+            )
         }
         if (showTimePicker) {
             MiuixTimePickerDialog(
@@ -1777,6 +1830,11 @@ private fun WakeRuleList(
                 if (idx in rules.indices) {
                     rules.removeAt(idx)
                     onChanged()
+                    Toast.makeText(
+                        context,
+                        "已删除规则 ${idx + 1}",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
                 editingIndex = -1
             },
@@ -1786,10 +1844,21 @@ private fun WakeRuleList(
 
 private fun clamp0to60(value: String): Int = value.toIntOrNull()?.coerceIn(0, 60) ?: 0
 
-private fun parseTimeoutValue(value: String): Int {
-    val text = value.trim()
-    if (text.isEmpty()) return ConfigDefaults.TIMEOUT_VALUE
-    return text.toIntOrNull() ?: ConfigDefaults.TIMEOUT_VALUE
+private fun normalizeTimeoutUnit(unit: String): String = when (unit) {
+    "s" -> "s"
+    "h" -> "h"
+    else -> "m"
+}
+
+private fun timeoutUnitLabel(unit: String): String = when (normalizeTimeoutUnit(unit)) {
+    "s" -> "秒"
+    "h" -> "时"
+    else -> "分"
+}
+
+private fun formatTimeoutDuration(value: Int, unit: String): String {
+    if (value <= 0) return "默认"
+    return "$value ${timeoutUnitLabel(unit)}"
 }
 
 private fun readTimeoutState(prefs: android.content.SharedPreferences): TimeoutUiState {
@@ -1811,9 +1880,9 @@ private fun writeTimeoutState(
     val save = TimeoutConfig.read(PrefsAccess.resolve(null))
     for (i in state.islandVals.indices) {
         save.islandVals[i] = state.islandVals[i]
-        save.islandUnits[i] = if (state.islandUnits[i] == "s") "s" else "m"
+        save.islandUnits[i] = normalizeTimeoutUnit(state.islandUnits[i])
         save.notifVals[i] = state.notifVals[i]
-        save.notifUnits[i] = if (state.notifUnits[i] == "s") "s" else "m"
+        save.notifUnits[i] = normalizeTimeoutUnit(state.notifUnits[i])
     }
     save.notifTriggerStage = state.notifTriggerStage
     save.notifGlobalDefault = state.notifGlobalDefault
@@ -2534,6 +2603,101 @@ private fun MiuixTimePickerDialog(
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
             Button(onClick = { onConfirm(hour, minute) }, modifier = Modifier.weight(1f)) { Text("确定") }
+        }
+    }
+}
+
+@Composable
+private fun MiuixSectionPickerDialog(
+    title: String,
+    initialSec: Int,
+    minSec: Int = 1,
+    maxSec: Int = 30,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit,
+) {
+    val lower = minSec.coerceAtLeast(1)
+    val upper = maxOf(maxSec, initialSec, lower)
+    var section by remember(initialSec, lower, upper) { mutableIntStateOf(initialSec.coerceIn(lower, upper)) }
+    val pickerColors = NumberPickerDefaults.colors(
+        selectedTextColor = MiuixTheme.colorScheme.primary,
+        unselectedTextColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.55f),
+    )
+    SuperDialog(
+        show = true,
+        title = title,
+        onDismissRequest = onDismiss,
+    ) {
+        NumberPicker(
+            value = section,
+            onValueChange = { section = it },
+            range = lower..upper,
+            label = { "第${it}节" },
+            modifier = Modifier.fillMaxWidth(),
+            colors = pickerColors,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
+            Button(
+                onClick = { onConfirm(section) },
+                modifier = Modifier.weight(1f),
+            ) { Text("确定") }
+        }
+    }
+}
+
+@Composable
+private fun MiuixDurationPickerDialog(
+    title: String,
+    initialValue: Int,
+    initialUnit: String,
+    onDismiss: () -> Unit,
+    onConfirm: (Int, String) -> Unit,
+) {
+    val unitEntries = listOf("秒" to "s", "分" to "m", "时" to "h")
+    val initialUnitIndex = unitEntries.indexOfFirst { it.second == normalizeTimeoutUnit(initialUnit) }
+        .takeIf { it >= 0 } ?: 1
+    var value by remember(initialValue) { mutableIntStateOf(initialValue.coerceIn(1, 999)) }
+    var unitIndex by remember(initialUnitIndex) { mutableIntStateOf(initialUnitIndex) }
+    val pickerColors = NumberPickerDefaults.colors(
+        selectedTextColor = MiuixTheme.colorScheme.primary,
+        unselectedTextColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.55f),
+    )
+    SuperDialog(
+        show = true,
+        title = title,
+        onDismissRequest = onDismiss,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            NumberPicker(
+                value = value,
+                onValueChange = { value = it.coerceIn(1, 999) },
+                range = 1..999,
+                label = { it.toString() },
+                modifier = Modifier.weight(1f),
+                colors = pickerColors,
+            )
+            NumberPicker(
+                value = unitIndex,
+                onValueChange = { unitIndex = it.coerceIn(0, unitEntries.lastIndex) },
+                range = 0..unitEntries.lastIndex,
+                label = { idx -> unitEntries[idx].first },
+                modifier = Modifier.weight(1f),
+                colors = pickerColors,
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
+            Button(
+                onClick = { onConfirm(value, unitEntries[unitIndex].second) },
+                modifier = Modifier.weight(1f),
+            ) { Text("确定") }
         }
     }
 }

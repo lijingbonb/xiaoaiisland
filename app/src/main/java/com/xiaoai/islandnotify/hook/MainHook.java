@@ -1806,7 +1806,14 @@ public class MainHook {
             int val = readConfigInt(prefs, "to_notif_val_" + phases[i], ConfigDefaults.TIMEOUT_VALUE);
             String unit = readConfigString(prefs, "to_notif_unit_" + phases[i], ConfigDefaults.TIMEOUT_UNIT);
             if (val <= 0 || baseMs[i] <= 0) continue;
-            long delayMs   = "s".equals(unit) ? (long) val * 1000L : (long) val * 60_000L;
+            long delayMs;
+            if ("s".equals(unit)) {
+                delayMs = (long) val * 1000L;
+            } else if ("h".equals(unit)) {
+                delayMs = (long) val * 3_600_000L;
+            } else {
+                delayMs = (long) val * 60_000L;
+            }
             long triggerMs = baseMs[i] + delayMs;
             if (triggerMs <= System.currentTimeMillis()) continue;
             // reqCode: id * 10 + state 已用 0-2，+3+i 用于 cancel（3/4/5），不冲突
