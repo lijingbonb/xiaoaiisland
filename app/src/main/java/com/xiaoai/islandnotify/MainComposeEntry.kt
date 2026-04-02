@@ -13,6 +13,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -1993,7 +1994,7 @@ private fun HolidayTab(
                 }
                 Spacer(modifier = Modifier.height(10.dp))
                 HorizontalDivider()
-                TextPreference(
+                AddEntryRow(
                     title = "新增节假日",
                     summary = "添加节假日日期或区间",
                     onClick = {
@@ -2036,7 +2037,7 @@ private fun HolidayTab(
                 }
                 Spacer(modifier = Modifier.height(10.dp))
                 HorizontalDivider()
-                TextPreference(
+                AddEntryRow(
                     title = "新增调休工作日",
                     summary = "添加调休上班日与跟随周次",
                     onClick = {
@@ -2299,6 +2300,30 @@ private fun WorkswapRow(
         Button(onClick = onEdit) { Text("编辑") }
         Spacer(modifier = Modifier.width(4.dp))
         Button(onClick = onDelete) { Text("删除", color = Color(0xFFBA1A1A)) }
+    }
+}
+
+@Composable
+private fun AddEntryRow(
+    title: String,
+    summary: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+            )
+        }
     }
 }
 
@@ -2661,4 +2686,3 @@ private fun AboutTab(
         }
     }
 }
-
