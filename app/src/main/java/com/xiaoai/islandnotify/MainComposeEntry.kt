@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -48,11 +49,13 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import dev.lackluster.hyperx.compose.base.Card
 import dev.lackluster.hyperx.compose.base.CardDefaults
 import dev.lackluster.hyperx.compose.base.AlertDialog as HyperAlertDialog
 import dev.lackluster.hyperx.compose.base.AlertDialogMode
+import dev.lackluster.hyperx.compose.base.HazeScaffold
 import dev.lackluster.hyperx.compose.component.Hint
 import dev.lackluster.hyperx.compose.preference.DropDownEntry
 import dev.lackluster.hyperx.compose.preference.DropDownMode
@@ -79,7 +82,6 @@ import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.NumberPicker
 import top.yukonga.miuix.kmp.basic.NumberPickerDefaults
-import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
@@ -92,6 +94,7 @@ import top.yukonga.miuix.kmp.theme.Colors
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.TextStyles
 import top.yukonga.miuix.kmp.theme.ThemeController
+import androidx.compose.ui.graphics.luminance
 
 object MainComposeEntry {
 
@@ -270,9 +273,10 @@ private fun MainComposeApp(
                 title = "课程表超级岛",
                 canBack = false,
                 onBack = {},
-            ) { pageModifier ->
+            ) { pageModifier, pagePadding ->
                 HomeEntryPage(
                     modifier = pageModifier,
+                    pagePadding = pagePadding,
                     state = settingsState,
                     onOpen = { route -> navigator.push(route) },
                     onResetConfirmed = {
@@ -290,8 +294,8 @@ private fun MainComposeApp(
                         title = "测试通知",
                         canBack = true,
                         onBack = { navigator.pop() },
-                    ) { pageModifier ->
-                        SingleCardPage(modifier = pageModifier) {
+                    ) { pageModifier, pagePadding ->
+                        SingleCardPage(modifier = pageModifier, pagePadding = pagePadding) {
                             TestNotifyCard(activity = activity, state = settingsState)
                         }
                     }
@@ -299,30 +303,32 @@ private fun MainComposeApp(
                         title = "状态栏岛自定义",
                         canBack = true,
                         onBack = { navigator.pop() },
-                    ) { pageModifier ->
+                    ) { pageModifier, pagePadding ->
                         StatusCustomPage(
                             activity = activity,
                             state = settingsState,
                             modifier = pageModifier,
+                            pagePadding = pagePadding,
                         )
                     }
                     is AppRoute.ExpandedCustom -> RouteScaffold(
                         title = "展开态自定义",
                         canBack = true,
                         onBack = { navigator.pop() },
-                    ) { pageModifier ->
+                    ) { pageModifier, pagePadding ->
                         ExpandedCustomPage(
                             activity = activity,
                             state = settingsState,
                             modifier = pageModifier,
+                            pagePadding = pagePadding,
                         )
                     }
                     is AppRoute.Timeout -> RouteScaffold(
                         title = "消失时间",
                         canBack = true,
                         onBack = { navigator.pop() },
-                    ) { pageModifier ->
-                        SingleCardPage(modifier = pageModifier) {
+                    ) { pageModifier, pagePadding ->
+                        SingleCardPage(modifier = pageModifier, pagePadding = pagePadding) {
                             TimeoutCard(activity = activity, state = settingsState)
                         }
                     }
@@ -330,8 +336,8 @@ private fun MainComposeApp(
                         title = "课前提醒",
                         canBack = true,
                         onBack = { navigator.pop() },
-                    ) { pageModifier ->
-                        SingleCardPage(modifier = pageModifier) {
+                    ) { pageModifier, pagePadding ->
+                        SingleCardPage(modifier = pageModifier, pagePadding = pagePadding) {
                             ReminderCard(activity = activity, state = settingsState)
                         }
                     }
@@ -339,8 +345,8 @@ private fun MainComposeApp(
                         title = "上课免打扰",
                         canBack = true,
                         onBack = { navigator.pop() },
-                    ) { pageModifier ->
-                        SingleCardPage(modifier = pageModifier) {
+                    ) { pageModifier, pagePadding ->
+                        SingleCardPage(modifier = pageModifier, pagePadding = pagePadding) {
                             MuteCard(activity = activity, state = settingsState)
                         }
                     }
@@ -348,8 +354,8 @@ private fun MainComposeApp(
                         title = "自动叫醒",
                         canBack = true,
                         onBack = { navigator.pop() },
-                    ) { pageModifier ->
-                        SingleCardPage(modifier = pageModifier) {
+                    ) { pageModifier, pagePadding ->
+                        SingleCardPage(modifier = pageModifier, pagePadding = pagePadding) {
                             WakeupCard(activity = activity, state = settingsState)
                         }
                     }
@@ -357,24 +363,26 @@ private fun MainComposeApp(
                         title = "假期/调休",
                         canBack = true,
                         onBack = { navigator.pop() },
-                    ) { pageModifier ->
+                    ) { pageModifier, pagePadding ->
                         HolidayTab(
                             activity = activity,
                             state = holidayState,
                             modifier = pageModifier,
+                            pagePadding = pagePadding,
                         )
                     }
                     is AppRoute.About -> RouteScaffold(
                         title = "关于",
                         canBack = true,
                         onBack = { navigator.pop() },
-                    ) { pageModifier ->
+                    ) { pageModifier, pagePadding ->
                         AboutTab(
                             activity = activity,
                             state = aboutState,
                             monetEnabled = monetEnabled,
                             onMonetEnabledChange = onMonetEnabledChange,
                             modifier = pageModifier,
+                            pagePadding = pagePadding,
                         )
                     }
                     else -> {}
@@ -389,10 +397,12 @@ private fun RouteScaffold(
     title: String,
     canBack: Boolean,
     onBack: () -> Unit,
-    content: @Composable (Modifier) -> Unit,
+    content: @Composable (Modifier, PaddingValues) -> Unit,
 ) {
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    Scaffold(
+    val blurTintAlpha = if (MiuixTheme.colorScheme.surface.luminance() >= 0.5f) 0.70f else 0.60f
+    HazeScaffold(
+        modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 color = Color.Transparent,
@@ -417,15 +427,30 @@ private fun RouteScaffold(
                 horizontalPadding = 28.dp,
             )
         },
+        blurTopBar = true,
+        blurTintAlpha = blurTintAlpha,
         contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Vertical),
     ) { innerPadding ->
         content(
             Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            innerPadding,
         )
     }
+}
+
+private fun withExtraPadding(
+    base: PaddingValues,
+    horizontal: androidx.compose.ui.unit.Dp = 0.dp,
+    vertical: androidx.compose.ui.unit.Dp = 0.dp,
+): PaddingValues {
+    return PaddingValues(
+        start = base.calculateLeftPadding(LayoutDirection.Ltr) + horizontal,
+        top = base.calculateTopPadding() + vertical,
+        end = base.calculateRightPadding(LayoutDirection.Ltr) + horizontal,
+        bottom = base.calculateBottomPadding() + vertical,
+    )
 }
 
 private class SettingsComposeState {
@@ -572,11 +597,12 @@ private class AboutComposeState {
 @Composable
 private fun SingleCardPage(
     modifier: Modifier = Modifier,
+    pagePadding: PaddingValues = PaddingValues(0.dp),
     content: @Composable () -> Unit,
 ) {
     LazyColumn(
         modifier = modifier,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        contentPadding = withExtraPadding(pagePadding, horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { content() }
@@ -587,6 +613,7 @@ private fun SingleCardPage(
 @Composable
 private fun HomeEntryPage(
     modifier: Modifier = Modifier,
+    pagePadding: PaddingValues = PaddingValues(0.dp),
     state: SettingsComposeState,
     onOpen: (AppRoute) -> Unit,
     onResetConfirmed: () -> Unit,
@@ -594,7 +621,7 @@ private fun HomeEntryPage(
     var showResetDialog by remember { mutableStateOf(false) }
     LazyColumn(
         modifier = modifier,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        contentPadding = withExtraPadding(pagePadding, horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
@@ -681,6 +708,7 @@ private fun StatusCustomPage(
     activity: MainActivity,
     state: SettingsComposeState,
     modifier: Modifier = Modifier,
+    pagePadding: PaddingValues = PaddingValues(0.dp),
 ) {
     var editDialog by remember { mutableStateOf<EditDialogSpec?>(null) }
     val stageLabels = remember { listOf("上课前", "上课中", "下课后") }
@@ -702,7 +730,7 @@ private fun StatusCustomPage(
 
     LazyColumn(
         modifier = modifier,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        contentPadding = withExtraPadding(pagePadding, horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         item {
@@ -816,6 +844,7 @@ private fun ExpandedCustomPage(
     activity: MainActivity,
     state: SettingsComposeState,
     modifier: Modifier = Modifier,
+    pagePadding: PaddingValues = PaddingValues(0.dp),
 ) {
     var editDialog by remember { mutableStateOf<EditDialogSpec?>(null) }
     val sectionTitles = remember { listOf("上课前", "上课中", "下课后") }
@@ -839,7 +868,7 @@ private fun ExpandedCustomPage(
 
     LazyColumn(
         modifier = modifier,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        contentPadding = withExtraPadding(pagePadding, horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         item {
@@ -2007,6 +2036,7 @@ private fun HolidayTab(
     activity: MainActivity,
     state: HolidayComposeState,
     modifier: Modifier = Modifier,
+    pagePadding: PaddingValues = PaddingValues(0.dp),
 ) {
     val scope = rememberCoroutineScope()
     var showYearDialog by remember { mutableStateOf(false) }
@@ -2022,7 +2052,13 @@ private fun HolidayTab(
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(
+                withExtraPadding(
+                    pagePadding,
+                    horizontal = 16.dp,
+                    vertical = 8.dp,
+                )
+            ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         DismissibleHint(
@@ -3074,11 +3110,18 @@ private fun AboutTab(
     monetEnabled: Boolean,
     onMonetEnabledChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    pagePadding: PaddingValues = PaddingValues(0.dp),
 ) {
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(
+                withExtraPadding(
+                    pagePadding,
+                    horizontal = 16.dp,
+                    vertical = 8.dp,
+                )
+            ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         PreferenceGroup(first = true) {
