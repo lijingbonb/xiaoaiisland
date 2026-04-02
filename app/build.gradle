@@ -9,7 +9,8 @@ plugins {
 
 // 获取当前日期
 def getDateStr() {
-    return new Date().format('yyyyMMdd')
+    def tzId = (project.findProperty('buildTz') ?: System.getenv('BUILD_TZ') ?: 'Asia/Shanghai').toString()
+    return new Date().format('yyyyMMdd', TimeZone.getTimeZone(tzId))
 }
 
 // 生成指定类型的版本号
