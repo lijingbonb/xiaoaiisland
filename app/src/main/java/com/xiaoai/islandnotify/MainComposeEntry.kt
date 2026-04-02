@@ -102,15 +102,7 @@ object MainComposeEntry {
     @JvmStatic
     fun install(activity: MainActivity) {
         activity.setContent {
-            var monetEnabled by remember { mutableStateOf(activity.uiIsMonetEnabled()) }
-            MainComposeApp(
-                activity = activity,
-                monetEnabled = monetEnabled,
-                onMonetEnabledChange = { enabled ->
-                    monetEnabled = enabled
-                    activity.uiSetMonetEnabled(enabled)
-                },
-            )
+            MainComposeApp(activity = activity)
         }
     }
 }
@@ -243,12 +235,11 @@ private fun EditValueDialog(spec: EditDialogSpec, onDismiss: () -> Unit) {
 @Composable
 private fun MainComposeApp(
     activity: MainActivity,
-    monetEnabled: Boolean,
-    onMonetEnabledChange: (Boolean) -> Unit,
 ) {
-    val themeController = remember(monetEnabled) {
+    val aboutState = remember { AboutComposeState() }
+    val themeController = remember(aboutState.monetEnabled) {
         ThemeController(
-            colorSchemeMode = if (monetEnabled) {
+            colorSchemeMode = if (aboutState.monetEnabled) {
                 ColorSchemeMode.MonetSystem
             } else {
                 ColorSchemeMode.System
@@ -258,7 +249,6 @@ private fun MainComposeApp(
     val refreshTick by ComposeRefreshBus.tick.collectAsStateCompat()
     val settingsState = remember { SettingsComposeState() }
     val holidayState = remember { HolidayComposeState() }
-    val aboutState = remember { AboutComposeState() }
 
     LaunchedEffect(refreshTick) {
         settingsState.loadFrom(activity)
@@ -380,8 +370,6 @@ private fun MainComposeApp(
                         AboutTab(
                             activity = activity,
                             state = aboutState,
-                            monetEnabled = monetEnabled,
-                            onMonetEnabledChange = onMonetEnabledChange,
                             modifier = pageModifier,
                             pagePadding = pagePadding,
                         )
@@ -588,10 +576,12 @@ private class HolidayComposeState {
 private class AboutComposeState {
     var version by mutableStateOf("未知版本")
     var hideIcon by mutableStateOf(false)
+    var monetEnabled by mutableStateOf(false)
 
     fun loadFrom(activity: MainActivity) {
         version = activity.uiReadAppVersionName()
         hideIcon = activity.uiIsHideIconEnabled()
+        monetEnabled = activity.uiIsMonetEnabled()
     }
 }
 
@@ -3131,8 +3121,6 @@ private fun formatDateRange(startDate: String?, endDate: String?): String {
 private fun AboutTab(
     activity: MainActivity,
     state: AboutComposeState,
-    monetEnabled: Boolean,
-    onMonetEnabledChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     pagePadding: PaddingValues = PaddingValues(0.dp),
 ) {
@@ -3202,8 +3190,11 @@ private fun AboutTab(
                 SwitchPreference(
                     title = "莫奈取色",
                     summary = "开启后跟随系统动态配色",
-                    value = monetEnabled,
-                    onCheckedChange = onMonetEnabledChange,
+                    value = state.monetEnabled,
+                    onCheckedChange = {
+                        state.monetEnabled = it
+                        activity.uiSetMonetEnabled(it)
+                    },
                 )
             }
         }

@@ -147,7 +147,7 @@ public class MainActivity extends AppCompatActivity {
         getSharedPreferences(PREFS_UI_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .putBoolean(KEY_UI_MONET_ENABLED, enabled)
-                .apply();
+                .commit();
     }
 
     boolean uiIsHintDismissed(String key) {
