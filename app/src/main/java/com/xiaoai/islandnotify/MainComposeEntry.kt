@@ -674,8 +674,16 @@ private fun SettingsTab(
 
 @Composable
 private fun StatusCardView(active: Boolean, frameworkDesc: String) {
-    val bg = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer
-    val onColor = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+    val bg = if (active) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        Color(0xFFFFE8E8)
+    }
+    val onColor = if (active) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        Color(0xFF8A1010)
+    }
     Card(
         colors = CardDefaults.cardColors(containerColor = bg),
         shape = RoundedCornerShape(16.dp),
