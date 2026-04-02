@@ -3,7 +3,6 @@ package dev.lackluster.hyperx.compose.base
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.interaction.Interaction
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -126,27 +125,15 @@ object CardDefaults {
      */
     @Composable
     fun cardColors(): CardColors {
-        val isDark = isSystemInDarkTheme()
-        return if (isDark) {
-            defaultCardColorsDarkCached
-        } else {
-            defaultCardColorsLightCached
-        } ?: CardColors(
-            containerColor = MiuixTheme.colorScheme.background,
-            contentColor = contentColorFor(MiuixTheme.colorScheme.background),
-            disabledContainerColor = MiuixTheme.colorScheme.background
+        val container = MiuixTheme.colorScheme.surfaceContainer
+        return CardColors(
+            containerColor = container,
+            contentColor = contentColorFor(container),
+            disabledContainerColor = container
                 .copy(alpha = DisabledAlpha)
-                .compositeOver(MiuixTheme.colorScheme.background),
-            disabledContentColor =
-                contentColorFor(MiuixTheme.colorScheme.background)
-                    .copy(DisabledAlpha),
-        ).also {
-            if (isDark) {
-                defaultCardColorsDarkCached = it
-            } else {
-                defaultCardColorsLightCached = it
-            }
-        }
+                .compositeOver(MiuixTheme.colorScheme.surface),
+            disabledContentColor = contentColorFor(container).copy(DisabledAlpha),
+        )
     }
 
 
@@ -173,8 +160,6 @@ object CardDefaults {
             disabledContentColor = disabledContentColor,
         )
 
-    internal var defaultCardColorsLightCached: CardColors? = null
-    internal var defaultCardColorsDarkCached: CardColors? = null
 }
 
 /**

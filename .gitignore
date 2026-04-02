@@ -43,3 +43,8 @@ pdf_text.txt
 Thumbs.db
 desktop.ini
 version.properties
+
+# Local temp / cache
+.tmp_xiaomihelper/
+.tmp_miuix_aar/
+.kotlin/

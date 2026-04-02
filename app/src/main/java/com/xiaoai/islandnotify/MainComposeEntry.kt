@@ -95,17 +95,15 @@ object MainComposeEntry {
     @JvmStatic
     fun install(activity: MainActivity) {
         activity.setContent {
-            val themeController = remember {
-                ThemeController(
-                    colorSchemeMode = ColorSchemeMode.System,
-                )
-            }
-            MiuixTheme(
-                controller = themeController,
-                smoothRounding = false,
-            ) {
-                MainComposeApp(activity)
-            }
+            var monetEnabled by remember { mutableStateOf(activity.uiIsMonetEnabled()) }
+            MainComposeApp(
+                activity = activity,
+                monetEnabled = monetEnabled,
+                onMonetEnabledChange = { enabled ->
+                    monetEnabled = enabled
+                    activity.uiSetMonetEnabled(enabled)
+                },
+            )
         }
     }
 }
@@ -229,7 +227,20 @@ private fun EditValueDialog(spec: EditDialogSpec, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun MainComposeApp(activity: MainActivity) {
+private fun MainComposeApp(
+    activity: MainActivity,
+    monetEnabled: Boolean,
+    onMonetEnabledChange: (Boolean) -> Unit,
+) {
+    val themeController = remember(monetEnabled) {
+        ThemeController(
+            colorSchemeMode = if (monetEnabled) {
+                ColorSchemeMode.MonetSystem
+            } else {
+                ColorSchemeMode.System
+            },
+        )
+    }
     val refreshTick by ComposeRefreshBus.tick.collectAsStateCompat()
     val settingsState = remember { SettingsComposeState() }
     val holidayState = remember { HolidayComposeState() }
@@ -242,6 +253,8 @@ private fun MainComposeApp(activity: MainActivity) {
     }
 
     dev.lackluster.hyperx.compose.base.HyperXApp(
+        themeController = themeController,
+        smoothRounding = false,
         mainPageContent = { navigator, _, _ ->
             RouteScaffold(
                 title = "课程表超级岛",
@@ -349,6 +362,8 @@ private fun MainComposeApp(activity: MainActivity) {
                         AboutTab(
                             activity = activity,
                             state = aboutState,
+                            monetEnabled = monetEnabled,
+                            onMonetEnabledChange = onMonetEnabledChange,
                             modifier = pageModifier,
                         )
                     }
@@ -2615,6 +2630,8 @@ private fun formatShortDate(isoDate: String?): String {
 private fun AboutTab(
     activity: MainActivity,
     state: AboutComposeState,
+    monetEnabled: Boolean,
+    onMonetEnabledChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -2672,6 +2689,13 @@ private fun AboutTab(
                         state.hideIcon = it
                         activity.uiSetHideIconEnabled(it)
                     },
+                )
+                HorizontalDivider()
+                SwitchPreference(
+                    title = "莫奈取色",
+                    summary = "开启后跟随系统动态配色",
+                    value = monetEnabled,
+                    onCheckedChange = onMonetEnabledChange,
                 )
             }
         }

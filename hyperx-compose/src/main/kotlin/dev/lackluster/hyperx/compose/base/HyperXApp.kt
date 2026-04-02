@@ -48,17 +48,25 @@ import dev.lackluster.hyperx.compose.R
 import dev.lackluster.hyperx.compose.navigation.HyperXRoute
 import dev.lackluster.hyperx.compose.navigation.Navigator
 import dev.lackluster.hyperx.compose.theme.AppTheme
+import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.theme.ThemeController
 import top.yukonga.miuix.kmp.utils.MiuixPopupUtils
 
 @Composable
 fun HyperXApp(
     autoSplitView: MutableState<Boolean> = mutableStateOf(true),
+    themeController: ThemeController? = null,
+    smoothRounding: Boolean = true,
     mainPageContent: @Composable (navigator: Navigator, adjustPadding: PaddingValues, mode: BasePageDefaults.Mode) -> Unit,
     emptyPageContent: @Composable () -> Unit = { DefaultEmptyPage() },
     otherPageEntryProvider: ((key: NavKey, navigator: Navigator, adjustPadding: PaddingValues, mode: BasePageDefaults.Mode) -> NavEntry<NavKey>)? = null
 ) {
-    AppTheme {
+    val resolvedThemeController = themeController ?: remember { ThemeController(ColorSchemeMode.System) }
+    AppTheme(
+        controller = resolvedThemeController,
+        smoothRounding = smoothRounding,
+    ) {
         val configuration = LocalConfiguration.current
         val isLandscape by rememberUpdatedState(configuration.orientation == Configuration.ORIENTATION_LANDSCAPE)
         val density = LocalDensity.current

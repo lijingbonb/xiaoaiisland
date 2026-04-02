@@ -28,6 +28,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_MIGRATION_V2_DONE = "migration_config_v2_done";
     private static final String KEY_ACTIVE_COUNTDOWN_TO_END = "active_countdown_to_end";
     private static final String PREFS_RUNTIME_NAME = "island_runtime";
+    private static final String PREFS_UI_NAME = "island_ui";
+    private static final String KEY_UI_MONET_ENABLED = "ui_monet_enabled";
     private static final String TARGET_VOICEASSIST = "com.miui.voiceassist";
     private static final String TARGET_DESKCLOCK = "com.android.deskclock";
     private static final String ACTION_RESCHEDULE_DAILY = "com.xiaoai.islandnotify.ACTION_RESCHEDULE_DAILY";
@@ -134,6 +136,18 @@ public class MainActivity extends AppCompatActivity {
                         : android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                 android.content.pm.PackageManager.DONT_KILL_APP
         );
+    }
+
+    boolean uiIsMonetEnabled() {
+        return getSharedPreferences(PREFS_UI_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_UI_MONET_ENABLED, false);
+    }
+
+    void uiSetMonetEnabled(boolean enabled) {
+        getSharedPreferences(PREFS_UI_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_UI_MONET_ENABLED, enabled)
+                .apply();
     }
 
     String uiReadAppVersionName() {

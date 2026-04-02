@@ -8,20 +8,13 @@ import top.yukonga.miuix.kmp.theme.ThemeController
 
 @Composable
 fun AppTheme(
+    controller: ThemeController = remember { ThemeController(ColorSchemeMode.System) },
+    smoothRounding: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    val controller = remember { ThemeController(ColorSchemeMode.System) }
-//
-//        remember(colorMode, keyColor, spec, style) {
-//        when (colorMode) {
-//            1 -> ThemeController(ColorSchemeMode.Light)
-//            2 -> ThemeController(ColorSchemeMode.Dark)
-//            else -> ThemeController(ColorSchemeMode.System)
-//        }
-//    }
     MiuixTheme(
         controller = controller,
-        smoothRounding = true,
+        smoothRounding = smoothRounding,
         content = content
     )
 }
