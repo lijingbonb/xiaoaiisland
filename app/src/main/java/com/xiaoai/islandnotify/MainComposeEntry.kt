@@ -1964,7 +1964,6 @@ private fun HolidayTab(
             }
         }
 
-        MutedText("节假日当天不发送任何课前提醒")
         PreferenceGroup(title = "节假日") {
             Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
                 if (state.holidayEntries.isEmpty()) {
@@ -1995,7 +1994,7 @@ private fun HolidayTab(
                 Spacer(modifier = Modifier.height(10.dp))
                 HorizontalDivider()
                 TextPreference(
-                    title = "＋ 新增节假日",
+                    title = "新增节假日",
                     summary = "添加节假日日期或区间",
                     onClick = {
                         holidayEditEntry = null
@@ -2005,7 +2004,6 @@ private fun HolidayTab(
             }
         }
 
-        MutedText("调休上班日（原本应休，补课/补班），按指定周次的课程表发送提醒。点击编辑可配置按哪周哪天上课。")
         PreferenceGroup(
             title = "调休工作日",
             last = true,
@@ -2039,7 +2037,7 @@ private fun HolidayTab(
                 Spacer(modifier = Modifier.height(10.dp))
                 HorizontalDivider()
                 TextPreference(
-                    title = "＋ 新增调休工作日",
+                    title = "新增调休工作日",
                     summary = "添加调休上班日与跟随周次",
                     onClick = {
                         workswapEditEntry = null
@@ -2663,5 +2661,4 @@ private fun AboutTab(
         }
     }
 }
-
 
