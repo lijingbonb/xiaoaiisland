@@ -1,4 +1,4 @@
-﻿package com.xiaoai.islandnotify
+package com.xiaoai.islandnotify
 
 import android.widget.Toast
 import androidx.activity.compose.setContent
@@ -79,7 +79,6 @@ import java.util.Calendar
 import java.util.Locale
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.NumberPicker
 import top.yukonga.miuix.kmp.basic.NumberPickerDefaults
@@ -429,11 +428,6 @@ private fun RouteScaffold(
     }
 }
 
-@Composable
-private fun HorizontalDivider() {
-    // Align with XiaomiHelper preference style: use dense continuous items without separators.
-}
-
 private fun withExtraPadding(
     base: PaddingValues,
     horizontal: androidx.compose.ui.unit.Dp = 0.dp,
@@ -776,7 +770,6 @@ private fun StatusCustomPage(
                                 )
                             },
                         )
-                        HorizontalDivider()
                         TextPreference(
                             title = "岛B（右侧文字）",
                             value = stage.tplB.ifBlank { "未设置" },
@@ -791,7 +784,6 @@ private fun StatusCustomPage(
                                 )
                             },
                         )
-                        HorizontalDivider()
                         TextPreference(
                             title = "息屏显示",
                             value = stage.tplTicker.ifBlank { "未设置" },
@@ -915,7 +907,6 @@ private fun ExpandedCustomPage(
                                 )
                             },
                         )
-                        HorizontalDivider()
                         TextPreference(
                             title = "次要文本1",
                             value = stage.baseContent.ifBlank { "未设置" },
@@ -930,7 +921,6 @@ private fun ExpandedCustomPage(
                                 )
                             },
                         )
-                        HorizontalDivider()
                         TextPreference(
                             title = "次要文本2",
                             value = stage.baseSubcontent.ifBlank { "未设置" },
@@ -945,7 +935,6 @@ private fun ExpandedCustomPage(
                                 )
                             },
                         )
-                        HorizontalDivider()
                         TextPreference(
                             title = "前置文本1",
                             value = stage.hintContent.ifBlank { "未设置" },
@@ -960,7 +949,6 @@ private fun ExpandedCustomPage(
                                 )
                             },
                         )
-                        HorizontalDivider()
                         TextPreference(
                             title = "前置文本2",
                             value = stage.hintSubcontent.ifBlank { "未设置" },
@@ -975,7 +963,6 @@ private fun ExpandedCustomPage(
                                 )
                             },
                         )
-                        HorizontalDivider()
                         TextPreference(
                             title = "主要小文本1",
                             value = stage.hintTitle.ifBlank { "未设置" },
@@ -990,7 +977,6 @@ private fun ExpandedCustomPage(
                                 )
                             },
                         )
-                        HorizontalDivider()
                         TextPreference(
                             title = "主要小文本2",
                             value = stage.hintSubtitle.ifBlank { "未设置" },
@@ -1091,7 +1077,6 @@ private fun TestNotifyCard(activity: MainActivity, state: SettingsComposeState) 
                     )
                 },
             )
-            HorizontalDivider()
             TextPreference(
                 title = "教室",
                 value = state.classroom.ifBlank { "未设置" },
@@ -1248,7 +1233,6 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
                     },
                 )
                 if (!islandDefaults[idx]) {
-                    HorizontalDivider()
                     TextPreference(
                         title = "时长",
                         value = formatTimeoutDuration(islandVals[idx], islandUnits[idx]),
@@ -1281,7 +1265,6 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
                 },
             )
             if (!notifGlobalDefault) {
-                HorizontalDivider()
                 DropDownPreference(
                     title = "触发阶段",
                     entries = stageEntries,
@@ -1295,7 +1278,6 @@ private fun TimeoutCard(activity: MainActivity, state: SettingsComposeState) {
                         persistTimeoutStateNow()
                     },
                 )
-                HorizontalDivider()
                 TextPreference(
                     title = "时长",
                     value = formatTimeoutDuration(notifVals[notifStage], notifUnits[notifStage]),
@@ -1451,7 +1433,6 @@ private fun MuteCard(activity: MainActivity, state: SettingsComposeState) {
             }
 
             Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider()
             Spacer(modifier = Modifier.height(8.dp))
 
             SwitchPreference(
@@ -1651,7 +1632,6 @@ private fun WakeupCard(activity: MainActivity, state: SettingsComposeState) {
             }
 
             Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider()
             Spacer(modifier = Modifier.height(8.dp))
 
             SwitchPreference(
@@ -1738,7 +1718,6 @@ private fun WakeRuleList(
                 onClick = { editingIndex = index },
             )
             if (index != rules.lastIndex) {
-                HorizontalDivider()
             }
         }
         Spacer(modifier = Modifier.height(10.dp))
@@ -2135,13 +2114,11 @@ private fun HolidayTab(
                         )
                         if (index != state.holidayEntries.lastIndex) {
                             Spacer(modifier = Modifier.height(6.dp))
-                            HorizontalDivider()
                             Spacer(modifier = Modifier.height(6.dp))
                         }
                     }
                 }
                 Spacer(modifier = Modifier.height(10.dp))
-                HorizontalDivider()
                 AddEntryRow(
                     title = "新增节假日",
                     summary = "添加节假日日期或区间",
@@ -2183,13 +2160,11 @@ private fun HolidayTab(
                         )
                         if (index != state.workswapEntries.lastIndex) {
                             Spacer(modifier = Modifier.height(6.dp))
-                            HorizontalDivider()
                             Spacer(modifier = Modifier.height(6.dp))
                         }
                     }
                 }
                 Spacer(modifier = Modifier.height(10.dp))
-                HorizontalDivider()
                 AddEntryRow(
                     title = "新增调休工作日",
                     summary = "添加调休上班日与跟随周次",
@@ -3047,7 +3022,6 @@ private fun WorkswapEditDialog(
                     form = form.copy(followWeek = it + 1)
                 },
             )
-            HorizontalDivider()
             DropDownPreference(
                 title = "星期",
                 entries = weekdayEntries,
@@ -3176,13 +3150,11 @@ private fun AboutTab(
                     title = "版本",
                     value = state.version,
                 )
-                HorizontalDivider()
                 TextPreference(
                     title = "作者",
                     value = "Mercury",
                     onClick = { activity.uiOpenAuthorPage() },
                 )
-                HorizontalDivider()
                 SwitchPreference(
                     title = "隐藏桌面图标",
                     value = state.hideIcon,
@@ -3191,7 +3163,6 @@ private fun AboutTab(
                         activity.uiSetHideIconEnabled(it)
                     },
                 )
-                HorizontalDivider()
                 SwitchPreference(
                     title = "莫奈取色",
                     summary = "开启后跟随系统动态配色",
@@ -3215,10 +3186,8 @@ private fun AboutTab(
                         onClick = { activity.uiOpenUrl(ref.link) },
                     )
                     if (index != OpenSourceRefs.list.lastIndex) {
-                        HorizontalDivider()
                     }
                 }
-                HorizontalDivider()
                 TextPreference(
                     title = "致谢 XiaomiHelper",
                     summary = "UI 样式参考",
@@ -3228,4 +3197,5 @@ private fun AboutTab(
         }
     }
 }
+
 
