@@ -36,8 +36,8 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.extra.SuperArrow
-import top.yukonga.miuix.kmp.extra.SuperDialog
+import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
@@ -74,7 +74,7 @@ fun EditTextPreference(
         }
     }
 
-    SuperArrow(
+    ArrowPreference(
         title = title,
         titleColor = titleColor,
         summary = value.toString().takeIf { valuePosition == ValuePosition.SUMMARY_VIEW && it.isNotBlank() } ?: summary,
@@ -166,7 +166,7 @@ fun EditTextPreference(
         }
     }
 
-    SuperArrow(
+    ArrowPreference(
         title = title,
         titleColor = titleColor,
         summary = spValue.toString().takeIf { valuePosition == ValuePosition.SUMMARY_VIEW && it.isNotBlank() } ?: summary,
@@ -226,7 +226,7 @@ fun EditTextDialog(
     val hapticFeedback = LocalHapticFeedback.current
     val keyboard = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
-    SuperDialog(
+    OverlayDialog(
         show = visibility.value,
         title = title,
         summary = message,
@@ -305,3 +305,4 @@ enum class ValuePosition {
     VALUE_VIEW,
     SUMMARY_VIEW,
 }
+

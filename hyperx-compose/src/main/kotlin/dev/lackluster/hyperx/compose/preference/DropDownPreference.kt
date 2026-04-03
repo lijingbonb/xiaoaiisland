@@ -24,7 +24,7 @@ import dev.lackluster.hyperx.compose.base.ImageIcon
 import top.yukonga.miuix.kmp.basic.BasicComponentColors
 import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.SpinnerEntry
-import top.yukonga.miuix.kmp.extra.SuperSpinner
+import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 
 @Composable
 fun DropDownPreference(
@@ -57,7 +57,7 @@ fun DropDownPreference(
 
     when (mode) {
         DropDownMode.Dialog -> {
-            SuperSpinner(
+            OverlaySpinnerPreference(
                 items = wrappedEntries,
                 selectedIndex = value,
                 title = title,
@@ -74,7 +74,7 @@ fun DropDownPreference(
         }
 
         else -> {
-            SuperSpinner(
+            OverlaySpinnerPreference(
                 items = wrappedEntries,
                 selectedIndex = value,
                 title = title,
@@ -138,7 +138,7 @@ fun DropDownPreference(
     @Suppress("DEPRECATION")
     when (mode) {
         DropDownMode.Dialog -> {
-            SuperSpinner(
+            OverlaySpinnerPreference(
                 items = wrappedEntries,
                 selectedIndex = spValue,
                 title = title,
@@ -155,7 +155,7 @@ fun DropDownPreference(
         }
 
         else -> {
-            SuperSpinner(
+            OverlaySpinnerPreference(
                 items = wrappedEntries,
                 selectedIndex = spValue,
                 title = title,
@@ -217,3 +217,4 @@ enum class DropDownMode {
 @Composable
 private fun rememberOptionWindowMaxHeight() =
     (LocalConfiguration.current.screenHeightDp.dp * 0.62f).coerceIn(280.dp, 520.dp)
+
