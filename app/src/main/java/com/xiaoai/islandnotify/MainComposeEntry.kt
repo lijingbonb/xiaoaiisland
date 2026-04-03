@@ -3165,7 +3165,7 @@ private fun AboutTab(
                 }
             }
         }
-        PreferenceGroup(last = true) {
+        PreferenceGroup(last = false) {
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
                 TextPreference(
                     title = "版本",
@@ -3196,6 +3196,20 @@ private fun AboutTab(
                         activity.uiSetMonetEnabled(it)
                     },
                 )
+            }
+        }
+        PreferenceGroup(last = true) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
+                OpenSourceRefs.list.forEachIndexed { index, ref ->
+                    TextPreference(
+                        title = ref.name,
+                        summary = "License: ${ref.license}",
+                        onClick = { activity.uiOpenUrl(ref.link) },
+                    )
+                    if (index != OpenSourceRefs.list.lastIndex) {
+                        HorizontalDivider()
+                    }
+                }
             }
         }
     }
