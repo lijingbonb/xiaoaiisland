@@ -40,9 +40,13 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Ensure Android 37 SDK platform
         shell: bash
         run: |
+          yes | sdkmanager --licenses
           sdkmanager --install "platforms;android-37" "build-tools;37.0.0"
 
       - name: Resolve release sequence
