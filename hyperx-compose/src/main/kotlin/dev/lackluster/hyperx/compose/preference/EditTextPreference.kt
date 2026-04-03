@@ -50,6 +50,7 @@ fun EditTextPreference(
     dataType: EditTextDataType,
     dialogMessage: String? = null,
     dialogPlaceholder: String? = null,
+    renderInRootScaffold: Boolean = true,
     isValueValid: ((value: Any) -> Boolean)? = null,
     valuePosition: ValuePosition = ValuePosition.VALUE_VIEW,
     enabled: Boolean = true,
@@ -110,6 +111,7 @@ fun EditTextPreference(
         message = dialogMessage,
         placeholder = dialogPlaceholder ?: defValue.toString(),
         value = value.toString(),
+        renderInRootScaffold = renderInRootScaffold,
         onInputConfirm = { newString ->
             doOnInputConfirm(newString)
         }
@@ -126,6 +128,7 @@ fun EditTextPreference(
     dataType: EditTextDataType,
     dialogMessage: String? = null,
     dialogPlaceholder: String? = null,
+    renderInRootScaffold: Boolean = true,
     isValueValid: ((value: Any) -> Boolean)? = null,
     valuePosition: ValuePosition = ValuePosition.VALUE_VIEW,
     enabled: Boolean = true,
@@ -202,6 +205,7 @@ fun EditTextPreference(
         message = dialogMessage,
         placeholder = dialogPlaceholder ?: defValue.toString(),
         value = spValue.toString(),
+        renderInRootScaffold = renderInRootScaffold,
         onInputConfirm = { newString ->
             doOnInputConfirm(newString)
         }
@@ -215,6 +219,7 @@ fun EditTextDialog(
     title: String?,
     message: String? = null,
     placeholder: String? = null,
+    renderInRootScaffold: Boolean = true,
     value: String = "",
     onInputConfirm: ((value: String) -> Unit)? = null
 ) {
@@ -230,6 +235,7 @@ fun EditTextDialog(
         show = visibility.value,
         title = title,
         summary = message,
+        renderInRootScaffold = renderInRootScaffold,
         onDismissRequest = {
             if (visibility.value) {
                 keyboard?.hide()

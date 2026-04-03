@@ -20,10 +20,12 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun LoadingDialog(
     title: String? = null,
+    renderInRootScaffold: Boolean = true,
     onDismissRequest: (() -> Unit)? = null,
 ) {
     OverlayDialog(
         show = true,
+        renderInRootScaffold = renderInRootScaffold,
         onDismissRequest = { onDismissRequest?.invoke() },
         content = {
             Box(

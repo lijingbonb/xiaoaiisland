@@ -22,6 +22,7 @@ fun AlertDialog(
     title: String?,
     message: String? = null,
     cancelable: Boolean = true,
+    renderInRootScaffold: Boolean = true,
     mode: AlertDialogMode = AlertDialogMode.Positive,
     negativeText: String = stringResource(R.string.button_cancel),
     positiveText: String = stringResource(R.string.button_ok),
@@ -34,6 +35,7 @@ fun AlertDialog(
         show = visible,
         title = title,
         summary = message,
+        renderInRootScaffold = renderInRootScaffold,
         onDismissRequest = {
             if (cancelable) {
                 onDismissRequest?.invoke()
@@ -78,6 +80,7 @@ fun AlertDialog(
     title: String?,
     message: String? = null,
     cancelable: Boolean = true,
+    renderInRootScaffold: Boolean = true,
     mode: AlertDialogMode = AlertDialogMode.Positive,
     negativeText: String = stringResource(R.string.button_cancel),
     positiveText: String = stringResource(R.string.button_ok),
@@ -89,6 +92,7 @@ fun AlertDialog(
         show = visibility.value,
         title = title,
         summary = message,
+        renderInRootScaffold = renderInRootScaffold,
         onDismissRequest = {
             if (cancelable) {
                 visibility.value = false
