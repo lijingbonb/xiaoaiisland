@@ -292,6 +292,19 @@ def openSourceFallbackUrl = { String g, String n, String v ->
     return "https://mvnrepository.com/artifact/${g}/${n}/${v}"
 }
 
+def toRepoDisplayName = { String g, String n, String url ->
+    String u = (url ?: "").trim()
+    if (u) {
+        def matcher = (u =~ /(?:github\.com|gitlab\.com|gitee\.com)[:\/]([^\/:]+)\/([^\/?#]+)/)
+        if (matcher.find()) {
+            String owner = matcher.group(1)
+            String repo = matcher.group(2).replaceAll(/\.git$/, "")
+            return "${owner}/${repo}"
+        }
+    }
+    return "${g}/${n}"
+}
+
 def resolvePomMetadata = { String g, String n, String v ->
     try {
         def dep = dependencies.create("${g}:${n}:${v}@pom")
@@ -306,9 +319,10 @@ def resolvePomMetadata = { String g, String n, String v ->
         def url = xml.url?.text()?.trim()
         if (!url) url = xml.scm?.url?.text()?.trim()
         if (!url) url = openSourceFallbackUrl(g, n, v)
-        return [name: title, license: license, url: url]
+        return [name: toRepoDisplayName(g, n, url), license: license, url: url]
     } catch (Throwable ignored) {
-        return [name: "${g}:${n}", license: "Unknown", url: openSourceFallbackUrl(g, n, v)]
+        def fallbackUrl = openSourceFallbackUrl(g, n, v)
+        return [name: toRepoDisplayName(g, n, fallbackUrl), license: "Unknown", url: fallbackUrl]
     }
 }
 
@@ -351,13 +365,23 @@ tasks.register("generateOpenSourceRefs") {
             refs.add(resolvePomMetadata(c.group, c.name, c.version))
         }
         refs = refs.unique { "${it.name}|${it.license}|${it.url}" }
+        def acknowledgements = [
+                [
+                        name: "HowieHChen/XiaomiHelper",
+                        license: "GPL-3.0",
+                        url: "https://github.com/HowieHChen/XiaomiHelper",
+                ]
+        ]
 
         outFile.parentFile.mkdirs()
         def esc = { String s -> (s ?: "").replace("\\", "\\\\").replace("\"", "\\\"") }
         def entries = refs.collect { ref ->
             "        OpenSourceRef(\"${esc(ref.name)}\", \"${esc(ref.license)}\", \"${esc(ref.url)}\")"
         }.join(",\n")
-        outFile.text = """package com.xiaoai.islandnotify
+        def ackEntries = acknowledgements.collect { ref ->
+            "        OpenSourceRef(\"${esc(ref.name)}\", \"${esc(ref.license)}\", \"${esc(ref.url)}\")"
+        }.join(",\n")
+        def content = """package com.xiaoai.islandnotify
 
 data class OpenSourceRef(
     val name: String,
@@ -369,8 +393,12 @@ object OpenSourceRefs {
     val list = listOf(
 ${entries}
     )
+    val acknowledgements = listOf(
+${ackEntries}
+    )
 }
 """
+        outFile.setText(content, "UTF-8")
         println("Generated open source refs: ${outFile}")
     }
 }

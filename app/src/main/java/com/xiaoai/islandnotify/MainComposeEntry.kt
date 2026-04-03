@@ -3175,24 +3175,31 @@ private fun AboutTab(
             }
         }
         PreferenceGroup(
-            title = "开源引用",
+            title = "引用",
+            last = false,
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                OpenSourceRefs.list.forEach { ref ->
+                    TextPreference(
+                        title = ref.name,
+                        summary = ref.license,
+                        onClick = { activity.uiOpenUrl(ref.link) },
+                    )
+                }
+            }
+        }
+        PreferenceGroup(
+            title = "致谢",
             last = true,
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                OpenSourceRefs.list.forEachIndexed { index, ref ->
+                OpenSourceRefs.acknowledgements.forEach { ref ->
                     TextPreference(
                         title = ref.name,
-                        summary = "License: ${ref.license}",
+                        summary = "${ref.license} | UI参考",
                         onClick = { activity.uiOpenUrl(ref.link) },
                     )
-                    if (index != OpenSourceRefs.list.lastIndex) {
-                    }
                 }
-                TextPreference(
-                    title = "致谢 XiaomiHelper",
-                    summary = "UI 样式参考",
-                    onClick = { activity.uiOpenUrl("https://github.com/HowieHChen/XiaomiHelper") },
-                )
             }
         }
     }
