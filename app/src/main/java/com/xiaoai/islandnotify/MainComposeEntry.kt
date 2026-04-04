@@ -1960,7 +1960,7 @@ private fun parseWakeRules(json: String): List<WakeRule> {
                     ),
                 )
             }
-        }.ifEmpty { listOf(WakeRule("1", "7", "00")) }
+        }
     } catch (_: Exception) {
         listOf(WakeRule("1", "7", "00"))
     }
