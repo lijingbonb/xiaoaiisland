@@ -26,7 +26,9 @@ import static com.xiaoai.islandnotify.modernhook.XposedHelpers.findAndHookMethod
 public class SystemUiHook {
 
     private static final String TAG = "IslandNotifySysUI";
+    private static final String OWNER_PACKAGE = "com.miui.voiceassist";
     private static final Set<String> TARGET_PACKAGES = ConcurrentHashMap.newKeySet();
+    private static final Set<String> sOwnedNotifyKeys = ConcurrentHashMap.newKeySet();
 
     private static final String DYNAMIC_ISLAND_CONTENT_IFACE =
             "com.android.systemui.plugins.miui.dynamicisland.DynamicIslandContent";
@@ -65,6 +67,7 @@ public class SystemUiHook {
 
     private static final ThreadLocal<Boolean> sReentry = new ThreadLocal<>();
     private static final ThreadLocal<Integer> sIslandBindDepth = new ThreadLocal<>();
+    private static final ThreadLocal<Boolean> sOwnedIslandBind = new ThreadLocal<>();
     private static final Set<String> sHookedIslandContentClasses = ConcurrentHashMap.newKeySet();
     private static final Map<TextView, Boolean> sAdaptiveWatchers =
             java.util.Collections.synchronizedMap(new WeakHashMap<TextView, Boolean>());
@@ -196,6 +199,7 @@ public class SystemUiHook {
                 XposedBridge.hookMethod(m, new XC_MethodHook() {
                     @Override
                     protected void afterHookedMethod(MethodHookParam param) {
+                        if (!isInOwnedIslandBind()) return;
                         Object self = param.thisObject;
                         if (self == null) return;
                         Object digitObj = getFieldValue(self, "sameWidthDigit");
@@ -271,6 +275,7 @@ public class SystemUiHook {
                 XposedBridge.hookMethod(m, new XC_MethodHook() {
                     @Override
                     protected void afterHookedMethod(MethodHookParam param) {
+                        if (!isInOwnedIslandBind()) return;
                         Object self = param.thisObject;
                         if (self == null) return;
                         if (!ISLAND_SAME_WIDTH_DIGIT_VIEW_HOLDER_CLASS.equals(self.getClass().getName())) return;
@@ -405,6 +410,7 @@ public class SystemUiHook {
             XposedBridge.hookMethod(m, new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
+                    if (!isInOwnedIslandBind()) return;
                     Object self = param.thisObject;
                     if (self == null) return;
                     applyMarqueeForFieldTextView(self, "focusSmallTitle");
@@ -578,6 +584,7 @@ public class SystemUiHook {
                 XposedBridge.hookMethod(m, new XC_MethodHook() {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) {
+                        if (!isInOwnedIslandBind()) return;
                         if (param.args == null || param.args.length < 3) return;
                         Object tvObj = param.args[0];
                         if (!(tvObj instanceof TextView)) return;
@@ -608,6 +615,7 @@ public class SystemUiHook {
 
                     @Override
                     protected void afterHookedMethod(MethodHookParam param) {
+                        if (!isInOwnedIslandBind()) return;
                         if (param.args == null || param.args.length < 1) return;
                         Object tvObj = param.args[0];
                         if (!(tvObj instanceof TextView)) return;
@@ -676,6 +684,7 @@ public class SystemUiHook {
                 XposedBridge.hookMethod(m, new XC_MethodHook() {
                     @Override
                     protected void afterHookedMethod(MethodHookParam param) {
+                        if (!isInOwnedIslandBind()) return;
                         Object self = param.thisObject;
                         if (self == null) return;
                         // hintInfo.type=2(按钮组件2): subTitle -> focusSmallSubtitleView
@@ -920,6 +929,7 @@ public class SystemUiHook {
                 XposedBridge.hookMethod(m, new XC_MethodHook() {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) {
+                        if (!isInOwnedIslandBind()) return;
                         if (param.args == null || param.args.length == 0) return;
                         for (int i = 0; i < param.args.length; i++) {
                             Object arg = param.args[i];
@@ -958,6 +968,7 @@ public class SystemUiHook {
                     "setIslandExpandedView", View.class, new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
+                            if (!isInOwnedIslandBind()) return;
                             View root = (param.args != null && param.args.length > 0 && param.args[0] instanceof View)
                                     ? (View) param.args[0] : null;
                             tuneIslandViewTree(root);
@@ -972,6 +983,7 @@ public class SystemUiHook {
                     "setIslandExpandedViewFake", View.class, new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
+                            if (!isInOwnedIslandBind()) return;
                             View root = (param.args != null && param.args.length > 0 && param.args[0] instanceof View)
                                     ? (View) param.args[0] : null;
                             tuneIslandViewTree(root);
@@ -1000,7 +1012,10 @@ public class SystemUiHook {
                     new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) {
-                            // 不再改写岛A/B文本，避免未展开态宽度异常挤压状态栏图标。
+                            cacheFullTextsFromModel(param.args);
+                            cacheFullTextsFromIslandParam(param.args);
+                            markOwnedKeyFromArgs(param.args);
+                            installRuntimeIslandContentHook(param.thisObject);
                         }
                     });
         } catch (Throwable t) {
@@ -1093,17 +1108,23 @@ public class SystemUiHook {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) {
                             enterIslandBind();
+                            boolean owned = false;
                             if (param.args != null && param.args.length > 0) {
+                                owned = isOwnedDynamicIslandData(param.args[0]);
+                            }
+                            sOwnedIslandBind.set(owned);
+                            if (owned && param.args != null && param.args.length > 0) {
                                 tuneDynamicIslandData(param.args[0]);
                             }
                         }
 
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            if (param.args != null && param.args.length > 0) {
+                            if (isInOwnedIslandBind() && param.args != null && param.args.length > 0) {
                                 applyFullTextToRenderedViews(param.args[0]);
                             }
                             exitIslandBind();
+                            sOwnedIslandBind.remove();
                         }
                     });
                 }
@@ -1140,6 +1161,7 @@ public class SystemUiHook {
         try {
             String key = ((Bundle) args[0]).getString("notifyId", "");
             if (TextUtils.isEmpty(key)) return;
+            if (isOwnedNotificationKey(key)) sOwnedNotifyKeys.add(key);
             String left = readModelText(model, "getLeft");
             String right = readModelText(model, "getRight");
             if (TextUtils.isEmpty(left) && TextUtils.isEmpty(right)) return;
@@ -1157,6 +1179,7 @@ public class SystemUiHook {
             String key = b.getString("notifyId", "");
             String json = b.getString("island_param", "");
             if (TextUtils.isEmpty(key) || TextUtils.isEmpty(json)) return;
+            if (isOwnedNotificationKey(key)) sOwnedNotifyKeys.add(key);
 
             JSONObject root = new JSONObject(json);
             String left = "";
@@ -1180,6 +1203,36 @@ public class SystemUiHook {
             sFullTextByKey.put(key, texts);
         } catch (Throwable ignore) {
         }
+    }
+
+    private void markOwnedKeyFromArgs(Object[] args) {
+        if (args == null || args.length == 0) return;
+        if (!(args[0] instanceof Bundle)) return;
+        try {
+            String key = ((Bundle) args[0]).getString("notifyId", "");
+            if (isOwnedNotificationKey(key)) sOwnedNotifyKeys.add(key);
+        } catch (Throwable ignore) {
+        }
+    }
+
+    private boolean isOwnedDynamicIslandData(Object dataObj) {
+        try {
+            Object keyObj = invokeNoArg(dataObj, "getKey");
+            if (!(keyObj instanceof String)) return false;
+            String key = (String) keyObj;
+            return isOwnedNotificationKey(key);
+        } catch (Throwable ignore) {
+            return false;
+        }
+    }
+
+    private boolean isOwnedNotificationKey(String key) {
+        if (TextUtils.isEmpty(key)) return false;
+        if (sOwnedNotifyKeys.contains(key)) return true;
+        return key.contains("|" + OWNER_PACKAGE + "|")
+                || key.startsWith(OWNER_PACKAGE + "|")
+                || key.contains("xiaoai_test_")
+                || key.contains("xiaoai_course_reminder_alert");
     }
 
     private String readModelText(Object model, String sideMethod) {
@@ -1511,6 +1564,10 @@ public class SystemUiHook {
     private static boolean isInIslandBind() {
         Integer depth = sIslandBindDepth.get();
         return depth != null && depth > 0;
+    }
+
+    private static boolean isInOwnedIslandBind() {
+        return isInIslandBind() && Boolean.TRUE.equals(sOwnedIslandBind.get());
     }
 
     private static String safeIdName(View view, int id) {
