@@ -1616,24 +1616,6 @@ private fun WakeupCard(activity: MainActivity, state: SettingsComposeState) {
                     persistWakeupConfigNow()
                 },
             )
-            if (state.wakeupMorningEnabled) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "上午规则",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                WakeRuleList(
-                    rules = state.wakeupMorningRules,
-                    defaultRule = WakeRule("1", "7", "00"),
-                    minSec = 1,
-                    maxSec = morningRuleMax,
-                    onChanged = { persistWakeupConfigNow() },
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
             Spacer(modifier = Modifier.height(8.dp))
 
             SwitchPreference(
@@ -1645,14 +1627,32 @@ private fun WakeupCard(activity: MainActivity, state: SettingsComposeState) {
                     persistWakeupConfigNow()
                 },
             )
-            if (state.wakeupAfternoonEnabled) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "下午规则",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        }
+    }
+    if (state.wakeupMorningEnabled) {
+        PreferenceGroup(
+            title = "上午规则",
+            first = false,
+            last = false,
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
+                WakeRuleList(
+                    rules = state.wakeupMorningRules,
+                    defaultRule = WakeRule("1", "7", "00"),
+                    minSec = 1,
+                    maxSec = morningRuleMax,
+                    onChanged = { persistWakeupConfigNow() },
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+            }
+        }
+    }
+    if (state.wakeupAfternoonEnabled) {
+        PreferenceGroup(
+            title = "下午规则",
+            first = false,
+            last = false,
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
                 WakeRuleList(
                     rules = state.wakeupAfternoonRules,
                     defaultRule = WakeRule("5", "12", "00"),
@@ -1712,25 +1712,27 @@ private fun WakeRuleList(
     var pendingDeleteIndex by remember { mutableIntStateOf(-1) }
     Column {
         rules.forEachIndexed { index, rule ->
-            val hour = rule.hour.toIntOrNull()?.coerceIn(0, 23) ?: 0
-            val minute = rule.minute.toIntOrNull()?.coerceIn(0, 59) ?: 0
-            TextPreference(
-                title = "规则 ${index + 1}",
-                value = "第${rule.sec.ifBlank { "1" }}节 -> $hour:${String.format(Locale.getDefault(), "%02d", minute)}",
-                onClick = { editingIndex = index },
+            WakeRuleRow(
+                index = index,
+                rule = rule,
+                onEdit = { editingIndex = index },
+                onDelete = { pendingDeleteIndex = index },
             )
             if (index != rules.lastIndex) {
+                Spacer(modifier = Modifier.height(6.dp))
             }
         }
         Spacer(modifier = Modifier.height(10.dp))
-        Button(
+        AddEntryRow(
+            title = "新增规则",
+            summary = "添加节次与叫醒时间",
             onClick = {
                 val sec = (defaultRule.sec.toIntOrNull() ?: safeMin).coerceIn(safeMin, safeMax)
                 rules += defaultRule.copy(sec = sec.toString())
                 onChanged()
                 editingIndex = rules.lastIndex
             },
-        ) { Text("＋ 添加规则") }
+        )
     }
     if (editingIndex in rules.indices) {
         var sec by remember(editingIndex) {
@@ -1769,18 +1771,6 @@ private fun WakeRuleList(
                     text = "取消",
                     minHeight = 50.dp,
                     onClick = { editingIndex = -1 },
-                )
-                TextButton(
-                    modifier = Modifier.weight(1f),
-                    text = "删除",
-                    minHeight = 50.dp,
-                    colors = ButtonDefaults.textButtonColors(
-                        color = Color(0xFFD32F2F),
-                        disabledColor = Color(0x59D32F2F),
-                        textColor = Color.White,
-                        disabledTextColor = Color(0xB3FFFFFF),
-                    ),
-                    onClick = { pendingDeleteIndex = editingIndex },
                 )
                 TextButton(
                     modifier = Modifier.weight(1f),
@@ -1860,8 +1850,53 @@ private fun WakeRuleList(
                         Toast.LENGTH_SHORT
                     ).show()
                 }
-                editingIndex = -1
             },
+        )
+    }
+}
+
+@Composable
+private fun WakeRuleRow(
+    index: Int,
+    rule: WakeRule,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val hour = rule.hour.toIntOrNull()?.coerceIn(0, 23) ?: 0
+    val minute = rule.minute.toIntOrNull()?.coerceIn(0, 59) ?: 0
+    val sec = rule.sec.toIntOrNull()?.coerceAtLeast(1) ?: 1
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "规则 ${index + 1}",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                "第${sec}节 -> ${String.format(Locale.getDefault(), "%02d", hour)}:${String.format(Locale.getDefault(), "%02d", minute)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(
+            text = "编辑",
+            minHeight = 44.dp,
+            onClick = onEdit,
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        TextButton(
+            text = "删除",
+            minHeight = 44.dp,
+            colors = ButtonDefaults.textButtonColors(
+                color = Color(0xFFD32F2F),
+                disabledColor = Color(0x59D32F2F),
+                textColor = Color.White,
+                disabledTextColor = Color(0xB3FFFFFF),
+            ),
+            onClick = onDelete,
         )
     }
 }
