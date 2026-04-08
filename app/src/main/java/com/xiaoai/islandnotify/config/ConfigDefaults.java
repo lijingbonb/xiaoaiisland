@@ -94,6 +94,7 @@ final class ConfigDefaults {
         switch (key) {
             case "repost_enabled": return REPOST_ENABLED;
             case KEY_NOTIF_GLOBAL_DEFAULT: return true;
+            case "out_effect_enabled": return true;
             case "mute_enabled":
             case "unmute_enabled":
             case "dnd_enabled":
@@ -189,6 +190,7 @@ final class ConfigDefaults {
                 || "active_countdown_to_end".equals(key)
                 || "island_button_mode".equals(key)
                 || "icon_a".equals(key)
+                || "out_effect_enabled".equals(key)
                 || "wakeup_morning_enabled".equals(key)
                 || "wakeup_morning_last_sec".equals(key)
                 || "wakeup_morning_rules_json".equals(key)

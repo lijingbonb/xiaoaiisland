@@ -125,6 +125,7 @@ final class IslandContentBuilder {
             int stageIndex = stageIndexByState(state);
             String stageSuffix = ConfigDefaults.stageSuffix(stageIndex);
             final boolean showIconA = PrefsAccess.readConfigBool(prefs, "icon_a", true);
+            final boolean outEffectEnabled = PrefsAccess.readConfigBool(prefs, "out_effect_enabled", true);
 
             String aFallback = resolveTemplate(
                     ConfigDefaults.stagedTemplateDefault("tpl_a", stageSuffix, ""),
@@ -267,6 +268,7 @@ final class IslandContentBuilder {
                 template.setUpdatable(true);
                 template.setTicker(finalTickerText);
                 template.setAodTitle(finalTickerText);
+                if (outEffectEnabled) template.setOutEffectSrc("outer_glow");
                 template.setEnableFloat(isActive);
                 if (isActive) template.setIslandFirstFloat(true);
 

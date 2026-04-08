@@ -449,6 +449,7 @@ private class SettingsComposeState {
     var classroom by mutableStateOf("教科A-101")
     val stageStates = mutableStateListOf(StageCustomState(), StageCustomState(), StageCustomState())
     var iconAEnabled by mutableStateOf(true)
+    var outEffectEnabled by mutableStateOf(true)
     var timeoutState by mutableStateOf(TimeoutUiState())
     var reminderMinutes by mutableStateOf("15")
     var repostEnabled by mutableStateOf(true)
@@ -525,6 +526,7 @@ private class SettingsComposeState {
             )
         }
         iconAEnabled = PrefsAccess.readConfigBool(prefs, "icon_a", true)
+        outEffectEnabled = PrefsAccess.readConfigBool(prefs, "out_effect_enabled", true)
         timeoutState = readTimeoutState(prefs)
         reminderMinutes = PrefsAccess.readConfigInt(prefs, "reminder_minutes_before", 15).toString()
         repostEnabled = PrefsAccess.readConfigBool(prefs, "repost_enabled", true)
@@ -852,6 +854,7 @@ private fun ExpandedCustomPage(
             editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[5]}$suffix", stageItem.baseContent.trim())
             editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[6]}$suffix", stageItem.baseSubcontent.trim())
         }
+        editor.putBoolean("out_effect_enabled", state.outEffectEnabled)
         editor.apply()
     }
 
@@ -887,7 +890,7 @@ private fun ExpandedCustomPage(
                 PreferenceGroup(
                     title = title,
                     first = i == 0,
-                    last = i == sectionTitles.lastIndex,
+                    last = false,
                 ) {
                     Column(
                         modifier = Modifier
@@ -993,6 +996,24 @@ private fun ExpandedCustomPage(
                             },
                         )
                     }
+                }
+            }
+        }
+        item {
+            PreferenceGroup(last = true) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                ) {
+                    SwitchPreference(
+                        title = "发光效果",
+                        value = state.outEffectEnabled,
+                        onCheckedChange = {
+                            state.outEffectEnabled = it
+                            persistExpandedConfig()
+                        },
+                    )
                 }
             }
         }
