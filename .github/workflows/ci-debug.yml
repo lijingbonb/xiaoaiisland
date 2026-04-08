@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - "main"
+    paths:
+      - "app/**"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      - "build.gradle"
+      - "settings.gradle"
+      - "gradle.properties"
   pull_request:
     branches:
       - "main"
@@ -49,4 +57,3 @@ jobs:
 
       - name: Build debug APK
         run: ./gradlew --no-daemon clean assembleDebug
-
