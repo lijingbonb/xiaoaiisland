@@ -107,7 +107,7 @@ final class IslandContentBuilder {
                 timerType = 1;
                 hintContent = "\u5df2\u7ecf\u4e0b\u8bfe";
             } else if (isActive) {
-                if (endMs > 0 && false) {
+                if (endMs > 0) {
                     timerMs = endMs;
                     timerType = (endMs > now) ? -1 : 1;
                     hintContent = "\u8ddd\u79bb\u4e0b\u8bfe";
