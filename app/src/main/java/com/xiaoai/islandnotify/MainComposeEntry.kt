@@ -718,6 +718,7 @@ private fun StatusCustomPage(
             editor.putString("tpl_hint_subtitle$suffix", stageItem.hintSubtitle.trim())
         }
         editor.putBoolean("icon_a", state.iconAEnabled)
+        editor.putBoolean("out_effect_enabled", state.outEffectEnabled)
         editor.apply()
     }
 
@@ -817,6 +818,14 @@ private fun StatusCustomPage(
                         value = state.iconAEnabled,
                         onCheckedChange = {
                             state.iconAEnabled = it
+                            persistStatusConfig()
+                        },
+                    )
+                    SwitchPreference(
+                        title = "发光效果",
+                        value = state.outEffectEnabled,
+                        onCheckedChange = {
+                            state.outEffectEnabled = it
                             persistStatusConfig()
                         },
                     )
