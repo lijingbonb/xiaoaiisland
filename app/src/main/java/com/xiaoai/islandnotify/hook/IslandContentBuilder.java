@@ -148,17 +148,33 @@ final class IslandContentBuilder {
             String defaultTimeLine = info.startTime
                     + (info.endTime.isEmpty() ? "" : " | " + info.endTime);
             String baseTitle = applyTimerVars(applyExtraVars(resolveTemplate(
-                    PrefsAccess.readStagedTemplate(prefs, "tpl_base_title", stageSuffix, ""),
+                    PrefsAccess.readStagedString(
+                            prefs,
+                            "tpl_base_title",
+                            stageSuffix,
+                            ConfigDefaults.expandedTemplateDefault(stageIndex, 0, info.courseName)),
                     info, info.courseName), info), state, startMs, endMs, now);
             String baseContent = applyTimerVars(applyExtraVars(resolveTemplate(
-                    PrefsAccess.readStagedTemplate(prefs, "tpl_base_content", stageSuffix, ""),
+                    PrefsAccess.readStagedString(
+                            prefs,
+                            "tpl_base_content",
+                            stageSuffix,
+                            ConfigDefaults.expandedTemplateDefault(stageIndex, 5, defaultTimeLine)),
                     info, defaultTimeLine), info), state, startMs, endMs, now);
             String baseSubContent = applyTimerVars(applyExtraVars(resolveTemplate(
-                    PrefsAccess.readStagedTemplate(prefs, "tpl_base_subcontent", stageSuffix, ""),
+                    PrefsAccess.readStagedString(
+                            prefs,
+                            "tpl_base_subcontent",
+                            stageSuffix,
+                            ConfigDefaults.expandedTemplateDefault(stageIndex, 6, "")),
                     info, ""), info), state, startMs, endMs, now);
 
             String hintTitleText = resolveTemplate(
-                    PrefsAccess.readStagedTemplate(prefs, "tpl_hint_title", stageSuffix, ""),
+                    PrefsAccess.readStagedString(
+                            prefs,
+                            "tpl_hint_title",
+                            stageSuffix,
+                            ConfigDefaults.expandedTemplateDefault(stageIndex, 1, "")),
                     info, "");
             String rawHintTitleText = safeStr(hintTitleText).trim();
             boolean hintTitleWantsCountdown = hintTitleText.contains(VAR_COUNTDOWN);
@@ -168,13 +184,26 @@ final class IslandContentBuilder {
             boolean usePureTimerAsDynamicTitle;
 
             String hintContentText = applyTimerVars(applyExtraVars(resolveTemplate(
-                    PrefsAccess.readStagedTemplate(prefs, "tpl_hint_content", stageSuffix, ""),
+                    PrefsAccess.readStagedString(
+                            prefs,
+                            "tpl_hint_content",
+                            stageSuffix,
+                            ConfigDefaults.expandedTemplateDefault(stageIndex, 3, hintContent)),
                     info, hintContent), info), state, startMs, endMs, now);
             String hintSubContentText = resolveTemplate(
-                    PrefsAccess.readStagedTemplate(prefs, "tpl_hint_subcontent", stageSuffix, ""),
+                    PrefsAccess.readStagedString(
+                            prefs,
+                            "tpl_hint_subcontent",
+                            stageSuffix,
+                            ConfigDefaults.expandedTemplateDefault(stageIndex, 4, FALLBACK_HINT_SUBCONTENT)),
                     info, FALLBACK_HINT_SUBCONTENT);
             String hintSubTitleText = resolveTemplate(
-                    PrefsAccess.readStagedTemplate(prefs, "tpl_hint_subtitle", stageSuffix, ""),
+                    PrefsAccess.readStagedString(
+                            prefs,
+                            "tpl_hint_subtitle",
+                            stageSuffix,
+                            ConfigDefaults.expandedTemplateDefault(
+                                    stageIndex, 2, info.classroom.isEmpty() ? "\u2014" : info.classroom)),
                     info, info.classroom.isEmpty() ? "\u2014" : info.classroom);
             String rawHintSubTitleText = safeStr(hintSubTitleText).trim();
             boolean hintSubTitleWantsCountdown = hintSubTitleText.contains(VAR_COUNTDOWN);
