@@ -44,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -79,6 +80,8 @@ import java.util.Calendar
 import java.util.Locale
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.ColorPicker
+import top.yukonga.miuix.kmp.basic.ColorSpace
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.NumberPicker
 import top.yukonga.miuix.kmp.basic.NumberPickerDefaults
@@ -451,6 +454,8 @@ private class SettingsComposeState {
     var iconAEnabled by mutableStateOf(true)
     var outEffectStatusEnabled by mutableStateOf(true)
     var outEffectExpandEnabled by mutableStateOf(true)
+    var outEffectExpandCustomColorEnabled by mutableStateOf(false)
+    var outEffectExpandCustomColorArgb by mutableIntStateOf(0xFFFFFFFF.toInt())
     var timeoutState by mutableStateOf(TimeoutUiState())
     var reminderMinutes by mutableStateOf("15")
     var repostEnabled by mutableStateOf(true)
@@ -540,6 +545,16 @@ private class SettingsComposeState {
             prefs,
             "out_effect_expand_enabled",
             expandEffectDefault,
+        )
+        outEffectExpandCustomColorEnabled = PrefsAccess.readConfigBool(
+            prefs,
+            "out_effect_expand_custom_color_enabled",
+            false,
+        )
+        outEffectExpandCustomColorArgb = PrefsAccess.readConfigInt(
+            prefs,
+            "out_effect_expand_custom_color_argb",
+            0xFFFFFFFF.toInt(),
         )
         timeoutState = readTimeoutState(prefs)
         reminderMinutes = PrefsAccess.readConfigInt(prefs, "reminder_minutes_before", 15).toString()
@@ -861,6 +876,7 @@ private fun ExpandedCustomPage(
     pagePadding: PaddingValues = PaddingValues(0.dp),
 ) {
     var editDialog by remember { mutableStateOf<EditDialogSpec?>(null) }
+    var showColorDialog by remember { mutableStateOf(false) }
     val sectionTitles = remember { listOf("上课前", "上课中", "下课后") }
 
     fun persistExpandedConfig() {
@@ -878,6 +894,14 @@ private fun ExpandedCustomPage(
             editor.putString("${ConfigDefaults.EXPANDED_TPL_KEYS[6]}$suffix", stageItem.baseSubcontent.trim())
         }
         editor.putBoolean("out_effect_expand_enabled", state.outEffectExpandEnabled)
+        editor.putBoolean(
+            "out_effect_expand_custom_color_enabled",
+            state.outEffectExpandCustomColorEnabled,
+        )
+        editor.putInt(
+            "out_effect_expand_custom_color_argb",
+            state.outEffectExpandCustomColorArgb,
+        )
         editor.apply()
     }
 
@@ -1037,6 +1061,25 @@ private fun ExpandedCustomPage(
                             persistExpandedConfig()
                         },
                     )
+                    SwitchPreference(
+                        title = "发光自定义颜色",
+                        summary = "开启后使用自定义颜色覆盖系统默认发光色",
+                        value = state.outEffectExpandCustomColorEnabled,
+                        onCheckedChange = {
+                            state.outEffectExpandCustomColorEnabled = it
+                            persistExpandedConfig()
+                        },
+                    )
+                    TextPreference(
+                        title = "发光颜色",
+                        value = formatColorHexArgb(state.outEffectExpandCustomColorArgb),
+                        enabled = state.outEffectExpandCustomColorEnabled,
+                        onClick = {
+                            if (state.outEffectExpandCustomColorEnabled) {
+                                showColorDialog = true
+                            }
+                        },
+                    )
                 }
             }
         }
@@ -1044,6 +1087,64 @@ private fun ExpandedCustomPage(
     }
     editDialog?.let { spec ->
         EditValueDialog(spec = spec, onDismiss = { editDialog = null })
+    }
+    if (showColorDialog) {
+        GlowColorPickerDialog(
+            initialArgb = state.outEffectExpandCustomColorArgb,
+            onDismiss = { showColorDialog = false },
+            onConfirm = { argb ->
+                state.outEffectExpandCustomColorArgb = argb
+                persistExpandedConfig()
+                showColorDialog = false
+            },
+        )
+    }
+}
+
+private fun formatColorHexArgb(argb: Int): String {
+    return String.format(Locale.ROOT, "#%08X", argb)
+}
+
+@Composable
+private fun GlowColorPickerDialog(
+    initialArgb: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit,
+) {
+    var pickedColor by remember(initialArgb) { mutableStateOf(Color(initialArgb)) }
+    OverlayDialog(
+        show = true,
+        title = "选择发光颜色",
+        onDismissRequest = onDismiss,
+    ) {
+        ColorPicker(
+            color = pickedColor,
+            onColorChanged = { pickedColor = it },
+            colorSpace = ColorSpace.HSV,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = formatColorHexArgb(pickedColor.toArgb()),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            TextButton(
+                modifier = Modifier.weight(1f),
+                text = "取消",
+                minHeight = 50.dp,
+                onClick = onDismiss,
+            )
+            TextButton(
+                modifier = Modifier.weight(1f),
+                text = "确定",
+                minHeight = 50.dp,
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+                onClick = { onConfirm(pickedColor.toArgb()) },
+            )
+        }
     }
 }
 

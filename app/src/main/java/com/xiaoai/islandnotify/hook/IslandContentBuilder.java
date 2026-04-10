@@ -405,6 +405,7 @@ final class IslandContentBuilder {
                 extras.putString("miui.effect.src", "outer_glow");
             } else {
                 extras.remove("miui.bigIsland.effect.src");
+                extras.remove("miui.effect.src");
             }
             return extras;
         } catch (Throwable ignored) {

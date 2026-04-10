@@ -1,5 +1,6 @@
 package com.xiaoai.islandnotify;
 
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.app.Notification;
 import android.service.notification.StatusBarNotification;
@@ -16,6 +17,7 @@ import com.xiaoai.islandnotify.modernhook.XposedBridge;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Constructor;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -65,6 +67,12 @@ public class SystemUiHook {
             "miui.systemui.notification.focus.moduleV3.ModuleTextButtonViewHolder";
     private static final String MODULE_TINY_TEXT_BUTTON_VIEW_HOLDER_CLASS =
             "miui.systemui.notification.focus.moduleV3.ModuleTinyTextButtonViewHolder";
+    private static final String LIGHT_BG_SHADER_CLASS = "com.mi.widget.shader.LightBgShader";
+    private static final String LIGHT_BG_SHADER_FIELD = "U_LIGHT_COLORS";
+    private static final String PREFS_GROUP_CONFIG = "island_custom";
+    private static final String KEY_CUSTOM_GLOW_COLOR_ENABLED = "out_effect_expand_custom_color_enabled";
+    private static final String KEY_CUSTOM_GLOW_COLOR_ARGB = "out_effect_expand_custom_color_argb";
+    private static final String KEY_EXPAND_GLOW_ENABLED = "out_effect_expand_enabled";
     private static final String BASE_ISLAND_MODULE_VIEW_HOLDER_CLASS =
             "miui.systemui.dynamicisland.module.BaseIslandModuleViewHolder";
     private static final String ISLAND_TEXT_VIEW_HOLDER_CLASS =
@@ -79,6 +87,14 @@ public class SystemUiHook {
     private static final Set<String> sHookedIslandContentClasses = ConcurrentHashMap.newKeySet();
     private static final Set<String> sHookedShaderFeatureClasses = ConcurrentHashMap.newKeySet();
     private static final Set<String> sHookedAnimationControllerClasses = ConcurrentHashMap.newKeySet();
+    private static final Set<String> sHookedLightBgShaderClasses = ConcurrentHashMap.newKeySet();
+    private static final Map<Class<?>, float[]> sDefaultLightShaderColors =
+            java.util.Collections.synchronizedMap(new WeakHashMap<Class<?>, float[]>());
+    private static volatile boolean sGlowColorHookDisabled = false;
+    private static volatile boolean sCachedCustomGlowEnabled = false;
+    private static volatile int sCachedCustomGlowArgb = 0xFFFFFFFF;
+    private static volatile boolean sCachedExpandGlowEnabled = true;
+    private static volatile long sLastGlowPrefsReadAt = 0L;
     private static final Map<TextView, Boolean> sAdaptiveWatchers =
             java.util.Collections.synchronizedMap(new WeakHashMap<TextView, Boolean>());
     private static final Map<Object, String> sFocusContentKeyMap =
@@ -110,6 +126,7 @@ public class SystemUiHook {
         sInstalledHookLoaders.put(classLoader, Boolean.TRUE);
         hookDynamicIslandShaderFeature(classLoader);
         hookBigIslandAnimationState(classLoader);
+        hookLightBgShaderColor(classLoader);
         hookFocusDynamicIslandExtrasBridge(classLoader);
         hookExactFirstLimitPoints(classLoader);
         hookIslandExpandedView(classLoader);
@@ -217,6 +234,7 @@ public class SystemUiHook {
                         try {
                             Object stateObj = (param.args != null && param.args.length > 0) ? param.args[0] : null;
                             if (stateObj == null) return;
+                            applyCustomGlowColorForClassLoader(stateObj.getClass().getClassLoader());
                             Object dataObj = extractDynamicDataFromAnimationState(stateObj);
                             if (!hasVoiceAssistBigGlowRequest(dataObj)) return;
                             boolean isBig = isBigIslandStateTag(stateObj);
@@ -400,6 +418,137 @@ public class SystemUiHook {
     private static void swallowOptionalHookFailure(Throwable t) {
         // Optional hook points may not exist across ROM/plugin versions.
         // Keep silent to avoid noisy logs when fallback paths still work.
+    }
+
+    private void hookLightBgShaderColor(ClassLoader classLoader) {
+        try {
+            refreshGlowPrefsCache(true);
+            Class<?> shaderCls = Class.forName(LIGHT_BG_SHADER_CLASS, false, classLoader);
+            String clsName = shaderCls.getName();
+            if (!sHookedLightBgShaderClasses.add(clsName)) return;
+            Constructor<?>[] constructors = shaderCls.getDeclaredConstructors();
+            for (Constructor<?> c : constructors) {
+                c.setAccessible(true);
+                XposedBridge.hookMethod(c, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        if (sGlowColorHookDisabled) return;
+                        try {
+                            Object shaderObj = param.thisObject;
+                            if (shaderObj == null) return;
+                            applyCustomGlowColor(shaderObj.getClass());
+                        } catch (Throwable t) {
+                            sGlowColorHookDisabled = true;
+                            swallowOptionalHookFailure(t);
+                        }
+                    }
+                });
+            }
+            float[] current = getLightShaderArray(shaderCls);
+            cacheDefaultLightShaderArray(shaderCls, current);
+        } catch (Throwable t) {
+            swallowOptionalHookFailure(t);
+        }
+    }
+
+    private void applyCustomGlowColorForClassLoader(ClassLoader classLoader) {
+        if (sGlowColorHookDisabled) return;
+        if (classLoader == null) return;
+        try {
+            refreshGlowPrefsCache(false);
+            Class<?> shaderCls = Class.forName(LIGHT_BG_SHADER_CLASS, false, classLoader);
+            applyCustomGlowColor(shaderCls);
+        } catch (Throwable t) {
+            sGlowColorHookDisabled = true;
+            swallowOptionalHookFailure(t);
+        }
+    }
+
+    private void applyCustomGlowColor(Class<?> shaderCls) {
+        if (shaderCls == null) return;
+        float[] current = getLightShaderArray(shaderCls);
+        if (current == null || current.length == 0) return;
+        cacheDefaultLightShaderArray(shaderCls, current);
+
+        if (!sCachedExpandGlowEnabled || !sCachedCustomGlowEnabled) {
+            restoreDefaultLightShaderArray(shaderCls);
+            return;
+        }
+        float[] target = rebuildLightShaderArray(current, sCachedCustomGlowArgb);
+        if (target == null || target.length == 0) return;
+        setLightShaderArray(shaderCls, target);
+    }
+
+    private void refreshGlowPrefsCache(boolean force) {
+        long now = System.currentTimeMillis();
+        if (!force && now - sLastGlowPrefsReadAt < 1000L) return;
+        SharedPreferences prefs = readModuleConfigPrefs();
+        if (prefs == null) return;
+        sCachedExpandGlowEnabled = prefs.getBoolean(KEY_EXPAND_GLOW_ENABLED, true);
+        sCachedCustomGlowEnabled = prefs.getBoolean(KEY_CUSTOM_GLOW_COLOR_ENABLED, false);
+        sCachedCustomGlowArgb = prefs.getInt(KEY_CUSTOM_GLOW_COLOR_ARGB, 0xFFFFFFFF);
+        sLastGlowPrefsReadAt = now;
+    }
+
+    private SharedPreferences readModuleConfigPrefs() {
+        try {
+            return XposedBridge.getRemotePreferences(PREFS_GROUP_CONFIG);
+        } catch (Throwable ignore) {
+            return null;
+        }
+    }
+
+    private void cacheDefaultLightShaderArray(Class<?> shaderCls, float[] currentArray) {
+        if (shaderCls == null || currentArray == null || currentArray.length == 0) return;
+        if (sDefaultLightShaderColors.containsKey(shaderCls)) return;
+        sDefaultLightShaderColors.put(shaderCls, Arrays.copyOf(currentArray, currentArray.length));
+    }
+
+    private void restoreDefaultLightShaderArray(Class<?> shaderCls) {
+        float[] def = sDefaultLightShaderColors.get(shaderCls);
+        if (def == null || def.length == 0) return;
+        setLightShaderArray(shaderCls, Arrays.copyOf(def, def.length));
+    }
+
+    private float[] rebuildLightShaderArray(float[] base, int argb) {
+        float r = ((argb >>> 16) & 0xFF) / 255f;
+        float g = ((argb >>> 8) & 0xFF) / 255f;
+        float b = (argb & 0xFF) / 255f;
+        float a = ((argb >>> 24) & 0xFF) / 255f;
+        // Align with LingDongDao module behavior: always write 33 floats, repeating RGBA.
+        float[] out = new float[33];
+        for (int i = 0; i < out.length; i++) {
+            int mod = i & 3;
+            if (mod == 0) out[i] = r;
+            else if (mod == 1) out[i] = g;
+            else if (mod == 2) out[i] = b;
+            else out[i] = a;
+        }
+        return out;
+    }
+
+    private float[] getLightShaderArray(Class<?> shaderCls) {
+        try {
+            Field f = findField(shaderCls, LIGHT_BG_SHADER_FIELD);
+            if (f == null) return null;
+            f.setAccessible(true);
+            Object obj = f.get(null);
+            if (!(obj instanceof float[])) return null;
+            return (float[]) obj;
+        } catch (Throwable ignore) {
+            return null;
+        }
+    }
+
+    private void setLightShaderArray(Class<?> shaderCls, float[] value) {
+        if (shaderCls == null || value == null || value.length == 0) return;
+        try {
+            Field f = findField(shaderCls, LIGHT_BG_SHADER_FIELD);
+            if (f == null) return;
+            f.setAccessible(true);
+            f.set(null, value);
+        } catch (Throwable ignore) {
+        }
     }
 
     private void hookExactFirstLimitPoints(ClassLoader classLoader) {
