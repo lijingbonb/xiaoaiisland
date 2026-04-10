@@ -3,6 +3,7 @@ package com.xiaoai.islandnotify;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.app.Notification;
+import android.graphics.Color;
 import android.service.notification.StatusBarNotification;
 import android.text.TextUtils;
 import android.view.View;
@@ -720,20 +721,112 @@ public class SystemUiHook {
     }
 
     private float[] rebuildLightShaderArray(float[] base, int argb) {
-        float r = ((argb >>> 16) & 0xFF) / 255f;
-        float g = ((argb >>> 8) & 0xFF) / 255f;
-        float b = (argb & 0xFF) / 255f;
-        float a = ((argb >>> 24) & 0xFF) / 255f;
-        // Align with LingDongDao module behavior: always write 33 floats, repeating RGBA.
-        float[] out = new float[33];
-        for (int i = 0; i < out.length; i++) {
-            int mod = i & 3;
-            if (mod == 0) out[i] = r;
-            else if (mod == 1) out[i] = g;
-            else if (mod == 2) out[i] = b;
-            else out[i] = a;
+        // Official-like mapping:
+        // keep the default palette curve (S/V structure), remap it to the user hue.
+        float[] tpl = normalizeTemplatePalette(base);
+        float[] out = new float[tpl.length];
+        float[] seedHsv = new float[3];
+        Color.colorToHSV(argb, seedHsv);
+        float seedH = seedHsv[0];
+        float seedS = clamp01(seedHsv[1]);
+        float seedV = clamp01(seedHsv[2]);
+
+        float[] anchorHsv = extractStopHsv(tpl, 2);
+        float anchorHue = anchorHsv[0];
+        float anchorS = Math.max(0.01f, anchorHsv[1]);
+        float anchorV = Math.max(0.01f, anchorHsv[2]);
+        float[] svMinMax = calcTemplateSvMinMax(tpl);
+        float minS = svMinMax[0];
+        float maxS = svMinMax[1];
+        float minV = svMinMax[2];
+        float maxV = svMinMax[3];
+
+        int stops = tpl.length / 3;
+        for (int i = 0; i < stops; i++) {
+            float[] thsv = extractStopHsv(tpl, i);
+            float tplHueDelta = shortestHueDelta(anchorHue, thsv[0]);
+            float h = wrapHue(seedH + tplHueDelta * 0.45f);
+            float sNorm = normalize01(thsv[1], minS, maxS);
+            float vNorm = normalize01(thsv[2], minV, maxV);
+            float s = clamp01(seedS * (0.72f + 0.38f * sNorm) * (thsv[1] / anchorS));
+            float v = clamp01(seedV * (0.62f + 0.48f * vNorm) * (thsv[2] / anchorV));
+            int c = Color.HSVToColor(new float[] {h, s, v});
+            int baseIndex = i * 3;
+            out[baseIndex] = Color.red(c) / 255f;
+            out[baseIndex + 1] = Color.green(c) / 255f;
+            out[baseIndex + 2] = Color.blue(c) / 255f;
         }
         return out;
+    }
+
+    private float[] normalizeTemplatePalette(float[] base) {
+        if (base != null && base.length >= 33) {
+            return Arrays.copyOf(base, 33);
+        }
+        // Fallback: official default-like constants.
+        return new float[] {
+                0.502f, 0.525f, 1.0f,
+                1.0f, 0.827f, 0.702f,
+                1.0f, 0.525f, 0.208f,
+                0.518f, 0.494f, 1.0f,
+                0.071f, 0.412f, 0.949f,
+                0.502f, 0.525f, 1.0f,
+                1.0f, 0.827f, 0.702f,
+                1.0f, 0.525f, 0.208f,
+                0.518f, 0.494f, 1.0f,
+                0.071f, 0.412f, 0.949f,
+                1.0f, 0.525f, 0.208f
+        };
+    }
+
+    private float[] extractStopHsv(float[] rgb33, int stopIndex) {
+        int idx = stopIndex * 3;
+        int r = (int) (clamp01(rgb33[idx]) * 255f);
+        int g = (int) (clamp01(rgb33[idx + 1]) * 255f);
+        int b = (int) (clamp01(rgb33[idx + 2]) * 255f);
+        float[] hsv = new float[3];
+        Color.RGBToHSV(r, g, b, hsv);
+        return hsv;
+    }
+
+    private float[] calcTemplateSvMinMax(float[] rgb33) {
+        float minS = 1f;
+        float maxS = 0f;
+        float minV = 1f;
+        float maxV = 0f;
+        int stops = rgb33.length / 3;
+        for (int i = 0; i < stops; i++) {
+            float[] hsv = extractStopHsv(rgb33, i);
+            if (hsv[1] < minS) minS = hsv[1];
+            if (hsv[1] > maxS) maxS = hsv[1];
+            if (hsv[2] < minV) minV = hsv[2];
+            if (hsv[2] > maxV) maxV = hsv[2];
+        }
+        return new float[] {minS, maxS, minV, maxV};
+    }
+
+    private float normalize01(float x, float min, float max) {
+        float d = max - min;
+        if (d <= 1e-6f) return 0.5f;
+        return clamp01((x - min) / d);
+    }
+
+    private float shortestHueDelta(float from, float to) {
+        float d = (to - from) % 360f;
+        if (d > 180f) d -= 360f;
+        if (d < -180f) d += 360f;
+        return d;
+    }
+
+    private float wrapHue(float h) {
+        float out = h % 360f;
+        return out < 0f ? out + 360f : out;
+    }
+
+    private float clamp01(float v) {
+        if (v < 0f) return 0f;
+        if (v > 1f) return 1f;
+        return v;
     }
 
     private float[] getLightShaderArray(Class<?> shaderCls) {
