@@ -14,14 +14,17 @@ on:
         type: boolean
   workflow_call:
     inputs:
+      githubtag:
+        required: false
+        type: string
       title:
-        required: true
+        required: false
         type: string
       content:
-        required: true
+        required: false
         type: string
       url:
-        required: true
+        required: false
         type: string
       notify_enabled:
         required: false
@@ -43,6 +46,7 @@ jobs:
       WEBHOOK_URL: ${{ secrets.BOT_UPDATE_WEBHOOK_URL }}
       WEBHOOK_TOKEN: ${{ secrets.BOT_UPDATE_WEBHOOK_TOKEN }}
       DISPATCH_GITHUBTAG: ${{ inputs.githubtag }}
+      CALL_GITHUBTAG: ${{ inputs.githubtag }}
       CALL_TITLE: ${{ inputs.title }}
       CALL_CONTENT: ${{ inputs.content }}
       CALL_URL: ${{ inputs.url }}
@@ -72,9 +76,9 @@ jobs:
             CONTENT="${CALL_CONTENT:-}"
             URL="${CALL_URL}"
           else
-            TAG_INPUT="${DISPATCH_GITHUBTAG}"
+            TAG_INPUT="${CALL_GITHUBTAG:-${DISPATCH_GITHUBTAG:-}}"
             if [ -z "${TAG_INPUT}" ]; then
-              echo "githubtag is required in workflow_dispatch mode."
+              echo "githubtag is required when title/url are not provided."
               exit 1
             fi
 
@@ -92,7 +96,10 @@ jobs:
               exit 1
             fi
 
-            RELEASE_JSON="$(gh api "repos/${REPO}/releases/tags/${TAG}")"
+            if ! RELEASE_JSON="$(gh api "repos/${REPO}/releases/tags/${TAG}" 2>/dev/null)"; then
+              echo "Release not found for exact tag: ${TAG}"
+              exit 1
+            fi
             TITLE="$(jq -r '.name // empty' <<<"${RELEASE_JSON}")"
             if [ -z "${TITLE}" ]; then
               TITLE="${TAG}"
