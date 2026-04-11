@@ -3,17 +3,32 @@ package com.xiaoai.islandnotify;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Set;
 
 import io.github.libxposed.service.XposedService;
@@ -34,6 +49,11 @@ public class MainActivity extends AppCompatActivity {
     private static final String ACTION_RESCHEDULE_DAILY = "com.xiaoai.islandnotify.ACTION_RESCHEDULE_DAILY";
     private static final String ALIAS = "com.xiaoai.islandnotify.MainActivityAlias";
     private static final String HINT_KEY_PREFIX = "hint_";
+    private static final String BACKUP_SCHEMA = "com.xiaoai.islandnotify.config_backup";
+    private static final int BACKUP_VERSION = 1;
+    private static final String PREFS_TYPE_CONFIG = "config";
+    private static final String PREFS_TYPE_HOLIDAY = "holiday";
+    private static final String PREFS_TYPE_UI = "ui";
 
     private static final String[] CUSTOM_SUFFIXES = ConfigDefaults.STAGE_SUFFIXES;
 
@@ -43,6 +63,9 @@ public class MainActivity extends AppCompatActivity {
     private volatile SharedPreferences mRemotePrefs;
     private volatile SharedPreferences mRemoteHolidayPrefs;
     private volatile boolean mScopeRequested = false;
+    private ActivityResultLauncher<String> mCreateConfigBackupLauncher;
+    private ActivityResultLauncher<String[]> mOpenConfigBackupLauncher;
+    private String mPendingExportBackupJson;
 
     private SharedPreferences getConfigPrefs() {
         return PrefsAccess.resolve(mRemotePrefs);
@@ -117,6 +140,34 @@ public class MainActivity extends AppCompatActivity {
         int removed = resetAllConfigToDefaults();
         requestComposeRefresh();
         return removed;
+    }
+
+    void uiExportAllConfig() {
+        try {
+            JSONObject root = buildConfigBackupJson();
+            mPendingExportBackupJson = root.toString(2);
+            if (mCreateConfigBackupLauncher != null) {
+                mCreateConfigBackupLauncher.launch(buildBackupFileName());
+            } else {
+                Toast.makeText(this, "导出功能初始化失败", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Throwable t) {
+            Log.e("IslandNotify", "uiExportAllConfig failed", t);
+            Toast.makeText(this, "导出失败：" + safeError(t), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    void uiImportAllConfig() {
+        try {
+            if (mOpenConfigBackupLauncher != null) {
+                mOpenConfigBackupLauncher.launch(new String[]{"application/json", "text/plain", "*/*"});
+            } else {
+                Toast.makeText(this, "导入功能初始化失败", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Throwable t) {
+            Log.e("IslandNotify", "uiImportAllConfig failed", t);
+            Toast.makeText(this, "导入失败：" + safeError(t), Toast.LENGTH_SHORT).show();
+        }
     }
 
     boolean uiIsHideIconEnabled() {
@@ -197,6 +248,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        registerConfigBackupLaunchers();
         MainComposeEntry.install(this);
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         initFrameworkServiceStatus();
@@ -526,6 +578,191 @@ public class MainActivity extends AppCompatActivity {
 
     private void refreshAfterConfigSynced() {
         requestComposeRefresh();
+    }
+
+    private void registerConfigBackupLaunchers() {
+        mCreateConfigBackupLauncher = registerForActivityResult(
+                new ActivityResultContracts.CreateDocument("application/json"),
+                this::handleExportBackupUri
+        );
+        mOpenConfigBackupLauncher = registerForActivityResult(
+                new ActivityResultContracts.OpenDocument(),
+                this::handleImportBackupUri
+        );
+    }
+
+    private void handleExportBackupUri(Uri uri) {
+        if (uri == null) return;
+        String payload = mPendingExportBackupJson;
+        if (payload == null || payload.isEmpty()) {
+            Toast.makeText(this, "没有可导出的配置内容", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try (OutputStream os = getContentResolver().openOutputStream(uri, "wt");
+             OutputStreamWriter osw = new OutputStreamWriter(os);
+             BufferedWriter writer = new BufferedWriter(osw)) {
+            if (os == null) throw new IllegalStateException("无法打开导出文件流");
+            writer.write(payload);
+            writer.flush();
+            Toast.makeText(this, "导出成功", Toast.LENGTH_SHORT).show();
+        } catch (Throwable t) {
+            Log.e("IslandNotify", "handleExportBackupUri failed", t);
+            Toast.makeText(this, "导出失败：" + safeError(t), Toast.LENGTH_SHORT).show();
+        } finally {
+            mPendingExportBackupJson = null;
+        }
+    }
+
+    private void handleImportBackupUri(Uri uri) {
+        if (uri == null) return;
+        try (InputStream is = getContentResolver().openInputStream(uri);
+             InputStreamReader isr = new InputStreamReader(is);
+             BufferedReader reader = new BufferedReader(isr)) {
+            if (is == null) throw new IllegalStateException("无法打开导入文件流");
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append('\n');
+            }
+            int count = importConfigBackupJson(sb.toString());
+            requestComposeRefresh();
+            Toast.makeText(this, "导入成功：" + count + " 项", Toast.LENGTH_SHORT).show();
+        } catch (Throwable t) {
+            Log.e("IslandNotify", "handleImportBackupUri failed", t);
+            Toast.makeText(this, "导入失败：" + safeError(t), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private JSONObject buildConfigBackupJson() throws Exception {
+        JSONObject root = new JSONObject();
+        root.put("schema", BACKUP_SCHEMA);
+        root.put("version", BACKUP_VERSION);
+        root.put("createdAt", System.currentTimeMillis());
+        root.put("appVersion", uiReadAppVersionName());
+
+        JSONObject prefs = new JSONObject();
+        prefs.put(PREFS_TYPE_CONFIG, sharedPrefsToJson(getConfigPrefs()));
+        prefs.put(PREFS_TYPE_HOLIDAY, sharedPrefsToJson(getHolidayPrefs()));
+        prefs.put(PREFS_TYPE_UI, sharedPrefsToJson(getSharedPreferences(PREFS_UI_NAME, Context.MODE_PRIVATE)));
+        root.put("prefs", prefs);
+        return root;
+    }
+
+    private int importConfigBackupJson(String jsonText) throws Exception {
+        JSONObject root = new JSONObject(jsonText == null ? "" : jsonText.trim());
+        String schema = root.optString("schema", "");
+        if (!BACKUP_SCHEMA.equals(schema)) {
+            throw new IllegalArgumentException("配置文件 schema 不匹配");
+        }
+        JSONObject prefs = root.optJSONObject("prefs");
+        if (prefs == null) throw new IllegalArgumentException("配置文件缺少 prefs");
+
+        int count = 0;
+        count += applyJsonToSharedPrefs(getConfigPrefs(), prefs.optJSONObject(PREFS_TYPE_CONFIG), true);
+        count += applyJsonToSharedPrefs(getHolidayPrefs(), prefs.optJSONObject(PREFS_TYPE_HOLIDAY), true);
+        count += applyJsonToSharedPrefs(getSharedPreferences(PREFS_UI_NAME, Context.MODE_PRIVATE),
+                prefs.optJSONObject(PREFS_TYPE_UI), true);
+        return count;
+    }
+
+    private JSONObject sharedPrefsToJson(SharedPreferences sp) throws Exception {
+        JSONObject obj = new JSONObject();
+        if (sp == null) return obj;
+        Map<String, ?> all = sp.getAll();
+        if (all == null || all.isEmpty()) return obj;
+        for (Map.Entry<String, ?> entry : all.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            if (key == null || value == null) continue;
+            JSONObject item = new JSONObject();
+            if (value instanceof String) {
+                item.put("type", "string");
+                item.put("value", value);
+            } else if (value instanceof Integer) {
+                item.put("type", "int");
+                item.put("value", (Integer) value);
+            } else if (value instanceof Long) {
+                item.put("type", "long");
+                item.put("value", (Long) value);
+            } else if (value instanceof Float) {
+                item.put("type", "float");
+                item.put("value", (Float) value);
+            } else if (value instanceof Boolean) {
+                item.put("type", "boolean");
+                item.put("value", (Boolean) value);
+            } else if (value instanceof Set) {
+                item.put("type", "string_set");
+                JSONArray arr = new JSONArray();
+                Set<?> rawSet = (Set<?>) value;
+                for (Object o : rawSet) {
+                    if (o != null) arr.put(String.valueOf(o));
+                }
+                item.put("value", arr);
+            } else {
+                continue;
+            }
+            obj.put(key, item);
+        }
+        return obj;
+    }
+
+    private int applyJsonToSharedPrefs(SharedPreferences target, JSONObject data, boolean clearBefore) {
+        if (target == null) return 0;
+        SharedPreferences.Editor ed = target.edit();
+        if (clearBefore) ed.clear();
+        int count = 0;
+        if (data != null) {
+            JSONArray names = data.names();
+            if (names != null) {
+                for (int i = 0; i < names.length(); i++) {
+                    String key = names.optString(i, "");
+                    if (key.isEmpty()) continue;
+                    JSONObject item = data.optJSONObject(key);
+                    if (item == null) continue;
+                    String type = item.optString("type", "");
+                    Object value = item.opt("value");
+                    if ("string".equals(type)) {
+                        ed.putString(key, item.optString("value", ""));
+                        count++;
+                    } else if ("int".equals(type)) {
+                        ed.putInt(key, item.optInt("value", 0));
+                        count++;
+                    } else if ("long".equals(type)) {
+                        ed.putLong(key, item.optLong("value", 0L));
+                        count++;
+                    } else if ("float".equals(type)) {
+                        double v = item.optDouble("value", 0.0d);
+                        ed.putFloat(key, (float) v);
+                        count++;
+                    } else if ("boolean".equals(type)) {
+                        ed.putBoolean(key, item.optBoolean("value", false));
+                        count++;
+                    } else if ("string_set".equals(type) && value instanceof JSONArray) {
+                        JSONArray arr = (JSONArray) value;
+                        Set<String> set = new HashSet<>();
+                        for (int j = 0; j < arr.length(); j++) {
+                            String s = arr.optString(j, null);
+                            if (s != null) set.add(s);
+                        }
+                        ed.putStringSet(key, set);
+                        count++;
+                    }
+                }
+            }
+        }
+        ed.apply();
+        return count;
+    }
+
+    private static String buildBackupFileName() {
+        String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+        return "islandnotify_config_" + ts + ".json";
+    }
+
+    private static String safeError(Throwable t) {
+        if (t == null) return "未知错误";
+        String msg = t.getMessage();
+        return (msg == null || msg.trim().isEmpty()) ? t.getClass().getSimpleName() : msg;
     }
 
     private int resetAllConfigToDefaults() {

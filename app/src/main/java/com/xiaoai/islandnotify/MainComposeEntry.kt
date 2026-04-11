@@ -282,6 +282,8 @@ private fun MainComposeApp(
                         Toast.makeText(activity, "已恢复默认配置：$count 项", Toast.LENGTH_SHORT).show()
                         activity.requestComposeRefresh()
                     },
+                    onExportConfig = { activity.uiExportAllConfig() },
+                    onImportConfig = { activity.uiImportAllConfig() },
                 )
             }
         },
@@ -655,8 +657,11 @@ private fun HomeEntryPage(
     state: SettingsComposeState,
     onOpen: (AppRoute) -> Unit,
     onResetConfirmed: () -> Unit,
+    onExportConfig: () -> Unit,
+    onImportConfig: () -> Unit,
 ) {
     var showResetDialog by remember { mutableStateOf(false) }
+    var showConfigTransferDialog by remember { mutableStateOf(false) }
     LazyColumn(
         modifier = modifier,
         contentPadding = withExtraPadding(pagePadding, horizontal = 16.dp, vertical = 8.dp),
@@ -712,6 +717,11 @@ private fun HomeEntryPage(
                     onClick = { showResetDialog = true },
                 )
                 TextPreference(
+                    title = "导入/导出配置",
+                    summary = "导入或导出全部自定义配置",
+                    onClick = { showConfigTransferDialog = true },
+                )
+                TextPreference(
                     title = "假期/调休",
                     summary = "管理节假日与调休",
                 ) { onOpen(AppRoute.Holiday) }
@@ -739,6 +749,43 @@ private fun HomeEntryPage(
             onResetConfirmed()
         },
     )
+
+    if (showConfigTransferDialog) {
+        OverlayDialog(
+            show = true,
+            title = "导入/导出配置",
+            onDismissRequest = { showConfigTransferDialog = false },
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TextButton(
+                    modifier = Modifier.weight(1f),
+                    text = "导入",
+                    minHeight = 50.dp,
+                    onClick = {
+                        showConfigTransferDialog = false
+                        onImportConfig()
+                    },
+                )
+                TextButton(
+                    modifier = Modifier.weight(1f),
+                    text = "导出",
+                    minHeight = 50.dp,
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    onClick = {
+                        showConfigTransferDialog = false
+                        onExportConfig()
+                    },
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(
+                modifier = Modifier.fillMaxWidth(),
+                text = "取消",
+                minHeight = 46.dp,
+                onClick = { showConfigTransferDialog = false },
+            )
+        }
+    }
 }
 
 @Composable
