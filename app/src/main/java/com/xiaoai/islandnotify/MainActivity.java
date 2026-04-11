@@ -32,7 +32,6 @@ import java.util.Locale;
 import java.util.Set;
 
 import io.github.libxposed.service.XposedService;
-import io.github.libxposed.service.XposedServiceHelper;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -59,8 +58,6 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String[] CUSTOM_SUFFIXES = ConfigDefaults.STAGE_SUFFIXES;
 
-    private volatile boolean mFrameworkActive = false;
-    private volatile String mFrameworkDesc = "";
     private volatile XposedService mXposedService;
     private volatile SharedPreferences mRemotePrefs;
     private volatile SharedPreferences mRemoteHolidayPrefs;
@@ -98,15 +95,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     void requestComposeRefresh() {
+        syncFrameworkServiceState();
         ComposeRefreshBus.bump();
     }
 
     boolean uiFrameworkActive() {
-        return mFrameworkActive;
+        return IslandNotifyApp.isFrameworkActive();
     }
 
     String uiFrameworkDesc() {
-        return mFrameworkDesc;
+        return IslandNotifyApp.frameworkDesc();
     }
 
     SharedPreferences uiConfigPrefs() {
@@ -262,7 +260,7 @@ public class MainActivity extends AppCompatActivity {
         registerConfigBackupLaunchers();
         MainComposeEntry.install(this);
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-        initFrameworkServiceStatus();
+        syncFrameworkServiceState();
         updateModuleStatus();
     }
 
@@ -278,40 +276,26 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
     }
 
-    private void initFrameworkServiceStatus() {
-        XposedServiceHelper.registerListener(new XposedServiceHelper.OnServiceListener() {
-            @Override
-            public void onServiceBind(XposedService service) {
-                mXposedService = service;
-                mFrameworkActive = true;
-                int apiVersion = 0;
-                try {
-                    apiVersion = service.getApiVersion();
-                } catch (Throwable ignored) {
-                }
-                mFrameworkDesc = "Framework: " + service.getFrameworkName()
-                        + "\nAPI: " + apiVersion
-                        + "  Version: " + service.getFrameworkVersionCode();
-
-                initRemotePrefsBridgeRemoteOnly(service);
-                if (apiVersion >= 101) {
-                    requestMissingScopeIfNeeded(service);
-                }
-                runOnUiThread(MainActivity.this::updateModuleStatus);
-            }
-
-            @Override
-            public void onServiceDied(XposedService service) {
-                mXposedService = null;
-                mRemotePrefs = null;
-                mRemoteHolidayPrefs = null;
-                HolidayManager.clearRemotePrefs();
-                mScopeRequested = false;
-                mFrameworkActive = false;
-                mFrameworkDesc = "";
-                runOnUiThread(MainActivity.this::updateModuleStatus);
-            }
-        });
+    private void syncFrameworkServiceState() {
+        XposedService service = IslandNotifyApp.currentService();
+        if (service == mXposedService) return;
+        mXposedService = service;
+        if (service == null) {
+            mRemotePrefs = null;
+            mRemoteHolidayPrefs = null;
+            HolidayManager.clearRemotePrefs();
+            mScopeRequested = false;
+            return;
+        }
+        initRemotePrefsBridgeRemoteOnly(service);
+        int apiVersion = 0;
+        try {
+            apiVersion = service.getApiVersion();
+        } catch (Throwable ignored) {
+        }
+        if (apiVersion >= 101) {
+            requestMissingScopeIfNeeded(service);
+        }
     }
 
     private void initRemotePrefsBridgeRemoteOnly(XposedService service) {
