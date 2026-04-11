@@ -93,6 +93,10 @@ public class MainHook {
     private static final String SOURCE_WAKEUP = "wakeup";
     /** 课程数据源：拾光镜像 */
     private static final String SOURCE_SHIGUANG = "shiguang";
+    /** WakeUp 包名（作为通知点击目标） */
+    private static final String PKG_WAKEUP = "com.suda.yzune.wakeupschedule";
+    /** 拾光包名（作为通知点击目标） */
+    private static final String PKG_SHIGUANG = "com.xingheyuzhuan.shiguangschedule";
     /** 配置项：课程数据源 */
     private static final String KEY_COURSE_DATA_SOURCE = "course_data_source";
     /** WakeUp 镜像存储键（写入 voiceassist 自身 island_runtime） */
@@ -1749,7 +1753,7 @@ public class MainHook {
             notif.extras.putAll(buildIslandExtras(info, state, prefs));
             mNotifCourseOwner.put(notifId, info.courseName);
             try {
-                Intent tableIntent = Intent.parseUri(COURSE_TABLE_INTENT, Intent.URI_INTENT_SCHEME);
+                Intent tableIntent = buildCourseOpenIntent(ctx, prefs);
                 notif.contentIntent = PendingIntent.getActivity(ctx, 1, tableIntent,
                         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             } catch (Exception e) {
@@ -1778,6 +1782,22 @@ public class MainHook {
     private static String safeStr(String s) {
         return s != null ? s : "";
     }
+
+    private Intent buildCourseOpenIntent(Context ctx, SharedPreferences prefs) throws Exception {
+        String source = readCourseSource(prefs);
+        Intent launchIntent = null;
+        if (SOURCE_WAKEUP.equalsIgnoreCase(source)) {
+            launchIntent = ctx.getPackageManager().getLaunchIntentForPackage(PKG_WAKEUP);
+        } else if (SOURCE_SHIGUANG.equalsIgnoreCase(source)) {
+            launchIntent = ctx.getPackageManager().getLaunchIntentForPackage(PKG_SHIGUANG);
+        }
+        if (launchIntent != null) {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            return launchIntent;
+        }
+        return Intent.parseUri(COURSE_TABLE_INTENT, Intent.URI_INTENT_SCHEME);
+    }
+
     // 岛状态常量
     private static final int STATE_COUNTDOWN = 0; // 倒计时（上课前）
     private static final int STATE_ELAPSED   = 1; // 正计时（上课中）
