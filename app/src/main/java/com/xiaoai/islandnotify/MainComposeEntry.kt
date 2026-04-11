@@ -700,7 +700,7 @@ private fun HomeEntryPage(
                 ) { onOpen(AppRoute.Timeout) }
                 TextPreference(
                     title = "课前提醒",
-                    summary = "配置提前提醒分钟数与补发策略",
+                    summary = "配置数据源及提前提醒分钟数与补发策略",
                 ) { onOpen(AppRoute.Reminder) }
                 TextPreference(
                     title = "上课免打扰",
