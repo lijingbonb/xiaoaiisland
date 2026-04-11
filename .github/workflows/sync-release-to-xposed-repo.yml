@@ -82,6 +82,10 @@ jobs:
           if [ -n "${INPUT_RELEASE_BODY}" ]; then
             TARGET_BODY="${INPUT_RELEASE_BODY//$'\r\n'/$'\n'}"
             TARGET_BODY="${TARGET_BODY//$'\r'/$'\n'}"
+            # GitHub workflow_dispatch string input is single-line in UI.
+            # Allow manual "\n" (and "\r\n") escapes to represent line breaks.
+            TARGET_BODY="${TARGET_BODY//\\r\\n/$'\n'}"
+            TARGET_BODY="${TARGET_BODY//\\n/$'\n'}"
           else
             if [ -n "$PREV_TAG" ]; then
               TARGET_BODY="$(git log --pretty='- %h %s (%an)' "${PREV_TAG}..${SOURCE_TAG}")"
