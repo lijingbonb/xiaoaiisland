@@ -32,12 +32,10 @@ public class IslandNotifyApp extends Application {
 
             @Override
             public void onServiceDied(XposedService service) {
-                if (sService == service) {
-                    sService = null;
-                    sFrameworkActive = false;
-                    sFrameworkDesc = "";
-                    ComposeRefreshBus.bump();
-                }
+                sService = null;
+                sFrameworkActive = false;
+                sFrameworkDesc = "";
+                ComposeRefreshBus.bump();
             }
         });
     }
