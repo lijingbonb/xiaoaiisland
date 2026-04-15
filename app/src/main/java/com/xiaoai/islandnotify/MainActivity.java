@@ -44,6 +44,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREFS_RUNTIME_NAME = "island_runtime";
     private static final String PREFS_UI_NAME = "island_ui";
     private static final String KEY_UI_MONET_ENABLED = "ui_monet_enabled";
+    private static final String KEY_UI_PREDICTIVE_BACK_ENABLED = "ui_predictive_back_enabled";
     private static final String TARGET_VOICEASSIST = "com.miui.voiceassist";
     private static final String TARGET_WAKEUP = "com.suda.yzune.wakeupschedule";
     private static final String TARGET_SHIGUANG = "com.xingheyuzhuan.shiguangschedule";
@@ -68,6 +69,43 @@ public class MainActivity extends AppCompatActivity {
     private ActivityResultLauncher<String> mCreateConfigBackupLauncher;
     private ActivityResultLauncher<String[]> mOpenConfigBackupLauncher;
     private String mPendingExportBackupJson;
+
+    private boolean maybeRedirectForPredictiveBackMode() {
+        boolean predictiveEnabled = uiIsPredictiveBackEnabled();
+        Class<?> currentClass = getClass();
+        if (predictiveEnabled && currentClass == LegacyMainActivity.class) {
+            startActivity(buildPredictiveBackRedirectIntent(MainActivity.class));
+            finish();
+            return true;
+        }
+        if (!predictiveEnabled && currentClass == MainActivity.class) {
+            startActivity(buildPredictiveBackRedirectIntent(LegacyMainActivity.class));
+            finish();
+            return true;
+        }
+        return false;
+    }
+
+    private Intent buildPredictiveBackRedirectIntent(Class<?> targetClass) {
+        Intent source = getIntent();
+        Intent target = new Intent(this, targetClass);
+        if (source != null) {
+            if (source.getAction() != null) target.setAction(source.getAction());
+            if (source.getData() != null || source.getType() != null) {
+                target.setDataAndType(source.getData(), source.getType());
+            }
+            Set<String> categories = source.getCategories();
+            if (categories != null) {
+                for (String category : categories) {
+                    target.addCategory(category);
+                }
+            }
+            Bundle extras = source.getExtras();
+            if (extras != null) target.putExtras(extras);
+        }
+        target.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        return target;
+    }
 
     private SharedPreferences getConfigPrefs() {
         SharedPreferences remote = fetchRemotePrefs(PREFS_NAME);
@@ -243,6 +281,19 @@ public class MainActivity extends AppCompatActivity {
                 .commit();
     }
 
+    boolean uiIsPredictiveBackEnabled() {
+        return getSharedPreferences(PREFS_UI_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_UI_PREDICTIVE_BACK_ENABLED, true);
+    }
+
+    void uiSetPredictiveBackEnabled(boolean enabled) {
+        getSharedPreferences(PREFS_UI_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_UI_PREDICTIVE_BACK_ENABLED, enabled)
+                .commit();
+        recreate();
+    }
+
     boolean uiIsHintDismissed(String key) {
         SharedPreferences ui = getSharedPreferences(PREFS_UI_NAME, Context.MODE_PRIVATE);
         if (ui.contains(key)) {
@@ -289,6 +340,10 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        if (maybeRedirectForPredictiveBackMode()) {
+            super.onCreate(savedInstanceState);
+            return;
+        }
         super.onCreate(savedInstanceState);
         registerConfigBackupLaunchers();
         MainComposeEntry.install(this);

@@ -629,11 +629,13 @@ private class AboutComposeState {
     var version by mutableStateOf("未知版本")
     var hideIcon by mutableStateOf(false)
     var monetEnabled by mutableStateOf(false)
+    var predictiveBackEnabled by mutableStateOf(true)
 
     fun loadFrom(activity: MainActivity) {
         version = activity.uiReadAppVersionName()
         hideIcon = activity.uiIsHideIconEnabled()
         monetEnabled = activity.uiIsMonetEnabled()
+        predictiveBackEnabled = activity.uiIsPredictiveBackEnabled()
     }
 }
 
@@ -3579,6 +3581,15 @@ private fun AboutTab(
                     onCheckedChange = {
                         state.monetEnabled = it
                         activity.uiSetMonetEnabled(it)
+                    },
+                )
+                SwitchPreference(
+                    title = "预测性返回",
+                    summary = "开启后使用系统预测性返回动画",
+                    value = state.predictiveBackEnabled,
+                    onCheckedChange = {
+                        state.predictiveBackEnabled = it
+                        activity.uiSetPredictiveBackEnabled(it)
                     },
                 )
             }

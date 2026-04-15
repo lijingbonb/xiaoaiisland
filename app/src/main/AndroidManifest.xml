@@ -19,12 +19,20 @@
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:enableOnBackInvokedCallback="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".LegacyMainActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:enableOnBackInvokedCallback="false"
+            android:windowSoftInputMode="adjustResize" />
 
         <activity-alias
             android:name=".MainActivityAlias"
