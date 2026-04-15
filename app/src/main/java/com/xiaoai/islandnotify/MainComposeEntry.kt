@@ -543,23 +543,11 @@ private class SettingsComposeState {
             )
         }
         iconAEnabled = PrefsAccess.readConfigBool(prefs, "icon_a", true)
-        statusTextCustomColorArgb = when {
-            prefs.contains("status_text_highlight_custom_color_argb") -> PrefsAccess.readConfigInt(
-                prefs,
-                "status_text_highlight_custom_color_argb",
-                0xFFFFFFFF.toInt(),
-            )
-            prefs.contains("status_left_text_highlight_custom_color_argb") -> PrefsAccess.readConfigInt(
-                prefs,
-                "status_left_text_highlight_custom_color_argb",
-                0xFFFFFFFF.toInt(),
-            )
-            else -> PrefsAccess.readConfigInt(
-                prefs,
-                "status_right_text_highlight_custom_color_argb",
-                0xFFFFFFFF.toInt(),
-            )
-        }
+        statusTextCustomColorArgb = PrefsAccess.readConfigInt(
+            prefs,
+            "status_text_highlight_custom_color_argb",
+            0xFFFFFFFF.toInt(),
+        )
         val legacyOutEffectEnabled = PrefsAccess.readConfigBool(prefs, "out_effect_enabled", true)
         val legacyOutEffectExists = prefs.contains("out_effect_enabled")
         val statusEffectDefault = if (legacyOutEffectExists) legacyOutEffectEnabled else false

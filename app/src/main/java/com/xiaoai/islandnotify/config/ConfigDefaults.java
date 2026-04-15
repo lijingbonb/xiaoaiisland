@@ -197,8 +197,6 @@ final class ConfigDefaults {
                 || "active_countdown_to_end".equals(key)
                 || "island_button_mode".equals(key)
                 || "icon_a".equals(key)
-                || "status_left_text_highlight_custom_color_argb".equals(key)
-                || "status_right_text_highlight_custom_color_argb".equals(key)
                 || "status_text_highlight_custom_color_argb".equals(key) // legacy
                 || "status_left_text_dynamic_highlight_enabled".equals(key)
                 || "status_right_text_dynamic_highlight_enabled".equals(key)

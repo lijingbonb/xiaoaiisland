@@ -165,9 +165,8 @@ final class IslandContentBuilder {
                     prefs, "out_effect_expand_enabled", expandEffectDefault);
             final boolean outEffectStatusEnabled = PrefsAccess.readConfigBool(
                     prefs, "out_effect_status_enabled", statusEffectDefault);
-            final int textHighlightColorArgb = prefs.contains("status_text_highlight_custom_color_argb")
-                    ? PrefsAccess.readConfigInt(prefs, "status_text_highlight_custom_color_argb", 0xFFFFFFFF)
-                    : PrefsAccess.readConfigInt(prefs, "status_left_text_highlight_custom_color_argb", 0xFFFFFFFF);
+            final int textHighlightColorArgb = PrefsAccess.readConfigInt(
+                    prefs, "status_text_highlight_custom_color_argb", 0xFFFFFFFF);
             final String textHighlightColorHex = String.format(
                     Locale.US,
                     "#%02X%02X%02X",

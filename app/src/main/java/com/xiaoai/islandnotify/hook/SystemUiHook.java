@@ -81,10 +81,8 @@ public class SystemUiHook {
     private static final String KEY_EXPAND_CUSTOM_GLOW_COLOR_ARGB = "out_effect_expand_custom_color_argb";
     private static final String KEY_STATUS_GLOW_ENABLED = "out_effect_status_enabled";
     private static final String KEY_EXPAND_GLOW_ENABLED = "out_effect_expand_enabled";
-    private static final String KEY_STATUS_LEFT_TEXT_HIGHLIGHT_CUSTOM_COLOR_ARGB =
-            "status_left_text_highlight_custom_color_argb";
-    private static final String KEY_STATUS_RIGHT_TEXT_HIGHLIGHT_CUSTOM_COLOR_ARGB =
-            "status_right_text_highlight_custom_color_argb";
+    private static final String KEY_STATUS_TEXT_HIGHLIGHT_CUSTOM_COLOR_ARGB =
+            "status_text_highlight_custom_color_argb";
     private static final String BASE_ISLAND_MODULE_VIEW_HOLDER_CLASS =
             "miui.systemui.dynamicisland.module.BaseIslandModuleViewHolder";
     private static final String ISLAND_TEXT_VIEW_HOLDER_CLASS =
@@ -1141,13 +1139,8 @@ public class SystemUiHook {
     private TextColorConfig readStatusTextColorConfig(boolean leftSide) {
         SharedPreferences prefs = readModuleConfigPrefs();
         if (prefs == null) return TextColorConfig.disabled();
-        if (leftSide) {
-            int argb = prefs.getInt(KEY_STATUS_LEFT_TEXT_HIGHLIGHT_CUSTOM_COLOR_ARGB, 0xFFFFFFFF);
-            return new TextColorConfig(true, argb);
-        } else {
-            int argb = prefs.getInt(KEY_STATUS_RIGHT_TEXT_HIGHLIGHT_CUSTOM_COLOR_ARGB, 0xFFFFFFFF);
-            return new TextColorConfig(true, argb);
-        }
+        int argb = prefs.getInt(KEY_STATUS_TEXT_HIGHLIGHT_CUSTOM_COLOR_ARGB, 0xFFFFFFFF);
+        return new TextColorConfig(true, argb);
     }
 
     private static final class TextColorConfig {
