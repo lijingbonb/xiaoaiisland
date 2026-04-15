@@ -21,6 +21,8 @@ import com.xzakota.hyper.notification.island.model.SmallIslandArea;
 import com.xzakota.hyper.notification.island.model.TextInfo;
 import com.xzakota.hyper.notification.island.template.IslandTemplate;
 
+import org.json.JSONObject;
+
 import java.util.Calendar;
 import java.util.Locale;
 
@@ -163,6 +165,15 @@ final class IslandContentBuilder {
                     prefs, "out_effect_expand_enabled", expandEffectDefault);
             final boolean outEffectStatusEnabled = PrefsAccess.readConfigBool(
                     prefs, "out_effect_status_enabled", statusEffectDefault);
+            final int textHighlightColorArgb = prefs.contains("status_text_highlight_custom_color_argb")
+                    ? PrefsAccess.readConfigInt(prefs, "status_text_highlight_custom_color_argb", 0xFFFFFFFF)
+                    : PrefsAccess.readConfigInt(prefs, "status_left_text_highlight_custom_color_argb", 0xFFFFFFFF);
+            final String textHighlightColorHex = String.format(
+                    Locale.US,
+                    "#%02X%02X%02X",
+                    Color.red(textHighlightColorArgb),
+                    Color.green(textHighlightColorArgb),
+                    Color.blue(textHighlightColorArgb));
 
             String aFallback = resolveTemplate(
                     ConfigDefaults.stagedTemplateDefault("tpl_a", stageSuffix, ""),
@@ -443,6 +454,7 @@ final class IslandContentBuilder {
                 extras.remove("miui.bigIsland.effect.src");
                 extras.remove("miui.effect.src");
             }
+            injectHighlightColorToFocusParam(extras, textHighlightColorHex);
             extras.putString(EXTRA_OWNER_KEY, EXTRA_OWNER_VALUE);
             return extras;
         } catch (Throwable ignored) {
@@ -452,6 +464,24 @@ final class IslandContentBuilder {
 
     private static String buildTickerText(CourseSnapshot info) {
         return info.startTime.isEmpty() ? info.courseName : info.startTime + "\u4e0a\u8bfe";
+    }
+
+    private static void injectHighlightColorToFocusParam(Bundle extras, String highlightColor) {
+        if (extras == null || highlightColor == null || highlightColor.isEmpty()) return;
+        String jsonParam = extras.getString("miui.focus.param", "");
+        if (jsonParam == null || jsonParam.isEmpty()) return;
+        try {
+            JSONObject root = new JSONObject(jsonParam);
+            JSONObject pv2 = root.optJSONObject("param_v2");
+            if (pv2 == null) return;
+            JSONObject island = pv2.optJSONObject("param_island");
+            if (island == null) island = new JSONObject();
+            island.put("highlightColor", highlightColor);
+            pv2.put("param_island", island);
+            root.put("param_v2", pv2);
+            extras.putString("miui.focus.param", root.toString());
+        } catch (Throwable ignore) {
+        }
     }
 
     private static String resolveTemplate(String tpl, CourseSnapshot info, String fallback) {

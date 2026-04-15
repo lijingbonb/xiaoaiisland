@@ -156,7 +156,6 @@ public class SystemUiHook {
         hookIslandExpandedView(classLoader);
         hookSameWidthDigitSuffixStyle(classLoader);
         hookSameWidthDigitContentColor(classLoader);
-        hookIslandTextCustomColor(classLoader);
     }
 
     private void hookFocusDynamicIslandExtrasBridge(ClassLoader classLoader) {

@@ -459,8 +459,7 @@ private class SettingsComposeState {
     var classroom by mutableStateOf("教科A-101")
     val stageStates = mutableStateListOf(StageCustomState(), StageCustomState(), StageCustomState())
     var iconAEnabled by mutableStateOf(true)
-    var statusLeftTextHighlightCustomColorArgb by mutableIntStateOf(0xFFFFFFFF.toInt())
-    var statusRightTextHighlightCustomColorArgb by mutableIntStateOf(0xFFFFFFFF.toInt())
+    var statusTextCustomColorArgb by mutableIntStateOf(0xFFFFFFFF.toInt())
     var outEffectStatusEnabled by mutableStateOf(true)
     var outEffectExpandEnabled by mutableStateOf(true)
     var outEffectStatusCustomColorEnabled by mutableStateOf(false)
@@ -544,16 +543,23 @@ private class SettingsComposeState {
             )
         }
         iconAEnabled = PrefsAccess.readConfigBool(prefs, "icon_a", true)
-        statusLeftTextHighlightCustomColorArgb = PrefsAccess.readConfigInt(
-            prefs,
-            "status_left_text_highlight_custom_color_argb",
-            0xFFFFFFFF.toInt(),
-        )
-        statusRightTextHighlightCustomColorArgb = PrefsAccess.readConfigInt(
-            prefs,
-            "status_right_text_highlight_custom_color_argb",
-            0xFFFFFFFF.toInt(),
-        )
+        statusTextCustomColorArgb = when {
+            prefs.contains("status_text_highlight_custom_color_argb") -> PrefsAccess.readConfigInt(
+                prefs,
+                "status_text_highlight_custom_color_argb",
+                0xFFFFFFFF.toInt(),
+            )
+            prefs.contains("status_left_text_highlight_custom_color_argb") -> PrefsAccess.readConfigInt(
+                prefs,
+                "status_left_text_highlight_custom_color_argb",
+                0xFFFFFFFF.toInt(),
+            )
+            else -> PrefsAccess.readConfigInt(
+                prefs,
+                "status_right_text_highlight_custom_color_argb",
+                0xFFFFFFFF.toInt(),
+            )
+        }
         val legacyOutEffectEnabled = PrefsAccess.readConfigBool(prefs, "out_effect_enabled", true)
         val legacyOutEffectExists = prefs.contains("out_effect_enabled")
         val statusEffectDefault = if (legacyOutEffectExists) legacyOutEffectEnabled else false
@@ -814,8 +820,7 @@ private fun StatusCustomPage(
 ) {
     var editDialog by remember { mutableStateOf<EditDialogSpec?>(null) }
     var showGlowColorDialog by remember { mutableStateOf(false) }
-    var showLeftHighlightColorDialog by remember { mutableStateOf(false) }
-    var showRightHighlightColorDialog by remember { mutableStateOf(false) }
+    var showTextColorDialog by remember { mutableStateOf(false) }
     val stageLabels = remember { listOf("上课前", "上课中", "下课后") }
 
     fun persistStatusConfig() {
@@ -830,14 +835,7 @@ private fun StatusCustomPage(
             editor.putString("tpl_hint_subtitle$suffix", stageItem.hintSubtitle.trim())
         }
         editor.putBoolean("icon_a", state.iconAEnabled)
-        editor.putInt(
-            "status_left_text_highlight_custom_color_argb",
-            state.statusLeftTextHighlightCustomColorArgb,
-        )
-        editor.putInt(
-            "status_right_text_highlight_custom_color_argb",
-            state.statusRightTextHighlightCustomColorArgb,
-        )
+        editor.putInt("status_text_highlight_custom_color_argb", state.statusTextCustomColorArgb)
         editor.putBoolean("out_effect_status_enabled", state.outEffectStatusEnabled)
         editor.putBoolean(
             "out_effect_status_custom_color_enabled",
@@ -950,14 +948,9 @@ private fun StatusCustomPage(
                         },
                     )
                     GlowColorValuePreference(
-                        title = "左侧文本颜色",
-                        argb = state.statusLeftTextHighlightCustomColorArgb,
-                        onClick = { showLeftHighlightColorDialog = true },
-                    )
-                    GlowColorValuePreference(
-                        title = "右侧文本颜色",
-                        argb = state.statusRightTextHighlightCustomColorArgb,
-                        onClick = { showRightHighlightColorDialog = true },
+                        title = "文本颜色",
+                        argb = state.statusTextCustomColorArgb,
+                        onClick = { showTextColorDialog = true },
                     )
                     SwitchPreference(
                         title = "发光效果",
@@ -1004,27 +997,15 @@ private fun StatusCustomPage(
             },
         )
     }
-    if (showLeftHighlightColorDialog) {
+    if (showTextColorDialog) {
         GlowColorPickerDialog(
-            title = "选择左侧文本颜色",
-            initialArgb = state.statusLeftTextHighlightCustomColorArgb,
-            onDismiss = { showLeftHighlightColorDialog = false },
+            title = "选择文本颜色",
+            initialArgb = state.statusTextCustomColorArgb,
+            onDismiss = { showTextColorDialog = false },
             onConfirm = { argb ->
-                state.statusLeftTextHighlightCustomColorArgb = argb
+                state.statusTextCustomColorArgb = argb
                 persistStatusConfig()
-                showLeftHighlightColorDialog = false
-            },
-        )
-    }
-    if (showRightHighlightColorDialog) {
-        GlowColorPickerDialog(
-            title = "选择右侧文本颜色",
-            initialArgb = state.statusRightTextHighlightCustomColorArgb,
-            onDismiss = { showRightHighlightColorDialog = false },
-            onConfirm = { argb ->
-                state.statusRightTextHighlightCustomColorArgb = argb
-                persistStatusConfig()
-                showRightHighlightColorDialog = false
+                showTextColorDialog = false
             },
         )
     }
